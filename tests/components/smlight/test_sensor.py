@@ -2,10 +2,12 @@
 
 from unittest.mock import MagicMock
 
-from pysmlight import Sensors
+from pysmlight import Info, Sensors
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
+from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
+from homeassistant.components.smlight.const import DOMAIN
 from homeassistant.const import STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -73,3 +75,89 @@ async def test_zigbee_uptime_disconnected(
 
     state = hass.states.get("sensor.mock_title_zigbee_uptime")
     assert state.state == STATE_UNKNOWN
+
+
+async def test_zigbee2_temp_sensor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_smlight_client: MagicMock,
+) -> None:
+    """Test for zb_temp2 if device has second radio."""
+    mock_smlight_client.get_sensors.return_value = Sensors(zb_temp2=20.45)
+    await setup_integration(hass, mock_config_entry)
+
+    state = hass.states.get("sensor.mock_title_zigbee_chip_temp_2")
+    assert state
+    assert state.state == "20.45"
+
+
+@pytest.mark.usefixtures("mock_ultima_client")
+async def test_zigbee_type_sensors(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test for zigbee type sensor with multiple radios."""
+    await setup_integration(hass, mock_config_entry)
+
+    state = hass.states.get("sensor.mock_title_zigbee_type")
+    assert state
+    assert state.state == "coordinator"
+
+    state = hass.states.get("sensor.mock_title_zigbee_type_2")
+    assert state
+    assert state.state == "router"
+
+    # Radio 3 is Z-Wave, so no Zigbee-type sensor should be created
+    assert hass.states.get("sensor.mock_title_zigbee_type_3") is None
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_psram_usage_sensor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_smlight_client: MagicMock,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test PSRAM usage sensor creation for u-devices."""
+    mock_smlight_client.get_info.side_effect = None
+    mock_smlight_client.get_info.return_value = Info(
+        MAC="AA:BB:CC:DD:EE:FF",
+        model="SLZB-MR3U",
+        u_device=True,
+    )
+    mock_smlight_client.get_sensors.return_value = Sensors(psram_usage=156)
+
+    await setup_integration(hass, mock_config_entry)
+
+    entity_id = entity_registry.async_get_entity_id(
+        SENSOR_DOMAIN, DOMAIN, "aa:bb:cc:dd:ee:ff_psram_usage"
+    )
+    assert entity_id is not None
+
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.state == "156"
+    assert state.attributes["unit_of_measurement"] == "kB"
+
+
+async def test_psram_usage_sensor_not_created(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_smlight_client: MagicMock,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test PSRAM usage sensor is not created for non-u devices."""
+    mock_smlight_client.get_info.side_effect = None
+    mock_smlight_client.get_info.return_value = Info(
+        MAC="AA:BB:CC:DD:EE:FF",
+        model="SLZB-MR3",
+        u_device=False,
+    )
+    await setup_integration(hass, mock_config_entry)
+
+    assert hass.states.get("sensor.mock_title_psram_usage") is None
+
+    entity_id = entity_registry.async_get_entity_id(
+        SENSOR_DOMAIN, DOMAIN, "aa:bb:cc:dd:ee:ff_psram_usage"
+    )
+    assert entity_id is None

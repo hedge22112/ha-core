@@ -1,10 +1,8 @@
 """DataUpdateCoordinator for the swiss_public_transport integration."""
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
 import logging
-from typing import TypedDict
+from typing import TypedDict, override
 
 from opendata_transport import OpendataTransport
 from opendata_transport.exceptions import (
@@ -15,7 +13,7 @@ from opendata_transport.exceptions import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 from homeassistant.util.json import JsonValueType
 
 from .const import CONNECTIONS_COUNT, DEFAULT_UPDATE_TIME, DOMAIN
@@ -61,6 +59,7 @@ class SwissPublicTransportDataUpdateCoordinator(
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: SwissPublicTransportConfigEntry,
         opendata: OpendataTransport,
         time_offset: dict[str, int] | None,
     ) -> None:
@@ -68,6 +67,7 @@ class SwissPublicTransportDataUpdateCoordinator(
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=timedelta(seconds=DEFAULT_UPDATE_TIME),
         )
@@ -82,6 +82,7 @@ class SwissPublicTransportDataUpdateCoordinator(
             return departure_datetime - dt_util.as_local(dt_util.utcnow())
         return None
 
+    @override
     async def _async_update_data(self) -> list[DataConnection]:
         return await self.fetch_connections(limit=CONNECTIONS_COUNT)
 
@@ -94,13 +95,15 @@ class SwissPublicTransportDataUpdateCoordinator(
         try:
             await self._opendata.async_get_data()
         except OpendataTransportConnectionError as e:
-            _LOGGER.warning("Connection to transport.opendata.ch cannot be established")
-            raise UpdateFailed from e
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="update_connection_failed",
+            ) from e
         except OpendataTransportError as e:
-            _LOGGER.warning(
-                "Unable to connect and retrieve data from transport.opendata.ch"
-            )
-            raise UpdateFailed from e
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="update_failed",
+            ) from e
         connections = self._opendata.connections
         return [
             DataConnection(

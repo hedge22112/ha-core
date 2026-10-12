@@ -1,8 +1,7 @@
 """Holiday Calendar."""
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
+from typing import override
 
 from holidays import PUBLIC, HolidayBase, country_holidays
 
@@ -11,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_COUNTRY
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
@@ -25,17 +24,12 @@ def _get_obj_holidays_and_language(
     selected_categories: list[str] | None,
 ) -> tuple[HolidayBase, str]:
     """Get the object for the requested country and year."""
-    if selected_categories is None:
-        categories = [PUBLIC]
-    else:
-        categories = [PUBLIC, *selected_categories]
-
     obj_holidays = country_holidays(
         country,
         subdiv=province,
         years={dt_util.now().year, dt_util.now().year + 1},
         language=language,
-        categories=categories,
+        categories=selected_categories,
     )
     if language == "en":
         for lang in obj_holidays.supported_languages:
@@ -45,7 +39,7 @@ def _get_obj_holidays_and_language(
                     subdiv=province,
                     years={dt_util.now().year, dt_util.now().year + 1},
                     language=lang,
-                    categories=categories,
+                    categories=selected_categories,
                 )
                 language = lang
                 break
@@ -59,7 +53,7 @@ def _get_obj_holidays_and_language(
             subdiv=province,
             years={dt_util.now().year, dt_util.now().year + 1},
             language=default_language,
-            categories=categories,
+            categories=selected_categories,
         )
         language = default_language
 
@@ -69,13 +63,18 @@ def _get_obj_holidays_and_language(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Holiday Calendar config entry."""
     country: str = config_entry.data[CONF_COUNTRY]
     province: str | None = config_entry.data.get(CONF_PROVINCE)
     categories: list[str] | None = config_entry.options.get(CONF_CATEGORIES)
     language = hass.config.language
+
+    if categories is None:
+        categories = [PUBLIC]
+    else:
+        categories = [PUBLIC, *categories]
 
     obj_holidays, language = await hass.async_add_executor_job(
         _get_obj_holidays_and_language, country, province, language, categories
@@ -149,9 +148,18 @@ class HolidayCalendarEntity(CalendarEntity):
         self._update_state_and_setup_listener()
         self.async_write_ha_state()
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Set up first update."""
         self._update_state_and_setup_listener()
+
+    @override
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel listener when removing."""
+        await super().async_will_remove_from_hass()
+        if self.unsub:
+            self.unsub()
+            self.unsub = None
 
     def update_event(self, now: datetime) -> CalendarEvent | None:
         """Return the next upcoming event."""
@@ -174,10 +182,12 @@ class HolidayCalendarEntity(CalendarEntity):
         )
 
     @property
+    @override
     def event(self) -> CalendarEvent | None:
         """Return the next upcoming event."""
         return self._attr_event
 
+    @override
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:

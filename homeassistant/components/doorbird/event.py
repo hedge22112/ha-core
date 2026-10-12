@@ -1,6 +1,6 @@
 """Support for doorbird events."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from homeassistant.components.event import (
     EventDeviceClass,
@@ -9,7 +9,7 @@ from homeassistant.components.event import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .device import DoorbirdEvent
@@ -35,7 +35,7 @@ EVENT_DESCRIPTIONS = {
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DoorBirdConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the DoorBird event platform."""
     door_bird_data = config_entry.runtime_data
@@ -68,6 +68,7 @@ class DoorBirdEventEntity(DoorBirdEntity, EventEntity):
         friendly_name = slug_name.replace("_", " ")
         self._attr_name = friendly_name[0:1].upper() + friendly_name[1:].lower()
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe to device events."""
         self.async_on_remove(

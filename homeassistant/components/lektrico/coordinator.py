@@ -1,9 +1,7 @@
 """Coordinator for the Lektrico Charging Station integration."""
 
-from __future__ import annotations
-
 from datetime import timedelta
-from typing import Any
+from typing import Any, override
 
 from lektricowifi import Device, DeviceConnectionError
 
@@ -22,18 +20,21 @@ from .const import LOGGER
 
 SCAN_INTERVAL = timedelta(seconds=10)
 
+type LektricoConfigEntry = ConfigEntry[LektricoDeviceDataUpdateCoordinator]
+
 
 class LektricoDeviceDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Data update coordinator for Lektrico device."""
 
-    config_entry: ConfigEntry
+    config_entry: LektricoConfigEntry
 
-    def __init__(self, hass: HomeAssistant, device_name: str) -> None:
+    def __init__(self, hass: HomeAssistant, config_entry: LektricoConfigEntry) -> None:
         """Initialize a Lektrico Device."""
         super().__init__(
             hass,
             LOGGER,
-            name=device_name,
+            config_entry=config_entry,
+            name=f"{config_entry.data[CONF_TYPE]}_{config_entry.data[ATTR_SERIAL_NUMBER]}",
             update_interval=SCAN_INTERVAL,
         )
         self.device = Device(
@@ -44,6 +45,7 @@ class LektricoDeviceDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]])
         self.board_revision: str = self.config_entry.data[ATTR_HW_VERSION]
         self.device_type: str = self.config_entry.data[CONF_TYPE]
 
+    @override
     async def _async_update_data(self) -> dict[str, Any]:
         """Async Update device state."""
         try:

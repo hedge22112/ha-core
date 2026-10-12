@@ -1,7 +1,5 @@
 """Test the helper method for writing tests."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import (
     AsyncGenerator,
@@ -25,13 +23,16 @@ import os
 import pathlib
 import time
 from types import FrameType, ModuleType
-from typing import Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 from unittest.mock import AsyncMock, Mock, patch
 
-from aiohttp.test_utils import unused_port as get_test_instance_port  # noqa: F401
+from aiohttp.test_utils import unused_port as get_test_instance_port
+from annotatedyaml import load_yaml_dict, loader as yaml_loader
+import attr
+from paho.mqtt.client import MQTTMessage
+import probatio
 import pytest
-from syrupy import SnapshotAssertion
-import voluptuous as vol
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant import auth, bootstrap, config_entries, loader
 from homeassistant.auth import (
@@ -42,8 +43,13 @@ from homeassistant.auth import (
 )
 from homeassistant.auth.permissions import system_policies
 from homeassistant.components import device_automation, persistent_notification as pn
-from homeassistant.components.device_automation import (  # noqa: F401
+from homeassistant.components.device_automation import (
     _async_get_device_automation_capabilities as async_get_device_automation_capabilities,
+)
+from homeassistant.components.logger import (
+    DOMAIN as LOGGER_DOMAIN,
+    SERVICE_SET_LEVEL,
+    _clear_logger_overwrites,
 )
 from homeassistant.config import IntegrationConfigInfo, async_process_component_config
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
@@ -68,6 +74,7 @@ from homeassistant.core import (
 from homeassistant.helpers import (
     area_registry as ar,
     category_registry as cr,
+    condition,
     device_registry as dr,
     entity,
     entity_platform,
@@ -80,21 +87,26 @@ from homeassistant.helpers import (
     restore_state as rs,
     storage,
     translation,
+    trigger,
 )
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
 from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.json import JSONEncoder, _orjson_default_encoder, json_dumps
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util, ulid as ulid_util, uuid as uuid_util
 from homeassistant.util.async_ import (
     _SHUTDOWN_RUN_CALLBACK_THREADSAFE,
     get_scheduled_timer_handles,
     run_callback_threadsafe,
 )
-import homeassistant.util.dt as dt_util
 from homeassistant.util.event_type import EventType
 from homeassistant.util.json import (
     JsonArrayType,
@@ -105,13 +117,19 @@ from homeassistant.util.json import (
     json_loads_object,
 )
 from homeassistant.util.signal_type import SignalType
-import homeassistant.util.ulid as ulid_util
 from homeassistant.util.unit_system import METRIC_SYSTEM
-from homeassistant.util.yaml import load_yaml_dict, loader as yaml_loader
 
 from .testing_config.custom_components.test_constant_deprecation import (
     import_deprecated_constant,
 )
+
+if TYPE_CHECKING:
+    import paho.mqtt.client as mqtt
+
+__all__ = [
+    "async_get_device_automation_capabilities",
+    "get_test_instance_port",
+]
 
 _LOGGER = logging.getLogger(__name__)
 INSTANCES = []
@@ -274,6 +292,7 @@ async def async_test_home_assistant(
             )
         },
     )
+    hass.config_entries._initialized.set()
     hass.bus.async_listen_once(
         EVENT_HOMEASSISTANT_STOP,
         hass.config_entries._async_shutdown,
@@ -282,12 +301,16 @@ async def async_test_home_assistant(
     # Load the registries
     entity.async_setup(hass)
     loader.async_setup(hass)
+    await condition.async_setup(hass)
+    await trigger.async_setup(hass)
 
     # setup translation cache instead of calling translation.async_setup(hass)
     hass.data[translation.TRANSLATION_FLATTEN_CACHE] = translation._TranslationCache(
         hass
     )
     if load_registries:
+        dr.async_setup(hass)
+
         with (
             patch.object(StoreWithoutWriteLoad, "async_load", return_value=None),
             patch(
@@ -303,7 +326,8 @@ async def async_test_home_assistant(
                 StoreWithoutWriteLoad,
             ),
             patch(
-                "homeassistant.helpers.storage.Store",  # Floor & label registry are different
+                # Floor & label registry are different
+                "homeassistant.helpers.storage.Store",
                 StoreWithoutWriteLoad,
             ),
             patch(
@@ -352,7 +376,7 @@ def async_mock_service(
     hass: HomeAssistant,
     domain: str,
     service: str,
-    schema: vol.Schema | None = None,
+    schema: probatio.Schema | None = None,
     response: ServiceResponse = None,
     supports_response: SupportsResponse | None = None,
     raise_exception: Exception | None = None,
@@ -408,6 +432,25 @@ def async_mock_intent(hass: HomeAssistant, intent_typ: str) -> list[intent.Inten
     return intents
 
 
+class MockMqttReasonCode:
+    """Class to fake a MQTT ReasonCode."""
+
+    value: int
+    is_failure: bool
+
+    def __init__(
+        self, value: int = 0, is_failure: bool = False, name: str = "Success"
+    ) -> None:
+        """Initialize the mock reason code."""
+        self.value = value
+        self.is_failure = is_failure
+        self._name = name
+
+    def getName(self) -> str:
+        """Return the name of the reason code."""
+        return self._name
+
+
 @callback
 def async_fire_mqtt_message(
     hass: HomeAssistant,
@@ -415,16 +458,10 @@ def async_fire_mqtt_message(
     payload: bytes | str,
     qos: int = 0,
     retain: bool = False,
+    properties: mqtt.Properties | None = None,
 ) -> None:
     """Fire the MQTT message."""
-    # Local import to avoid processing MQTT modules when running a testcase
-    # which does not use MQTT.
-
-    # pylint: disable-next=import-outside-toplevel
-    from paho.mqtt.client import MQTTMessage
-
-    # pylint: disable-next=import-outside-toplevel
-    from homeassistant.components.mqtt import MqttData
+    from homeassistant.components.mqtt import MqttData  # noqa: PLC0415
 
     if isinstance(payload, str):
         payload = payload.encode("utf-8")
@@ -434,6 +471,7 @@ def async_fire_mqtt_message(
     msg.qos = qos
     msg.retain = retain
     msg.timestamp = time.monotonic()
+    msg.properties = properties
 
     mqtt_data: MqttData = hass.data["mqtt"]
     assert mqtt_data.client
@@ -455,7 +493,7 @@ def async_fire_time_changed_exact(
     approach, as this is only for testing.
     """
     if datetime_ is None:
-        utc_datetime = datetime.now(UTC)
+        utc_datetime = datetime.now(UTC)  # pylint: disable=home-assistant-enforce-utcnow
     else:
         utc_datetime = dt_util.as_utc(datetime_)
 
@@ -478,7 +516,7 @@ def async_fire_time_changed(
     for an exact microsecond, use async_fire_time_changed_exact.
     """
     if datetime_ is None:
-        utc_datetime = datetime.now(UTC)
+        utc_datetime = datetime.now(UTC)  # pylint: disable=home-assistant-enforce-utcnow
     else:
         utc_datetime = dt_util.as_utc(datetime_)
 
@@ -526,7 +564,11 @@ fire_time_changed = threadsafe_callback_factory(async_fire_time_changed)
 
 def get_fixture_path(filename: str, integration: str | None = None) -> pathlib.Path:
     """Get path of fixture."""
-    if integration is None and "/" in filename and not filename.startswith("helpers/"):
+    if (
+        integration is None
+        and "/" in filename
+        and not filename.startswith(("core/", "helpers/"))
+    ):
         integration, filename = filename.split("/", 1)
 
     if integration is None:
@@ -538,9 +580,22 @@ def get_fixture_path(filename: str, integration: str | None = None) -> pathlib.P
 
 
 @lru_cache
+def load_fixture_bytes(filename: str, integration: str | None = None) -> bytes:
+    """Load a fixture."""
+    return get_fixture_path(filename, integration).read_bytes()
+
+
+@lru_cache
 def load_fixture(filename: str, integration: str | None = None) -> str:
     """Load a fixture."""
     return get_fixture_path(filename, integration).read_text(encoding="utf8")
+
+
+async def async_load_fixture(
+    hass: HomeAssistant, filename: str, integration: str | None = None
+) -> str:
+    """Load a fixture."""
+    return await hass.async_add_executor_job(load_fixture, filename, integration)
 
 
 def load_json_value_fixture(
@@ -557,11 +612,25 @@ def load_json_array_fixture(
     return json_loads_array(load_fixture(filename, integration))
 
 
+async def async_load_json_array_fixture(
+    hass: HomeAssistant, filename: str, integration: str | None = None
+) -> JsonArrayType:
+    """Load a JSON object from a fixture."""
+    return json_loads_array(await async_load_fixture(hass, filename, integration))
+
+
 def load_json_object_fixture(
     filename: str, integration: str | None = None
 ) -> JsonObjectType:
     """Load a JSON object from a fixture."""
     return json_loads_object(load_fixture(filename, integration))
+
+
+async def async_load_json_object_fixture(
+    hass: HomeAssistant, filename: str, integration: str | None = None
+) -> JsonObjectType:
+    """Load a JSON object from a fixture."""
+    return json_loads_object(await async_load_fixture(hass, filename, integration))
 
 
 def json_round_trip(obj: Any) -> Any:
@@ -609,7 +678,8 @@ def mock_registry(
     if mock_entries is None:
         mock_entries = {}
     registry.deleted_entities = {}
-    registry.entities = er.EntityRegistryItems()
+    registry.entities = er.EntityRegistryItems(hass)
+    registry.settings = er.EntityRegistrySettings()
     registry._entities_data = registry.entities.data
     for key, entry in mock_entries.items():
         registry.entities[key] = entry
@@ -617,6 +687,36 @@ def mock_registry(
     hass.data[er.DATA_REGISTRY] = registry
     er.async_get.cache_clear()
     return registry
+
+
+@attr.s(frozen=True, kw_only=True, slots=True)
+class RegistryEntryWithDefaults(er.RegistryEntry):
+    """Helper to create a registry entry with defaults."""
+
+    capabilities: Mapping[str, Any] | None = attr.ib(default=None)
+    config_entry_id: str | None = attr.ib(default=None)
+    config_subentry_id: str | None = attr.ib(default=None)
+    created_at: datetime = attr.ib(factory=dt_util.utcnow)
+    device_id: str | None = attr.ib(default=None)
+    disabled_by: er.RegistryEntryDisabler | None = attr.ib(default=None)
+    entity_category: er.EntityCategory | None = attr.ib(default=None)
+    hidden_by: er.RegistryEntryHider | None = attr.ib(default=None)
+    id: str = attr.ib(
+        default=None,
+        converter=attr.converters.default_if_none(factory=uuid_util.random_uuid_hex),  # type: ignore[misc]
+    )
+    has_entity_name: bool = attr.ib(default=False)
+    object_id_base: str | None = attr.ib(default=None)
+    options: er.ReadOnlyEntityOptionsType = attr.ib(
+        default=None, converter=er._protect_entity_options
+    )
+    original_device_class: str | None = attr.ib(default=None)
+    original_icon: str | None = attr.ib(default=None)
+    original_name: str | None = attr.ib(default=None)
+    suggested_object_id: str | None = attr.ib(default=None)
+    supported_features: int = attr.ib(default=0)
+    translation_key: str | None = attr.ib(default=None)
+    unit_of_measurement: str | None = attr.ib(default=None)
 
 
 def mock_area_registry(
@@ -646,6 +746,7 @@ def mock_area_registry(
 def mock_device_registry(
     hass: HomeAssistant,
     mock_entries: dict[str, dr.DeviceEntry] | None = None,
+    mock_child_entries: dict[str, dr.ChildDeviceEntry] | None = None,
 ) -> dr.DeviceRegistry:
     """Mock the Device Registry.
 
@@ -659,16 +760,23 @@ def mock_device_registry(
     fixture instead.
     """
     registry = dr.DeviceRegistry(hass)
-    registry.devices = dr.ActiveDeviceRegistryItems()
-    registry._device_data = registry.devices.data
+    registry._devices = dr.ActiveDeviceRegistryItems()
+    registry.devices = registry._devices.values()
+    registry._device_data = registry._devices.data
+    registry._child_devices = dr.ChildDeviceRegistryItems()
+    registry.child_devices = registry._child_devices.values()
+    registry._child_device_data = registry._child_devices.data
     if mock_entries is None:
         mock_entries = {}
     for key, entry in mock_entries.items():
-        registry.devices[key] = entry
-    registry.deleted_devices = dr.DeviceRegistryItems()
+        registry._devices[key] = entry
+    if mock_child_entries is None:
+        mock_child_entries = {}
+    for key, child_entry in mock_child_entries.items():
+        registry._child_devices[key] = child_entry
+    registry._deleted_devices = dr.DeletedDeviceRegistryItems()
 
     hass.data[dr.DATA_REGISTRY] = registry
-    dr.async_get.cache_clear()
     return registry
 
 
@@ -770,21 +878,21 @@ class MockModule:
         dependencies: list[str] | None = None,
         setup: Callable[[HomeAssistant, ConfigType], bool] | None = None,
         requirements: list[str] | None = None,
-        config_schema: vol.Schema | None = None,
-        platform_schema: vol.Schema | None = None,
-        platform_schema_base: vol.Schema | None = None,
+        config_schema: probatio.Schema | None = None,
+        platform_schema: probatio.Schema | None = None,
+        platform_schema_base: probatio.Schema | None = None,
         async_setup: Callable[[HomeAssistant, ConfigType], Coroutine[Any, Any, bool]]
         | None = None,
         async_setup_entry: Callable[
-            [HomeAssistant, ConfigEntry], Coroutine[Any, Any, bool]
+            [HomeAssistant, ConfigEntry], Coroutine[Any, Any, bool | None]
         ]
         | None = None,
         async_unload_entry: Callable[
-            [HomeAssistant, ConfigEntry], Coroutine[Any, Any, bool]
+            [HomeAssistant, ConfigEntry], Coroutine[Any, Any, bool | None]
         ]
         | None = None,
         async_migrate_entry: Callable[
-            [HomeAssistant, ConfigEntry], Coroutine[Any, Any, bool]
+            [HomeAssistant, ConfigEntry], Coroutine[Any, Any, bool | None]
         ]
         | None = None,
         async_remove_entry: Callable[
@@ -844,6 +952,7 @@ class MockModule:
     def mock_manifest(self):
         """Generate a mock manifest to represent this module."""
         return {
+            "integration_type": "hub",
             **loader.manifest_from_legacy_module(self.DOMAIN, self),
             **(self._partial_manifest or {}),
         }
@@ -864,7 +973,7 @@ class MockPlatform:
         ]
         | None = None,
         dependencies: list[str] | None = None,
-        platform_schema: vol.Schema | None = None,
+        platform_schema: probatio.Schema | None = None,
         async_setup_platform: Callable[
             [HomeAssistant, ConfigType, AddEntitiesCallback, DiscoveryInfoType | None],
             Coroutine[Any, Any, None],
@@ -993,6 +1102,7 @@ class MockConfigEntry(config_entries.ConfigEntry):
     def __init__(
         self,
         *,
+        created_at=None,
         data=None,
         disabled_by=None,
         discovery_keys=None,
@@ -1005,6 +1115,7 @@ class MockConfigEntry(config_entries.ConfigEntry):
         reason=None,
         source=config_entries.SOURCE_USER,
         state=None,
+        subentries_data=None,
         title="Mock Title",
         unique_id=None,
         version=1,
@@ -1012,6 +1123,7 @@ class MockConfigEntry(config_entries.ConfigEntry):
         """Initialize a mock config entry."""
         discovery_keys = discovery_keys or {}
         kwargs = {
+            "created_at": created_at,
             "data": data or {},
             "disabled_by": disabled_by,
             "discovery_keys": discovery_keys,
@@ -1021,6 +1133,7 @@ class MockConfigEntry(config_entries.ConfigEntry):
             "options": options or {},
             "pref_disable_new_entities": pref_disable_new_entities,
             "pref_disable_polling": pref_disable_polling,
+            "subentries_data": subentries_data or (),
             "title": title,
             "unique_id": unique_id,
             "version": version,
@@ -1076,8 +1189,6 @@ class MockConfigEntry(config_entries.ConfigEntry):
     async def start_reconfigure_flow(
         self,
         hass: HomeAssistant,
-        *,
-        show_advanced_options: bool = False,
     ) -> ConfigFlowResult:
         """Start a reconfiguration flow."""
         if self.entry_id not in hass.config_entries._entries:
@@ -1089,7 +1200,26 @@ class MockConfigEntry(config_entries.ConfigEntry):
             context={
                 "source": config_entries.SOURCE_RECONFIGURE,
                 "entry_id": self.entry_id,
-                "show_advanced_options": show_advanced_options,
+            },
+        )
+
+    async def start_subentry_reconfigure_flow(
+        self,
+        hass: HomeAssistant,
+        subentry_id: str,
+    ) -> ConfigFlowResult:
+        """Start a subentry reconfiguration flow."""
+        if self.entry_id not in hass.config_entries._entries:
+            raise ValueError(
+                "Config entry must be added to hass to start reconfiguration flow"
+            )
+        # Derive subentry_flow_type from the subentry_id
+        subentry_flow_type = self.subentries[subentry_id].subentry_type
+        return await hass.config_entries.subentries.async_init(
+            (self.entry_id, subentry_flow_type),
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "subentry_id": subentry_id,
             },
         )
 
@@ -1131,7 +1261,7 @@ def patch_yaml_files(files_dict, endswith=True):
         if fname in files_dict:
             _LOGGER.debug("patch_yaml_files match %s", fname)
             res = StringIO(files_dict[fname])
-            setattr(res, "name", fname)
+            res.name = fname
             return res
 
         # Match using endswith
@@ -1139,7 +1269,7 @@ def patch_yaml_files(files_dict, endswith=True):
             if fname.endswith(ends):
                 _LOGGER.debug("patch_yaml_files end match %s: %s", ends, fname)
                 res = StringIO(files_dict[ends])
-                setattr(res, "name", fname)
+                res.name = fname
                 return res
 
         # Fallback for hass.components (i.e. services.yaml)
@@ -1206,41 +1336,14 @@ def assert_setup_component(count, domain=None):
     )
 
 
-def mock_restore_cache(hass: HomeAssistant, states: Sequence[State]) -> None:
-    """Mock the DATA_RESTORE_CACHE."""
-    key = rs.DATA_RESTORE_STATE
-    data = rs.RestoreStateData(hass)
-    now = dt_util.utcnow()
-
-    last_states = {}
-    for state in states:
-        restored_state = state.as_dict()
-        restored_state = {
-            **restored_state,
-            "attributes": json.loads(
-                json.dumps(restored_state["attributes"], cls=JSONEncoder)
-            ),
-        }
-        last_states[state.entity_id] = rs.StoredState.from_dict(
-            {"state": restored_state, "last_seen": now}
-        )
-    data.last_states = last_states
-    _LOGGER.debug("Restore cache: %s", data.last_states)
-    assert len(data.last_states) == len(states), f"Duplicate entity_id? {states}"
-
-    rs.async_get.cache_clear()
-    hass.data[key] = data
-
-
-def mock_restore_cache_with_extra_data(
-    hass: HomeAssistant, states: Sequence[tuple[State, Mapping[str, Any]]]
+def _mock_restore_cache(
+    hass: HomeAssistant, states: Sequence[tuple[State, Mapping[str, Any] | None]]
 ) -> None:
     """Mock the DATA_RESTORE_CACHE."""
-    key = rs.DATA_RESTORE_STATE
-    data = rs.RestoreStateData(hass)
+    data = rs.async_get(hass)
     now = dt_util.utcnow()
 
-    last_states = {}
+    stored_states = []
     for state, extra_data in states:
         restored_state = state.as_dict()
         restored_state = {
@@ -1249,15 +1352,30 @@ def mock_restore_cache_with_extra_data(
                 json.dumps(restored_state["attributes"], cls=JSONEncoder)
             ),
         }
-        last_states[state.entity_id] = rs.StoredState.from_dict(
+        stored_states.append(
             {"state": restored_state, "extra_data": extra_data, "last_seen": now}
         )
-    data.last_states = last_states
-    _LOGGER.debug("Restore cache: %s", data.last_states)
-    assert len(data.last_states) == len(states), f"Duplicate entity_id? {states}"
+    data._async_load_stored_states(stored_states)
+    _LOGGER.debug(
+        "Restore cache: %s and %s",
+        data.last_states_by_entity_id,
+        data.last_states_by_entity_registry_id,
+    )
+    assert len(data.last_states_by_entity_id) + len(
+        data.last_states_by_entity_registry_id
+    ) == len(states), f"Duplicate entity_id? {states}"
 
-    rs.async_get.cache_clear()
-    hass.data[key] = data
+
+def mock_restore_cache(hass: HomeAssistant, states: Sequence[State]) -> None:
+    """Mock the DATA_RESTORE_CACHE."""
+    _mock_restore_cache(hass, [(state, None) for state in states])
+
+
+def mock_restore_cache_with_extra_data(
+    hass: HomeAssistant, states: Sequence[tuple[State, Mapping[str, Any]]]
+) -> None:
+    """Mock the DATA_RESTORE_CACHE."""
+    _mock_restore_cache(hass, states)
 
 
 async def async_mock_restore_state_shutdown_restart(
@@ -1327,12 +1445,12 @@ class MockEntity(entity.Entity):
 
     @property
     def entity_registry_enabled_default(self) -> bool:
-        """Return if the entity should be enabled when first added to the entity registry."""
+        """Return if the entity should be enabled in the registry when first added."""
         return self._handle("entity_registry_enabled_default")
 
     @property
     def entity_registry_visible_default(self) -> bool:
-        """Return if the entity should be visible when first added to the entity registry."""
+        """Return if the entity should be visible in the registry when first added."""
         return self._handle("entity_registry_visible_default")
 
     @property
@@ -1415,7 +1533,7 @@ def mock_storage(data: dict[str, Any] | None = None) -> Generator[dict[str, Any]
         return loaded
 
     async def mock_write_data(
-        store: storage.Store, path: str, data_to_write: dict[str, Any]
+        store: storage.Store, data_to_write: dict[str, Any]
     ) -> None:
         """Mock version of write data."""
         # To ensure that the data can be serialized
@@ -1470,7 +1588,16 @@ async def flush_store(store: storage.Store) -> None:
 
 async def get_system_health_info(hass: HomeAssistant, domain: str) -> dict[str, Any]:
     """Get system health info."""
-    return await hass.data["system_health"][domain].info_callback(hass)
+    from homeassistant.components.system_health import (  # noqa: PLC0415
+        DATA_SYSTEM_HEALTH_PLATFORMS,
+        DOMAIN as SYSTEM_HEALTH_DOMAIN,
+    )
+
+    platform_registrations = await hass.data[
+        DATA_SYSTEM_HEALTH_PLATFORMS
+    ].async_get_platforms()
+    registrations = {**hass.data[SYSTEM_HEALTH_DOMAIN], **platform_registrations}
+    return await registrations[domain].info_callback(hass)
 
 
 @contextmanager
@@ -1492,19 +1619,24 @@ def mock_integration(
     top_level_files: set[str] | None = None,
 ) -> loader.Integration:
     """Mock an integration."""
-    integration = loader.Integration(
-        hass,
+    path = (
         f"{loader.PACKAGE_BUILTIN}.{module.DOMAIN}"
         if built_in
-        else f"{loader.PACKAGE_CUSTOM_COMPONENTS}.{module.DOMAIN}",
-        pathlib.Path(""),
+        else f"{loader.PACKAGE_CUSTOM_COMPONENTS}.{module.DOMAIN}"
+    )
+
+    integration = loader.Integration(
+        hass,
+        path,
+        pathlib.Path(path.replace(".", "/")),
         module.mock_manifest(),
         top_level_files,
     )
 
     def mock_import_platform(platform_name: str) -> NoReturn:
         raise ImportError(
-            f"Mocked unable to import platform '{integration.pkg_path}.{platform_name}'",
+            "Mocked unable to import platform"
+            f" '{integration.pkg_path}.{platform_name}'",
             name=f"{integration.pkg_path}.{platform_name}",
         )
 
@@ -1630,8 +1762,7 @@ def async_get_persistent_notifications(
 
 def async_mock_cloud_connection_status(hass: HomeAssistant, connected: bool) -> None:
     """Mock a signal the cloud disconnected."""
-    # pylint: disable-next=import-outside-toplevel
-    from homeassistant.components.cloud import (
+    from homeassistant.components.cloud import (  # noqa: PLC0415
         SIGNAL_CLOUD_CONNECTION_STATE,
         CloudConnectionState,
     )
@@ -1641,6 +1772,28 @@ def async_mock_cloud_connection_status(hass: HomeAssistant, connected: bool) -> 
     else:
         state = CloudConnectionState.CLOUD_DISCONNECTED
     async_dispatcher_send(hass, SIGNAL_CLOUD_CONNECTION_STATE, state)
+
+
+@asynccontextmanager
+async def async_call_logger_set_level(
+    logger: str,
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "FATAL", "CRITICAL"],
+    *,
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> AsyncGenerator[None]:
+    """Context manager to reset loggers after logger.set_level call."""
+    assert LOGGER_DOMAIN in hass.data, "'logger' integration not setup"
+    with caplog.at_level(logging.NOTSET, logger):
+        await hass.services.async_call(
+            LOGGER_DOMAIN,
+            SERVICE_SET_LEVEL,
+            {logger: level},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+        yield
+        _clear_logger_overwrites(hass)
 
 
 def import_and_test_deprecated_constant_enum(
@@ -1690,9 +1843,9 @@ def import_and_test_deprecated_constant(
         module.__name__,
         logging.WARNING,
         (
-            f"{constant_name} was used from test_constant_deprecation,"
-            f" this is a deprecated constant which will be removed in HA Core {breaks_in_ha_version}. "
-            f"Use {replacement_name} instead, please report "
+            f"The deprecated constant {constant_name} was used from "
+            "test_constant_deprecation. It will be removed in HA Core "
+            f"{breaks_in_ha_version}. Use {replacement_name} instead, please report "
             "it to the author of the 'test_constant_deprecation' custom integration"
         ),
     ) in caplog.record_tuples
@@ -1708,6 +1861,8 @@ def import_and_test_deprecated_alias(
     alias_name: str,
     replacement: Any,
     breaks_in_ha_version: str,
+    *,
+    replacement_name: str | None = None,
 ) -> None:
     """Import and test deprecated alias replaced by a value.
 
@@ -1717,16 +1872,18 @@ def import_and_test_deprecated_alias(
     - Assert the deprecated alias is included in the modules.__dir__()
     - Assert the deprecated alias is included in the modules.__all__()
     """
-    replacement_name = f"{replacement.__module__}.{replacement.__name__}"
+    replacement_name = (
+        replacement_name or f"{replacement.__module__}.{replacement.__name__}"
+    )
     value = import_deprecated_constant(module, alias_name)
     assert value == replacement
     assert (
         module.__name__,
         logging.WARNING,
         (
-            f"{alias_name} was used from test_constant_deprecation,"
-            f" this is a deprecated alias which will be removed in HA Core {breaks_in_ha_version}. "
-            f"Use {replacement_name} instead, please report "
+            f"The deprecated alias {alias_name} was used from "
+            "test_constant_deprecation. It will be removed in HA Core "
+            f"{breaks_in_ha_version}. Use {replacement_name} instead, please report "
             "it to the author of the 'test_constant_deprecation' custom integration"
         ),
     ) in caplog.record_tuples
@@ -1790,7 +1947,7 @@ def setup_test_component_platform(
         async def _async_setup_entry(
             hass: HomeAssistant,
             entry: ConfigEntry,
-            async_add_entities: AddEntitiesCallback,
+            async_add_entities: AddConfigEntryEntitiesCallback,
         ) -> None:
             """Set up a test component platform."""
             async_add_entities(entities)
@@ -1822,23 +1979,6 @@ async def snapshot_platform(
         assert state == snapshot(name=f"{entity_entry.entity_id}-state")
 
 
-def reset_translation_cache(hass: HomeAssistant, components: list[str]) -> None:
-    """Reset translation cache for specified components.
-
-    Use this if you are mocking a core component (for example via
-    mock_integration), to ensure that the mocked translations are not
-    persisted in the shared session cache.
-    """
-    translations_cache = translation._async_get_translations_cache(hass)
-    for loaded_components in translations_cache.cache_data.loaded.values():
-        for component_to_unload in components:
-            loaded_components.discard(component_to_unload)
-    for loaded_categories in translations_cache.cache_data.cache.values():
-        for loaded_components in loaded_categories.values():
-            for component_to_unload in components:
-                loaded_components.pop(component_to_unload, None)
-
-
 @lru_cache
 def get_quality_scale(integration: str) -> dict[str, QualityScaleStatus]:
     """Load quality scale for integration."""
@@ -1855,4 +1995,86 @@ def get_quality_scale(integration: str) -> dict[str, QualityScaleStatus]:
             else QualityScaleStatus(details["status"])
         )
         for rule, details in raw["rules"].items()
+    }
+
+
+def get_schema_suggested_value(schema: probatio.Schema, key: str) -> Any | None:
+    """Get suggested value for key in probatio schema."""
+    for schema_key in schema:
+        if schema_key == key:
+            if (
+                schema_key.description is None
+                or "suggested_value" not in schema_key.description
+            ):
+                return None
+            return schema_key.description["suggested_value"]
+    return None
+
+
+def get_sensor_display_state(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, entity_id: str
+) -> str:
+    """Return the state rounded for presentation."""
+    state = hass.states.get(entity_id)
+    assert state
+    value = state.state
+
+    entity_entry = entity_registry.async_get(entity_id)
+    if entity_entry is None:
+        return value
+
+    if (
+        precision := entity_entry.options.get("sensor", {}).get(
+            "suggested_display_precision"
+        )
+    ) is None:
+        return value
+
+    with suppress(TypeError, ValueError):
+        numerical_value = float(value)
+        value = f"{numerical_value:z.{precision}f}"
+    return value
+
+
+async def assert_platform_setup_creates_issue(
+    hass: HomeAssistant,
+    platform_domain: str,
+    integration_domain: str,
+    issue_registry: ir.IssueRegistry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Assert that setting up a platform creates an issue."""
+    caplog.clear()
+    with assert_setup_component(1, platform_domain):
+        assert await async_setup_component(
+            hass,
+            platform_domain,
+            {platform_domain: {"platform": integration_domain}},
+        )
+    await hass.async_block_till_done()
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    assert len(hass.states.async_all(platform_domain)) == 0
+    assert (
+        f"Configuring the {integration_domain} integration under the {platform_domain} platform key is not"
+        f" supported, it must be configured under its own {integration_domain} key instead"
+        in caplog.text
+    )
+
+    issue = issue_registry.async_get_issue(
+        "homeassistant",
+        f"platform_integration_no_support_{platform_domain}_{integration_domain}",
+    )
+
+    assert issue
+    assert issue.issue_domain == integration_domain
+    assert issue.learn_more_url is not None
+    assert issue.translation_key == "platform_config_not_supported"
+    assert issue.severity == ir.IssueSeverity.ERROR
+    assert issue.translation_placeholders == {
+        "platform_domain": platform_domain,
+        "integration_domain": integration_domain,
+        "platform_key": f"platform: {integration_domain}",
+        "yaml_example": f"```yaml\n{platform_domain}:\n  - platform: {integration_domain}\n```",
     }

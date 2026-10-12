@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_all_entities[button.cookidoo_clear_shopping_list_and_additional_purchases-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Clear shopping list and additional purchases',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'Clear shopping list and additional purchases',
     'platform': 'cookidoo',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'todo_clear',
     'unique_id': 'sub_uuid_todo_clear',
@@ -35,7 +39,7 @@
 # name: test_all_entities[button.cookidoo_clear_shopping_list_and_additional_purchases-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Cookidoo Clear shopping list and additional purchases',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Cookidoo Clear shopping list and additional purchases',
     }),
     'context': <ANY>,
     'entity_id': 'button.cookidoo_clear_shopping_list_and_additional_purchases',

@@ -2,20 +2,43 @@
 
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
-from .config import ScheduleState
+from .config import Day, ScheduleRecurrence
 from .const import DATA_MANAGER, LOGGER
 from .manager import (
     DecryptOnDowloadNotSupported,
     IncorrectPasswordError,
     ManagerStateEvent,
 )
-from .models import Folder
+from .models import BackupNotFound, Folder
+
+
+def _agent_error_translations(
+    agent_errors: dict[str, Exception],
+) -> dict[str, dict[str, Any]]:
+    """Return the translation of each agent error which has one."""
+    return {
+        agent_id: {
+            "translation_domain": err.translation_domain,
+            "translation_key": err.translation_key,
+            # Agents from custom integrations may pass non-string placeholders
+            "translation_placeholders": (
+                {key: str(value) for key, value in placeholders.items()}
+                if (placeholders := err.translation_placeholders)
+                else None
+            ),
+        }
+        for agent_id, err in agent_errors.items()
+        if isinstance(err, HomeAssistantError)
+        and err.translation_domain
+        and err.translation_key
+    }
 
 
 @callback
@@ -41,7 +64,7 @@ def async_register_websocket_handlers(hass: HomeAssistant, with_hassio: bool) ->
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "backup/info"})
+@websocket_api.websocket_command({probatio.Required("type"): "backup/info"})
 @websocket_api.async_response
 async def handle_info(
     hass: HomeAssistant,
@@ -57,10 +80,22 @@ async def handle_info(
             "agent_errors": {
                 agent_id: str(err) for agent_id, err in agent_errors.items()
             },
-            "backups": [backup.as_frontend_json() for backup in backups.values()],
-            "last_attempted_automatic_backup": manager.config.data.last_attempted_automatic_backup,
-            "last_completed_automatic_backup": manager.config.data.last_completed_automatic_backup,
-            "next_automatic_backup": manager.config.data.schedule.next_automatic_backup,
+            "agent_error_translations": _agent_error_translations(agent_errors),
+            "backups": list(backups.values()),
+            "last_attempted_automatic_backup": (
+                manager.config.data.last_attempted_automatic_backup
+            ),
+            "last_completed_automatic_backup": (
+                manager.config.data.last_completed_automatic_backup
+            ),
+            "last_action_event": manager.last_action_event,
+            "next_automatic_backup": (
+                manager.config.data.schedule.next_automatic_backup
+            ),
+            "next_automatic_backup_additional": (
+                manager.config.data.schedule.next_automatic_backup_additional
+            ),
+            "state": manager.state,
         },
     )
 
@@ -68,8 +103,8 @@ async def handle_info(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/details",
-        vol.Required("backup_id"): str,
+        probatio.Required("type"): "backup/details",
+        probatio.Required("backup_id"): str,
     }
 )
 @websocket_api.async_response
@@ -88,7 +123,8 @@ async def handle_details(
             "agent_errors": {
                 agent_id: str(err) for agent_id, err in agent_errors.items()
             },
-            "backup": backup.as_frontend_json() if backup else None,
+            "agent_error_translations": _agent_error_translations(agent_errors),
+            "backup": backup,
         },
     )
 
@@ -96,8 +132,8 @@ async def handle_details(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/delete",
-        vol.Required("backup_id"): str,
+        probatio.Required("type"): "backup/delete",
+        probatio.Required("backup_id"): str,
     }
 )
 @websocket_api.async_response
@@ -113,7 +149,8 @@ async def handle_delete(
         {
             "agent_errors": {
                 agent_id: str(err) for agent_id, err in agent_errors.items()
-            }
+            },
+            "agent_error_translations": _agent_error_translations(agent_errors),
         },
     )
 
@@ -121,14 +158,14 @@ async def handle_delete(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/restore",
-        vol.Required("backup_id"): str,
-        vol.Required("agent_id"): str,
-        vol.Optional("password"): str,
-        vol.Optional("restore_addons"): [str],
-        vol.Optional("restore_database", default=True): bool,
-        vol.Optional("restore_folders"): [vol.Coerce(Folder)],
-        vol.Optional("restore_homeassistant", default=True): bool,
+        probatio.Required("type"): "backup/restore",
+        probatio.Required("backup_id"): str,
+        probatio.Required("agent_id"): str,
+        probatio.Optional("password"): str,
+        probatio.Optional("restore_addons"): [str],
+        probatio.Optional("restore_database", default=True): bool,
+        probatio.Optional("restore_folders"): [probatio.Coerce(Folder)],
+        probatio.Optional("restore_homeassistant", default=True): bool,
     }
 )
 @websocket_api.async_response
@@ -148,6 +185,8 @@ async def handle_restore(
             restore_folders=msg.get("restore_folders"),
             restore_homeassistant=msg["restore_homeassistant"],
         )
+    except BackupNotFound:
+        connection.send_error(msg["id"], "backup_not_found", "Backup not found")
     except IncorrectPasswordError:
         connection.send_error(msg["id"], "password_incorrect", "Incorrect password")
     else:
@@ -157,10 +196,10 @@ async def handle_restore(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/can_decrypt_on_download",
-        vol.Required("backup_id"): str,
-        vol.Required("agent_id"): str,
-        vol.Required("password"): str,
+        probatio.Required("type"): "backup/can_decrypt_on_download",
+        probatio.Required("backup_id"): str,
+        probatio.Required("agent_id"): str,
+        probatio.Required("password"): str,
     }
 )
 @websocket_api.async_response
@@ -176,6 +215,8 @@ async def handle_can_decrypt_on_download(
             agent_id=msg["agent_id"],
             password=msg.get("password"),
         )
+    except BackupNotFound:
+        connection.send_error(msg["id"], "backup_not_found", "Backup not found")
     except IncorrectPasswordError:
         connection.send_error(msg["id"], "password_incorrect", "Incorrect password")
     except DecryptOnDowloadNotSupported:
@@ -189,15 +230,15 @@ async def handle_can_decrypt_on_download(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/generate",
-        vol.Required("agent_ids"): [str],
-        vol.Optional("include_addons"): [str],
-        vol.Optional("include_all_addons", default=False): bool,
-        vol.Optional("include_database", default=True): bool,
-        vol.Optional("include_folders"): [vol.Coerce(Folder)],
-        vol.Optional("include_homeassistant", default=True): bool,
-        vol.Optional("name"): str,
-        vol.Optional("password"): str,
+        probatio.Required("type"): "backup/generate",
+        probatio.Required("agent_ids"): [str],
+        probatio.Optional("include_addons"): [str],
+        probatio.Optional("include_all_addons", default=False): bool,
+        probatio.Optional("include_database", default=True): bool,
+        probatio.Optional("include_folders"): [probatio.Coerce(Folder)],
+        probatio.Optional("include_homeassistant", default=True): bool,
+        probatio.Optional("name"): probatio.Any(str, None),
+        probatio.Optional("password"): probatio.Any(str, None),
     }
 )
 @websocket_api.async_response
@@ -224,7 +265,7 @@ async def handle_create(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/generate_with_automatic_settings",
+        probatio.Required("type"): "backup/generate_with_automatic_settings",
     }
 )
 @websocket_api.async_response
@@ -251,7 +292,7 @@ async def handle_create_with_automatic_settings(
 
 
 @websocket_api.ws_require_user(only_supervisor=True)
-@websocket_api.websocket_command({vol.Required("type"): "backup/start"})
+@websocket_api.websocket_command({probatio.Required("type"): "backup/start"})
 @websocket_api.async_response
 async def handle_backup_start(
     hass: HomeAssistant,
@@ -272,7 +313,7 @@ async def handle_backup_start(
 
 
 @websocket_api.ws_require_user(only_supervisor=True)
-@websocket_api.websocket_command({vol.Required("type"): "backup/end"})
+@websocket_api.websocket_command({probatio.Required("type"): "backup/end"})
 @websocket_api.async_response
 async def handle_backup_end(
     hass: HomeAssistant,
@@ -293,7 +334,7 @@ async def handle_backup_end(
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "backup/agents/info"})
+@websocket_api.websocket_command({probatio.Required("type"): "backup/agents/info"})
 @websocket_api.async_response
 async def backup_agents_info(
     hass: HomeAssistant,
@@ -305,13 +346,16 @@ async def backup_agents_info(
     connection.send_result(
         msg["id"],
         {
-            "agents": [{"agent_id": agent_id} for agent_id in manager.backup_agents],
+            "agents": [
+                {"agent_id": agent.agent_id, "name": agent.name}
+                for agent in manager.backup_agents.values()
+            ],
         },
     )
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "backup/config/info"})
+@websocket_api.websocket_command({probatio.Required("type"): "backup/config/info"})
 @websocket_api.async_response
 async def handle_config_info(
     hass: HomeAssistant,
@@ -320,52 +364,93 @@ async def handle_config_info(
 ) -> None:
     """Send the stored backup config."""
     manager = hass.data[DATA_MANAGER]
+    config = manager.config.data.to_dict()
     connection.send_result(
         msg["id"],
         {
-            "config": manager.config.data.to_dict()
+            "config": config
             | {
-                "next_automatic_backup": manager.config.data.schedule.next_automatic_backup
-            },
+                "next_automatic_backup": (
+                    manager.config.data.schedule.next_automatic_backup
+                ),
+                "next_automatic_backup_additional": (
+                    manager.config.data.schedule.next_automatic_backup_additional
+                ),
+            }
         },
     )
 
 
+@callback
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "backup/config/update",
-        vol.Optional("create_backup"): vol.Schema(
+        probatio.Required("type"): "backup/config/update",
+        probatio.Optional("agents"): probatio.Schema(
             {
-                vol.Optional("agent_ids"): vol.All([str], vol.Unique()),
-                vol.Optional("include_addons"): vol.Any(
-                    vol.All([str], vol.Unique()), None
+                str: {
+                    probatio.Optional("protected"): bool,
+                    probatio.Optional("retention"): probatio.Any(
+                        probatio.Schema(
+                            {
+                                # Note: We can't use cv.positive_int
+                                # because it allows 0 even
+                                # though 0 is not positive.
+                                probatio.Optional("copies"): probatio.Any(
+                                    probatio.All(int, probatio.Range(min=1)), None
+                                ),
+                                probatio.Optional("days"): probatio.Any(
+                                    probatio.All(int, probatio.Range(min=1)), None
+                                ),
+                            },
+                        ),
+                        None,
+                    ),
+                }
+            }
+        ),
+        probatio.Optional("automatic_backups_configured"): bool,
+        probatio.Optional("create_backup"): probatio.Schema(
+            {
+                probatio.Optional("agent_ids"): probatio.All([str], probatio.Unique()),
+                probatio.Optional("include_addons"): probatio.Any(
+                    probatio.All([str], probatio.Unique()), None
                 ),
-                vol.Optional("include_all_addons"): bool,
-                vol.Optional("include_database"): bool,
-                vol.Optional("include_folders"): vol.Any(
-                    vol.All([vol.Coerce(Folder)], vol.Unique()), None
+                probatio.Optional("include_all_addons"): bool,
+                probatio.Optional("include_database"): bool,
+                probatio.Optional("include_folders"): probatio.Any(
+                    probatio.All([probatio.Coerce(Folder)], probatio.Unique()), None
                 ),
-                vol.Optional("name"): vol.Any(str, None),
-                vol.Optional("password"): vol.Any(str, None),
+                probatio.Optional("name"): probatio.Any(str, None),
+                probatio.Optional("password"): probatio.Any(str, None),
             },
         ),
-        vol.Optional("retention"): vol.Schema(
+        probatio.Optional("retention"): probatio.Schema(
             {
-                vol.Optional("copies"): vol.Any(int, None),
-                vol.Optional("days"): vol.Any(int, None),
+                # Note: We can't use cv.positive_int because it allows 0 even
+                # though 0 is not positive.
+                probatio.Optional("copies"): probatio.Any(
+                    probatio.All(int, probatio.Range(min=1)), None
+                ),
+                probatio.Optional("days"): probatio.Any(
+                    probatio.All(int, probatio.Range(min=1)), None
+                ),
             },
         ),
-        vol.Optional("schedule"): vol.Schema(
+        probatio.Optional("schedule"): probatio.Schema(
             {
-                vol.Optional("state"): vol.All(str, vol.Coerce(ScheduleState)),
-                vol.Optional("time"): vol.Any(cv.time, None),
+                probatio.Optional("days"): probatio.Any(
+                    probatio.All([probatio.Coerce(Day)], probatio.Unique()),
+                ),
+                probatio.Optional("recurrence"): probatio.All(
+                    str, probatio.Coerce(ScheduleRecurrence)
+                ),
+                probatio.Optional("time"): probatio.Any(cv.time, None),
             }
         ),
     }
 )
-@websocket_api.async_response
-async def handle_config_update(
+def handle_config_update(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
@@ -375,12 +460,12 @@ async def handle_config_update(
     changes = dict(msg)
     changes.pop("id")
     changes.pop("type")
-    await manager.config.update(**changes)
+    manager.config.update(**changes)
     connection.send_result(msg["id"])
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "backup/subscribe_events"})
+@websocket_api.websocket_command({probatio.Required("type"): "backup/subscribe_events"})
 @websocket_api.async_response
 async def handle_subscribe_events(
     hass: HomeAssistant,

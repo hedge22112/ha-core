@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from typing import override
 
 from tellcore.constants import TELLSTICK_DIM, TELLSTICK_TURNOFF, TELLSTICK_TURNON
 from tellcore.library import TelldusError
@@ -30,7 +31,6 @@ class TellstickDevice(Entity):
     def __init__(self, tellcore_device, signal_repetitions):
         """Init the Tellstick device."""
         self._signal_repetitions = signal_repetitions
-        self._state = None
         self._requested_state = None
         self._requested_data = None
         self._repeats_left = 0
@@ -40,18 +40,14 @@ class TellstickDevice(Entity):
         self._attr_name = tellcore_device.name
         self._attr_unique_id = tellcore_device.id
 
-    async def async_added_to_hass(self):
+    @override
+    async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass, SIGNAL_TELLCORE_CALLBACK, self.update_from_callback
             )
         )
-
-    @property
-    def is_on(self):
-        """Return true if the device is on."""
-        return self._state
 
     def _parse_ha_data(self, kwargs):
         """Turn the value from HA into something useful."""
@@ -146,6 +142,6 @@ class TellstickDevice(Entity):
             except TelldusError as err:
                 _LOGGER.error(err)
 
-    def update(self):
+    def update(self) -> None:
         """Poll the current state of the device."""
         self._update_from_tellcore()

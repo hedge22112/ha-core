@@ -1,8 +1,7 @@
 """Support for the ZHA platform."""
 
-from __future__ import annotations
-
 import functools
+from typing import override
 
 from homeassistant.components.device_tracker import ScannerEntity
 from homeassistant.config_entries import ConfigEntry
@@ -10,7 +9,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import ZHAEntity
 from .helpers import (
@@ -23,7 +22,7 @@ from .helpers import (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Zigbee Home Automation device tracker from config entry."""
     zha_data = get_zha_data(hass)
@@ -49,19 +48,22 @@ class ZHADeviceScannerEntity(ScannerEntity, ZHAEntity):
     _attr_name: str = "Device scanner"
 
     @property
+    @override
     def is_connected(self) -> bool:
         """Return true if the device is connected to the network."""
-        return self.entity_data.entity.is_connected
+        return self._zha_state.connected
 
     @property
+    @override
     def battery_level(self) -> int | None:
         """Return the battery level of the device.
 
         Percentage from 0-100.
         """
-        return self.entity_data.entity.battery_level
+        return self._zha_state.battery_level
 
     @property  # type: ignore[misc]
+    @override
     def device_info(self) -> DeviceInfo:
         """Return device info."""
         # We opt ZHA device tracker back into overriding this method because
@@ -69,6 +71,7 @@ class ZHADeviceScannerEntity(ScannerEntity, ZHAEntity):
         return ZHAEntity.device_info.__get__(self)
 
     @property
+    @override
     def unique_id(self) -> str:
         """Return unique ID."""
         # Call Super because ScannerEntity overrode it.

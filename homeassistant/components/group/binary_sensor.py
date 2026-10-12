@@ -1,10 +1,8 @@
 """Platform allowing several binary sensor to be grouped into one binary sensor."""
 
-from __future__ import annotations
+from typing import Any, override
 
-from typing import Any
-
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASSES_SCHEMA,
@@ -26,7 +24,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .entity import GroupEntity
@@ -38,11 +39,11 @@ REG_KEY = f"{BINARY_SENSOR_DOMAIN}_registry"
 
 PLATFORM_SCHEMA = BINARY_SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_ENTITIES): cv.entities_domain(BINARY_SENSOR_DOMAIN),
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-        vol.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
-        vol.Optional(CONF_ALL): cv.boolean,
+        probatio.Required(CONF_ENTITIES): cv.entities_domain(BINARY_SENSOR_DOMAIN),
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        probatio.Optional(CONF_UNIQUE_ID): cv.string,
+        probatio.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
+        probatio.Optional(CONF_ALL): cv.boolean,
     }
 )
 
@@ -70,7 +71,7 @@ async def async_setup_platform(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize Binary Sensor Group config entry."""
     registry = er.async_get(hass)
@@ -127,6 +128,7 @@ class BinarySensorGroup(GroupEntity, BinarySensorEntity):
             self.mode = all
 
     @callback
+    @override
     def async_update_group_state(self) -> None:
         """Query all members and determine the binary sensor group state."""
         states = [
@@ -149,6 +151,7 @@ class BinarySensorGroup(GroupEntity, BinarySensorEntity):
             self._attr_is_on = self.mode(state == STATE_ON for state in states)
 
     @property
+    @override
     def device_class(self) -> BinarySensorDeviceClass | None:
         """Return the sensor class of the binary sensor."""
         return self._device_class

@@ -1,8 +1,6 @@
 """Support for Google Mail."""
 
-from __future__ import annotations
-
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv, discovery
@@ -24,8 +22,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Google Mail platform."""
-    hass.data.setdefault(DOMAIN, {})[DATA_HASS_CONFIG] = config
+    """Set up the Google Mail integration."""
+    hass.data[DATA_HASS_CONFIG] = config
+
+    async_setup_services(hass)
 
     return True
 
@@ -44,7 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoogleMailConfigEntry) -
             Platform.NOTIFY,
             DOMAIN,
             {DATA_AUTH: auth, CONF_NAME: entry.title},
-            hass.data[DOMAIN][DATA_HASS_CONFIG],
+            hass.data[DATA_HASS_CONFIG],
         )
     )
 
@@ -52,20 +52,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoogleMailConfigEntry) -
         entry, [platform for platform in PLATFORMS if platform != Platform.NOTIFY]
     )
 
-    await async_setup_services(hass)
-
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: GoogleMailConfigEntry) -> bool:
     """Unload a config entry."""
-    loaded_entries = [
-        entry
-        for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.state == ConfigEntryState.LOADED
-    ]
-    if len(loaded_entries) == 1:
-        for service_name in hass.services.async_services_for_domain(DOMAIN):
-            hass.services.async_remove(DOMAIN, service_name)
-
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

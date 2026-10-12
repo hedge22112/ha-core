@@ -1,13 +1,11 @@
 """Support for Yale Smart Alarm button."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import YaleConfigEntry
 from .const import DOMAIN, YALE_ALL_ERRORS
@@ -25,7 +23,7 @@ BUTTON_TYPES = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: YaleConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the button from a config entry."""
 
@@ -49,8 +47,9 @@ class YalePanicButton(YaleAlarmEntity, ButtonEntity):
         """Initialize the plug switch."""
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"yale_smart_alarm-{description.key}"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}-{description.key}"
 
+    @override
     async def async_press(self) -> None:
         """Press the button."""
         if TYPE_CHECKING:

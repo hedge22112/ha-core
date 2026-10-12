@@ -3,18 +3,32 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator, Iterator
+import contextlib
 from typing import Any
 from unittest.mock import DEFAULT, AsyncMock, Mock, patch
 
+from knx_telegram_store import (
+    BufferedMemoryStore,
+    BufferedPostgresStore,
+    BufferedSqliteStore,
+)
 import pytest
 from xknx import XKNX
 from xknx.core import XknxConnectionState, XknxConnectionType
 from xknx.dpt import DPTArray, DPTBinary
 from xknx.io import DEFAULT_MCAST_GRP, DEFAULT_MCAST_PORT
-from xknx.telegram import Telegram, TelegramDirection
+from xknx.telegram import Telegram, TelegramDirection, tpci
 from xknx.telegram.address import GroupAddress, IndividualAddress
-from xknx.telegram.apci import APCI, GroupValueRead, GroupValueResponse, GroupValueWrite
+from xknx.telegram.apci import (
+    APCI,
+    GroupValueRead,
+    GroupValueResponse,
+    GroupValueWrite,
+    SecureAPDU,
+)
 
+from homeassistant.components.knx import telegrams as knx_telegrams
 from homeassistant.components.knx.const import (
     CONF_KNX_AUTOMATIC,
     CONF_KNX_CONNECTION_TYPE,
@@ -25,8 +39,14 @@ from homeassistant.components.knx.const import (
     CONF_KNX_MCAST_PORT,
     CONF_KNX_RATE_LIMIT,
     CONF_KNX_STATE_UPDATER,
+    CONF_KNX_TELEGRAM_DB_BACKEND,
+    CONF_KNX_TELEGRAM_DB_LOAD_HOURS,
+    CONF_KNX_TELEGRAM_DB_RETENTION_DAYS,
     DEFAULT_ROUTING_IA,
-    DOMAIN as KNX_DOMAIN,
+    DOMAIN,
+    KNX_TELEGRAM_BACKEND_SQLITE,
+    KNX_TELEGRAM_DB_RETENTION_DEFAULT,
+    KNX_TELEGRAM_LOAD_HOURS_DEFAULT,
 )
 from homeassistant.components.knx.project import STORAGE_KEY as KNX_PROJECT_STORAGE_KEY
 from homeassistant.components.knx.storage.config_store import (
@@ -40,11 +60,60 @@ from homeassistant.setup import async_setup_component
 
 from . import KnxEntityGenerator
 
-from tests.common import MockConfigEntry, load_json_object_fixture
+from tests.common import MockConfigEntry, async_load_json_object_fixture
 from tests.typing import WebSocketGenerator
 
-FIXTURE_PROJECT_DATA = load_json_object_fixture("project.json", KNX_DOMAIN)
-FIXTURE_CONFIG_STORAGE_DATA = load_json_object_fixture("config_store.json", KNX_DOMAIN)
+
+class _TestTelegramStore(BufferedMemoryStore):
+    """Drop-in for the SQL-backed stores that keeps telegrams in memory.
+
+    Avoids the per-test cost of creating a SQLAlchemy engine and an aiosqlite
+    background thread. Accepts (and ignores) the ``db_path``/``dsn`` and
+    ``retention_days`` arguments the integration passes to the SQL stores.
+    """
+
+    def __init__(
+        self,
+        *_args: Any,
+        flush_interval: float = 1.0,
+        max_buffer_size: int = 10000,
+        **_kwargs: Any,
+    ) -> None:
+        """Initialize the in-memory test store."""
+        super().__init__(flush_interval=flush_interval, max_buffer_size=max_buffer_size)
+
+
+@contextlib.contextmanager
+def _patch_telegram_store(*, real_store: bool) -> Generator:
+    """Choose the telegram store the integration builds during setup.
+
+    Default (``real_store=False``): swap in the fast in-memory store so tests
+    that don't care about telegram history skip SQLite engine and aiosqlite
+    thread setup. ``real_store=True``: build the real SQLite store (kept
+    in-memory) and the real PostgreSQL store, for tests that exercise the
+    database backends.
+    """
+    if not real_store:
+        with (
+            patch.object(knx_telegrams, "BufferedSqliteStore", _TestTelegramStore),
+            patch.object(knx_telegrams, "BufferedPostgresStore", _TestTelegramStore),
+        ):
+            yield
+        return
+
+    original_init = BufferedSqliteStore.__init__
+
+    def mocked_init(self, db_path: str, *args: Any, **kwargs: Any) -> None:
+        original_init(self, ":memory:", *args, **kwargs)
+
+    # Restore the real store classes (the autouse fixture points them at the
+    # in-memory store) and keep the SQLite database in-memory.
+    with (
+        patch.object(knx_telegrams, "BufferedSqliteStore", BufferedSqliteStore),
+        patch.object(knx_telegrams, "BufferedPostgresStore", BufferedPostgresStore),
+        patch.object(BufferedSqliteStore, "__init__", mocked_init),
+    ):
+        yield
 
 
 class KNXTestKit:
@@ -52,10 +121,16 @@ class KNXTestKit:
 
     INDIVIDUAL_ADDRESS = "1.2.3"
 
-    def __init__(self, hass: HomeAssistant, mock_config_entry: MockConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        hass_storage: dict[str, Any],
+    ) -> None:
         """Init KNX test helper class."""
         self.hass: HomeAssistant = hass
         self.mock_config_entry: MockConfigEntry = mock_config_entry
+        self.hass_storage: dict[str, Any] = hass_storage
         self.xknx: XKNX
         # outgoing telegrams will be put in the List instead of sent to the interface
         # telegrams to an InternalGroupAddress won't be queued here
@@ -69,24 +144,33 @@ class KNXTestKit:
             assert test_state.attributes.get(attribute) == value
 
     async def setup_integration(
-        self, config: ConfigType, add_entry_to_hass: bool = True
+        self,
+        yaml_config: ConfigType | None = None,
+        config_store_fixture: str | None = None,
+        add_entry_to_hass: bool = True,
+        state_updater: bool = True,
+        real_telegram_store: bool = False,
     ) -> None:
-        """Create the KNX integration."""
+        """Create the KNX integration.
+
+        By default a fast in-memory telegram store is used. Tests that exercise
+        the SQLite/PostgreSQL telegram backends pass ``real_telegram_store=True``
+        to build the real SQLite store (kept in-memory).
+        """
 
         async def patch_xknx_start():
             """Patch `xknx.start` for unittests."""
-            self.xknx.cemi_handler.send_telegram = AsyncMock(
-                side_effect=self._outgoing_telegrams.append
-            )
             # after XKNX.__init__() to not overwrite it by the config entry again
             # before StateUpdater starts to avoid slow down of tests
             self.xknx.rate_limit = 0
-            # set XknxConnectionState.CONNECTED to avoid `unavailable` entities at startup
+            # set XknxConnectionState.CONNECTED to avoid `unavailable`
+            # entities at startup
             # and start StateUpdater. This would be awaited on normal startup too.
             self.xknx.connection_manager.connection_state_changed(
                 state=XknxConnectionState.CONNECTED,
                 connection_type=XknxConnectionType.TUNNEL_TCP,
             )
+            await self.hass.async_block_till_done()
 
         def knx_ip_interface_mock():
             """Create a xknx knx ip interface mock."""
@@ -101,16 +185,42 @@ class KNXTestKit:
             self.xknx = args[0]
             return DEFAULT
 
+        if config_store_fixture:
+            self.hass_storage[
+                KNX_CONFIG_STORAGE_KEY
+            ] = await async_load_json_object_fixture(
+                self.hass, config_store_fixture, DOMAIN
+            )
+
         if add_entry_to_hass:
             self.mock_config_entry.add_to_hass(self.hass)
 
-        with patch(
-            "xknx.xknx.knx_interface_factory",
-            return_value=knx_ip_interface_mock(),
-            side_effect=fish_xknx,
+        # capture outgoing telegrams for assertion instead of sending to socket
+        # before l_data_confirmation would be awaited in xknx
+        patch(
+            "xknx.cemi.cemi_handler.CEMIHandler.send_telegram",
+            side_effect=self._outgoing_telegrams.append,
+        ).start()  # keep patched for the whole test run
+
+        knx_config = {DOMAIN: yaml_config or {}}
+        with (
+            _patch_telegram_store(real_store=real_telegram_store),
+            patch(
+                "xknx.xknx.knx_interface_factory",
+                return_value=knx_ip_interface_mock(),
+                side_effect=fish_xknx,
+            ),
         ):
-            await async_setup_component(self.hass, KNX_DOMAIN, {KNX_DOMAIN: config})
+            state_updater_patcher = patch(
+                "xknx.xknx.StateUpdater.register_remote_value"
+            )
+            if not state_updater:
+                state_updater_patcher.start()
+
+            await async_setup_component(self.hass, DOMAIN, knx_config)
             await self.hass.async_block_till_done()
+            # remove patch after setup so state_updater can be tested
+            state_updater_patcher.stop()
 
     ########################
     # Telegram counter tests
@@ -287,45 +397,74 @@ class KNXTestKit:
             source=source,
         )
 
+    def receive_data_secure_issue(
+        self,
+        group_address: str,
+        source: str | None = None,
+    ) -> None:
+        """Inject incoming telegram with undecodable data secure payload."""
+        telegram = Telegram(
+            destination_address=GroupAddress(group_address),
+            direction=TelegramDirection.INCOMING,
+            source_address=IndividualAddress(source or self.INDIVIDUAL_ADDRESS),
+            tpci=tpci.TDataGroup(),
+            payload=SecureAPDU.from_knx(
+                bytes.fromhex("03f110002446cfef4ac085e7092ab062b44d")
+            ),
+        )
+        self.xknx.telegram_queue.received_data_secure_group_key_issue(telegram)
+
 
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     """Return the default mocked config entry."""
     return MockConfigEntry(
         title="KNX",
-        domain=KNX_DOMAIN,
+        domain=DOMAIN,
+        version=2,
         data={
             CONF_KNX_CONNECTION_TYPE: CONF_KNX_AUTOMATIC,
-            CONF_KNX_RATE_LIMIT: CONF_KNX_DEFAULT_RATE_LIMIT,
-            CONF_KNX_STATE_UPDATER: CONF_KNX_DEFAULT_STATE_UPDATER,
             CONF_KNX_MCAST_PORT: DEFAULT_MCAST_PORT,
             CONF_KNX_MCAST_GRP: DEFAULT_MCAST_GRP,
             CONF_KNX_INDIVIDUAL_ADDRESS: DEFAULT_ROUTING_IA,
+        },
+        options={
+            CONF_KNX_RATE_LIMIT: CONF_KNX_DEFAULT_RATE_LIMIT,
+            CONF_KNX_STATE_UPDATER: CONF_KNX_DEFAULT_STATE_UPDATER,
+            CONF_KNX_TELEGRAM_DB_RETENTION_DAYS: KNX_TELEGRAM_DB_RETENTION_DEFAULT,
+            CONF_KNX_TELEGRAM_DB_LOAD_HOURS: KNX_TELEGRAM_LOAD_HOURS_DEFAULT,
+            CONF_KNX_TELEGRAM_DB_BACKEND: KNX_TELEGRAM_BACKEND_SQLITE,
         },
     )
 
 
 @pytest.fixture
-async def knx(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
+async def knx(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    hass_storage: dict[str, Any],
+):
     """Create a KNX TestKit instance."""
-    knx_test_kit = KNXTestKit(hass, mock_config_entry)
+    knx_test_kit = KNXTestKit(hass, mock_config_entry, hass_storage)
     yield knx_test_kit
     await knx_test_kit.assert_no_telegram()
 
 
 @pytest.fixture
-def load_knxproj(hass_storage: dict[str, Any]) -> None:
-    """Mock KNX project data."""
-    hass_storage[KNX_PROJECT_STORAGE_KEY] = {
-        "version": 1,
-        "data": FIXTURE_PROJECT_DATA,
-    }
+async def project_data(hass: HomeAssistant) -> dict[str, Any]:
+    """Return the fixture project data."""
+    return await async_load_json_object_fixture(hass, "project.json", DOMAIN)
 
 
 @pytest.fixture
-def load_config_store(hass_storage: dict[str, Any]) -> None:
-    """Mock KNX config store data."""
-    hass_storage[KNX_CONFIG_STORAGE_KEY] = FIXTURE_CONFIG_STORAGE_DATA
+async def load_knxproj(
+    project_data: dict[str, Any], hass_storage: dict[str, Any]
+) -> None:
+    """Mock KNX project data."""
+    hass_storage[KNX_PROJECT_STORAGE_KEY] = {
+        "version": 1,
+        "data": project_data,
+    }
 
 
 @pytest.fixture
@@ -370,3 +509,17 @@ async def create_ui_entity(
         return entity
 
     return _create_ui_entity
+
+
+@pytest.fixture(autouse=True)
+def mock_knx_telegram_store() -> Iterator[None]:
+    """Default every integration setup to the fast in-memory telegram store.
+
+    The real SQLite store creates a SQLAlchemy engine and an aiosqlite thread
+    on every setup/teardown, which the hundreds of tests that never touch
+    telegram history shouldn't pay for. Tests that do exercise the database
+    backends pass ``real_telegram_store=True`` to ``setup_integration``, which
+    overrides this for the duration of setup.
+    """
+    with _patch_telegram_store(real_store=False):
+        yield

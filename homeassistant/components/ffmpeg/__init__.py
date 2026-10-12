@@ -1,42 +1,33 @@
 """Support for FFmpeg."""
 
-from __future__ import annotations
-
 import asyncio
 import re
+from typing import override
 
 from haffmpeg.core import HAFFmpeg
 from haffmpeg.tools import IMAGE_JPEG, FFVersion, ImageFrame
-from propcache import cached_property
-import voluptuous as vol
+import probatio
+from propcache.api import cached_property
 
 from homeassistant.const import (
-    ATTR_ENTITY_ID,
     CONTENT_TYPE_MULTIPART,
     EVENT_HOMEASSISTANT_START,
     EVENT_HOMEASSISTANT_STOP,
 )
-from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.dispatcher import (
-    async_dispatcher_connect,
-    async_dispatcher_send,
-)
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.loader import bind_hass
-from homeassistant.util.signal_type import SignalType
 from homeassistant.util.system_info import is_official_image
 
-DOMAIN = "ffmpeg"
-
-SERVICE_START = "start"
-SERVICE_STOP = "stop"
-SERVICE_RESTART = "restart"
-
-SIGNAL_FFMPEG_START = SignalType[list[str] | None]("ffmpeg.start")
-SIGNAL_FFMPEG_STOP = SignalType[list[str] | None]("ffmpeg.stop")
-SIGNAL_FFMPEG_RESTART = SignalType[list[str] | None]("ffmpeg.restart")
+from .const import (
+    DOMAIN,
+    SIGNAL_FFMPEG_RESTART,
+    SIGNAL_FFMPEG_START,
+    SIGNAL_FFMPEG_STOP,
+)
+from .services import async_setup_services
 
 DATA_FFMPEG = "ffmpeg"
 
@@ -54,16 +45,14 @@ DEFAULT_BINARY = "ffmpeg"
 # content-type changes again in the future
 OFFICIAL_IMAGE_VERSION = "6.0"
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        DOMAIN: vol.Schema(
-            {vol.Optional(CONF_FFMPEG_BIN, default=DEFAULT_BINARY): cv.string}
+        DOMAIN: probatio.Schema(
+            {probatio.Optional(CONF_FFMPEG_BIN, default=DEFAULT_BINARY): cv.string}
         )
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=probatio.ALLOW_EXTRA,
 )
-
-SERVICE_FFMPEG_SCHEMA = vol.Schema({vol.Optional(ATTR_ENTITY_ID): cv.entity_ids})
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -74,35 +63,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     await manager.async_get_version()
 
-    # Register service
-    async def async_service_handle(service: ServiceCall) -> None:
-        """Handle service ffmpeg process."""
-        entity_ids: list[str] | None = service.data.get(ATTR_ENTITY_ID)
-
-        if service.service == SERVICE_START:
-            async_dispatcher_send(hass, SIGNAL_FFMPEG_START, entity_ids)
-        elif service.service == SERVICE_STOP:
-            async_dispatcher_send(hass, SIGNAL_FFMPEG_STOP, entity_ids)
-        else:
-            async_dispatcher_send(hass, SIGNAL_FFMPEG_RESTART, entity_ids)
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_START, async_service_handle, schema=SERVICE_FFMPEG_SCHEMA
-    )
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_STOP, async_service_handle, schema=SERVICE_FFMPEG_SCHEMA
-    )
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_RESTART, async_service_handle, schema=SERVICE_FFMPEG_SCHEMA
-    )
+    async_setup_services(hass)
 
     hass.data[DATA_FFMPEG] = manager
     return True
 
 
-@bind_hass
 def get_ffmpeg_manager(hass: HomeAssistant) -> FFmpegManager:
     """Return the FFmpegManager."""
     if DATA_FFMPEG not in hass.data:
@@ -110,7 +76,6 @@ def get_ffmpeg_manager(hass: HomeAssistant) -> FFmpegManager:
     return hass.data[DATA_FFMPEG]
 
 
-@bind_hass
 async def async_get_image(
     hass: HomeAssistant,
     input_source: str,
@@ -176,7 +141,7 @@ class FFmpegManager:
         return CONTENT_TYPE_MULTIPART.format("ffserver")
 
 
-class FFmpegBase[_HAFFmpegT: HAFFmpeg](Entity):  # pylint: disable=hass-enforce-class-module
+class FFmpegBase[_HAFFmpegT: HAFFmpeg](Entity):  # pylint: disable=home-assistant-enforce-class-module
     """Interface object for FFmpeg."""
 
     _attr_should_poll = False
@@ -186,6 +151,7 @@ class FFmpegBase[_HAFFmpegT: HAFFmpeg](Entity):  # pylint: disable=hass-enforce-
         self.ffmpeg = ffmpeg
         self.initial_state = initial_state
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register dispatcher & events.
 
@@ -211,6 +177,7 @@ class FFmpegBase[_HAFFmpegT: HAFFmpeg](Entity):  # pylint: disable=hass-enforce-
         self._async_register_events()
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return self.ffmpeg.is_running

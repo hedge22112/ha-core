@@ -37,6 +37,7 @@ TADO_HVAC_ACTION_TO_HA_HVAC_ACTION = {
 # Configuration
 CONF_FALLBACK = "fallback"
 CONF_HOME_ID = "home_id"
+CONF_REFRESH_TOKEN = "refresh_token"
 DATA = "data"
 
 # Weather
@@ -204,6 +205,7 @@ DEFAULT_NAME = "Tado"
 
 TADO_HOME = "Home"
 TADO_ZONE = "Zone"
+TADO_BRIDGE_MODELS = ["IB01", "IB02"]
 
 # Constants for Temperature Offset
 INSIDE_TEMPERATURE_MEASUREMENT = "INSIDE_TEMPERATURE_MEASUREMENT"
@@ -224,9 +226,6 @@ HA_TERMINATION_DURATION = "default_overlay_seconds"
 TADO_DEFAULT_MIN_TEMP = 5
 TADO_DEFAULT_MAX_TEMP = 40
 # Constants for service calls
-SERVICE_ADD_METER_READING = "add_meter_reading"
-CONF_CONFIG_ENTRY = "config_entry"
-CONF_READING = "reading"
 ATTR_MESSAGE = "message"
 
 WATER_HEATER_FALLBACK_REPAIR = "water_heater_fallback"

@@ -1,7 +1,7 @@
 """Stub file for signal_type. Provide overload for type checking."""
 # ruff: noqa: PYI021  # Allow docstring
 
-from typing import Any, assert_type
+from typing import Any, assert_type, override
 
 __all__ = [
     "SignalType",
@@ -15,7 +15,9 @@ class _SignalTypeBase[*_Ts]:
     """
 
     def __init__(self, value: str, /) -> None: ...
+    @override
     def __hash__(self) -> int: ...
+    @override
     def __eq__(self, other: object, /) -> bool: ...
 
 class SignalType[*_Ts](_SignalTypeBase[*_Ts]):
@@ -31,9 +33,8 @@ def _test_signal_type_typing() -> None:  # noqa: PYI048
 
     This is tested during the mypy run. Do not move it to 'tests'!
     """
-    # pylint: disable=import-outside-toplevel
-    from homeassistant.core import HomeAssistant
-    from homeassistant.helpers.dispatcher import (
+    from homeassistant.core import HomeAssistant  # noqa: PLC0415
+    from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
         async_dispatcher_connect,
         async_dispatcher_send,
     )

@@ -2,7 +2,8 @@
 # name: test_devices[12345]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -16,7 +17,6 @@
         '12345',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Withings',
@@ -24,9 +24,7 @@
     'model_id': None,
     'name': 'henk',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -34,7 +32,8 @@
 # name: test_devices[f998be4b9ccc9e136fd8cd8e8e344c31ec3b271d]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -48,7 +47,6 @@
         'f998be4b9ccc9e136fd8cd8e8e344c31ec3b271d',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Withings',
@@ -56,9 +54,7 @@
     'model_id': None,
     'name': 'Body+',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': <ANY>,
   })

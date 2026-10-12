@@ -1,6 +1,6 @@
 """IMAP sensor support."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import CONF_USERNAME, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ImapConfigEntry
@@ -30,7 +30,9 @@ IMAP_MAIL_COUNT_DESCRIPTION = SensorEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ImapConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ImapConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Imap sensor."""
 
@@ -59,6 +61,7 @@ class ImapSensor(CoordinatorEntity[ImapDataUpdateCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> int | None:
         """Return the number of emails found."""
         return self.coordinator.data

@@ -1,10 +1,8 @@
 """Support for Big Ass Fans number."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, override
 
 from aiobafi6 import Device
 
@@ -15,7 +13,7 @@ from homeassistant.components.number import (
 )
 from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BAFConfigEntry
 from .const import HALF_DAY_SECS, ONE_DAY_SECS, ONE_MIN_SECS, SPEED_RANGE
@@ -116,7 +114,7 @@ LIGHT_NUMBER_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BAFConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up BAF numbers."""
     device = entry.runtime_data
@@ -136,11 +134,13 @@ class BAFNumber(BAFDescriptionEntity, NumberEntity):
     entity_description: BAFNumberDescription
 
     @callback
+    @override
     def _async_update_attrs(self) -> None:
         """Update attrs from device."""
         if (value := self.entity_description.value_fn(self._device)) is not None:
             self._attr_native_value = float(value)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set the value."""
         setattr(self._device, self.entity_description.key, int(value))

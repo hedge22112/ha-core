@@ -11,7 +11,7 @@ from zeroconf.asyncio import AsyncServiceInfo
 
 from homeassistant.components import otbr, thread
 from homeassistant.components.thread import discovery
-from homeassistant.config_entries import SOURCE_HASSIO, SOURCE_USER
+from homeassistant.config_entries import SOURCE_HASSIO, SOURCE_USER, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
@@ -26,6 +26,7 @@ from . import (
     ROUTER_DISCOVERY_HASS,
     TEST_BORDER_AGENT_EXTENDED_ADDRESS,
     TEST_BORDER_AGENT_ID,
+    TEST_COPROCESSOR_VERSION,
 )
 
 from tests.common import MockConfigEntry
@@ -43,6 +44,7 @@ def enable_mocks_fixture(
     get_active_dataset_tlvs: AsyncMock,
     get_border_agent_id: AsyncMock,
     get_extended_address: AsyncMock,
+    get_coprocessor_version: AsyncMock,
 ) -> None:
     """Enable API mocks."""
 
@@ -280,6 +282,8 @@ async def test_border_agent_id_not_supported(
     config_entry.add_to_hass(hass)
     get_border_agent_id.side_effect = python_otbr_api.GetBorderAgentIdNotSupportedError
     assert not await hass.config_entries.async_setup(config_entry.entry_id)
+    assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert config_entry.reason == "The OTBR does not support Border Agent ID"
 
 
 async def test_config_entry_update(hass: HomeAssistant) -> None:
@@ -298,6 +302,7 @@ async def test_config_entry_update(hass: HomeAssistant) -> None:
     mock_api.get_extended_address = AsyncMock(
         return_value=TEST_BORDER_AGENT_EXTENDED_ADDRESS
     )
+    mock_api.get_coprocessor_version = AsyncMock(return_value=TEST_COPROCESSOR_VERSION)
     with patch("python_otbr_api.OTBR", return_value=mock_api) as mock_otrb_api:
         assert await hass.config_entries.async_setup(config_entry.entry_id)
 

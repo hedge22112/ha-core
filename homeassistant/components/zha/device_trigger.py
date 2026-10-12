@@ -1,6 +1,6 @@
 """Provides device automations for ZHA devices that emit events."""
 
-import voluptuous as vol
+import probatio
 from zha.application.const import ZHA_EVENT
 
 from homeassistant.components.device_automation import (
@@ -14,7 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN as ZHA_DOMAIN
+from .const import DOMAIN
 from .helpers import async_get_zha_device_proxy, get_zha_data
 
 CONF_SUBTYPE = "subtype"
@@ -22,7 +22,7 @@ DEVICE = "device"
 DEVICE_IEEE = "device_ieee"
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
-    {vol.Required(CONF_TYPE): str, vol.Required(CONF_SUBTYPE): str}
+    {probatio.Required(CONF_TYPE): str, probatio.Required(CONF_SUBTYPE): str}
 )
 
 
@@ -104,7 +104,7 @@ async def async_get_triggers(
     return [
         {
             CONF_DEVICE_ID: device_id,
-            CONF_DOMAIN: ZHA_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: DEVICE,
             CONF_TYPE: trigger,
             CONF_SUBTYPE: subtype,

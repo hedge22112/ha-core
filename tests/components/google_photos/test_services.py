@@ -24,7 +24,7 @@ from homeassistant.components.google_photos.services import (
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_FILENAME
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from tests.common import MockConfigEntry
 
@@ -68,30 +68,59 @@ def mock_upload_file(
         patch("pathlib.Path.stat") as mock_stat,
     ):
         mock_stat.return_value = Mock()
-        mock_stat.return_value.st_size = (
-            upload_file.size if upload_file.size else len(upload_file.content)
-        )
+        mock_stat.return_value.st_size = upload_file.size or len(upload_file.content)
         yield
 
 
+@pytest.mark.parametrize(
+    ("media_items_result", "service_response"),
+    [
+        (
+            CreateMediaItemsResult(
+                new_media_item_results=[
+                    NewMediaItemResult(
+                        upload_token="some-upload-token",
+                        status=Status(code=200),
+                        media_item=MediaItem(id="new-media-item-id-1"),
+                    )
+                ]
+            ),
+            [{"media_item_id": "new-media-item-id-1"}],
+        ),
+        (
+            CreateMediaItemsResult(
+                new_media_item_results=[
+                    NewMediaItemResult(
+                        upload_token="some-upload-token",
+                        status=Status(code=200),
+                        media_item=MediaItem(id="new-media-item-id-1"),
+                    ),
+                    NewMediaItemResult(
+                        upload_token="some-upload-token",
+                        status=Status(code=200),
+                        media_item=MediaItem(id="new-media-item-id-2"),
+                    ),
+                ]
+            ),
+            [
+                {"media_item_id": "new-media-item-id-1"},
+                {"media_item_id": "new-media-item-id-2"},
+            ],
+        ),
+    ],
+)
 @pytest.mark.usefixtures("setup_integration")
 async def test_upload_service(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_api: Mock,
+    media_items_result: CreateMediaItemsResult,
+    service_response: list[dict[str, str]],
 ) -> None:
     """Test service call to upload content."""
     assert hass.services.has_service(DOMAIN, "upload")
 
-    mock_api.create_media_items.return_value = CreateMediaItemsResult(
-        new_media_item_results=[
-            NewMediaItemResult(
-                upload_token="some-upload-token",
-                status=Status(code=200),
-                media_item=MediaItem(id="new-media-item-id-1"),
-            )
-        ]
-    )
+    mock_api.create_media_items.return_value = media_items_result
 
     response = await hass.services.async_call(
         DOMAIN,
@@ -106,7 +135,7 @@ async def test_upload_service(
     )
 
     assert response == {
-        "media_items": [{"media_item_id": "new-media-item-id-1"}],
+        "media_items": service_response,
         "album_id": "album-media-id-1",
     }
 
@@ -117,7 +146,7 @@ async def test_upload_service_config_entry_not_found(
     config_entry: MockConfigEntry,
 ) -> None:
     """Test upload service call with a config entry that does not exist."""
-    with pytest.raises(HomeAssistantError, match="not found in registry"):
+    with pytest.raises(ServiceValidationError) as err:
         await hass.services.async_call(
             DOMAIN,
             UPLOAD_SERVICE,
@@ -129,6 +158,7 @@ async def test_upload_service_config_entry_not_found(
             blocking=True,
             return_response=True,
         )
+    assert err.value.translation_key == "service_config_entry_not_found"
 
 
 @pytest.mark.usefixtures("setup_integration")
@@ -142,18 +172,19 @@ async def test_config_entry_not_loaded(
 
     assert config_entry.state is ConfigEntryState.NOT_LOADED
 
-    with pytest.raises(HomeAssistantError, match="not found in registry"):
+    with pytest.raises(ServiceValidationError) as err:
         await hass.services.async_call(
             DOMAIN,
             UPLOAD_SERVICE,
             {
-                CONF_CONFIG_ENTRY_ID: config_entry.unique_id,
+                CONF_CONFIG_ENTRY_ID: config_entry.entry_id,
                 CONF_FILENAME: TEST_FILENAME,
                 CONF_ALBUM: ALBUM_TITLE,
             },
             blocking=True,
             return_response=True,
         )
+    assert err.value.translation_key == "service_config_entry_not_loaded"
 
 
 @pytest.mark.usefixtures("setup_integration")
@@ -339,7 +370,8 @@ async def test_upload_to_new_album(
         "album_id": "album-media-id-2",
     }
 
-    # Upload an additional item to the same album and assert that no new album is created
+    # Upload an additional item to the same album and assert that no
+    # new album is created
     mock_api.create_album.reset_mock()
     mock_api.create_media_items.reset_mock()
     mock_api.create_media_items.return_value = CreateMediaItemsResult(
@@ -377,7 +409,7 @@ async def test_create_album_failed(
     config_entry: MockConfigEntry,
     mock_api: Mock,
 ) -> None:
-    """Test service call to upload content to a new album but creating the album fails."""
+    """Test upload to new album when creating the album fails."""
     assert hass.services.has_service(DOMAIN, "upload")
 
     mock_api.create_album.side_effect = GooglePhotosApiError()

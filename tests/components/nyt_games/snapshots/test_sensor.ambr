@@ -1,13 +1,15 @@
 # serializer version: 1
 # name: test_all_entities[sensor.connections_current_streak-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -21,13 +23,18 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Current streak',
     'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 2,
+      }),
     }),
     'original_device_class': <SensorDeviceClass.DURATION: 'duration'>,
     'original_icon': None,
     'original_name': 'Current streak',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'streak',
     'unique_id': '218886794-connections-connections_streak',
@@ -37,10 +44,10 @@
 # name: test_all_entities[sensor.connections_current_streak-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'duration',
-      'friendly_name': 'Connections Current streak',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': <UnitOfTime.DAYS: 'd'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'duration',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Connections Current streak',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfTime.DAYS: 'd'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.connections_current_streak',
@@ -52,13 +59,15 @@
 # ---
 # name: test_all_entities[sensor.connections_highest_streak-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -72,13 +81,18 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Highest streak',
     'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 2,
+      }),
     }),
     'original_device_class': <SensorDeviceClass.DURATION: 'duration'>,
     'original_icon': None,
     'original_name': 'Highest streak',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'max_streak',
     'unique_id': '218886794-connections-connections_max_streak',
@@ -88,10 +102,10 @@
 # name: test_all_entities[sensor.connections_highest_streak-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'duration',
-      'friendly_name': 'Connections Highest streak',
-      'state_class': <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
-      'unit_of_measurement': <UnitOfTime.DAYS: 'd'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'duration',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Connections Highest streak',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfTime.DAYS: 'd'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.connections_highest_streak',
@@ -103,11 +117,13 @@
 # ---
 # name: test_all_entities[sensor.connections_last_played-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -121,6 +137,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Last played',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.DATE: 'date'>,
@@ -128,6 +145,7 @@
     'original_name': 'Last played',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'last_played',
     'unique_id': '218886794-connections-connections_last_played',
@@ -137,8 +155,8 @@
 # name: test_all_entities[sensor.connections_last_played-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'date',
-      'friendly_name': 'Connections Last played',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'date',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Connections Last played',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.connections_last_played',
@@ -150,13 +168,15 @@
 # ---
 # name: test_all_entities[sensor.connections_played-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -170,6 +190,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Played',
     'options': dict({
     }),
     'original_device_class': None,
@@ -177,6 +198,7 @@
     'original_name': 'Played',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'connections_played',
     'unique_id': '218886794-connections-connections_played',
@@ -186,9 +208,9 @@
 # name: test_all_entities[sensor.connections_played-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Connections Played',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': 'games',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Connections Played',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'games',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.connections_played',
@@ -200,13 +222,15 @@
 # ---
 # name: test_all_entities[sensor.connections_won-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -220,6 +244,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Won',
     'options': dict({
     }),
     'original_device_class': None,
@@ -227,6 +252,7 @@
     'original_name': 'Won',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'won',
     'unique_id': '218886794-connections-connections_won',
@@ -236,9 +262,9 @@
 # name: test_all_entities[sensor.connections_won-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Connections Won',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': 'games',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Connections Won',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'games',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.connections_won',
@@ -250,13 +276,15 @@
 # ---
 # name: test_all_entities[sensor.spelling_bee_played-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -270,6 +298,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Played',
     'options': dict({
     }),
     'original_device_class': None,
@@ -277,6 +306,7 @@
     'original_name': 'Played',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'spelling_bees_played',
     'unique_id': '218886794-spelling_bee-spelling_bees_played',
@@ -286,9 +316,9 @@
 # name: test_all_entities[sensor.spelling_bee_played-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Spelling Bee Played',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': 'games',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Spelling Bee Played',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'games',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.spelling_bee_played',
@@ -300,13 +330,15 @@
 # ---
 # name: test_all_entities[sensor.spelling_bee_total_pangrams_found-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -320,6 +352,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Total pangrams found',
     'options': dict({
     }),
     'original_device_class': None,
@@ -327,6 +360,7 @@
     'original_name': 'Total pangrams found',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'total_pangrams',
     'unique_id': '218886794-spelling_bee-spelling_bees_total_pangrams',
@@ -336,9 +370,9 @@
 # name: test_all_entities[sensor.spelling_bee_total_pangrams_found-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Spelling Bee Total pangrams found',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': 'pangrams',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Spelling Bee Total pangrams found',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'pangrams',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.spelling_bee_total_pangrams_found',
@@ -350,13 +384,15 @@
 # ---
 # name: test_all_entities[sensor.spelling_bee_total_words_found-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -370,6 +406,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Total words found',
     'options': dict({
     }),
     'original_device_class': None,
@@ -377,6 +414,7 @@
     'original_name': 'Total words found',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'total_words',
     'unique_id': '218886794-spelling_bee-spelling_bees_total_words',
@@ -386,9 +424,9 @@
 # name: test_all_entities[sensor.spelling_bee_total_words_found-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Spelling Bee Total words found',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': 'words',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Spelling Bee Total words found',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'words',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.spelling_bee_total_words_found',
@@ -400,13 +438,15 @@
 # ---
 # name: test_all_entities[sensor.wordle_current_streak-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -420,13 +460,18 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Current streak',
     'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 2,
+      }),
     }),
     'original_device_class': <SensorDeviceClass.DURATION: 'duration'>,
     'original_icon': None,
     'original_name': 'Current streak',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'streak',
     'unique_id': '218886794-wordle-wordles_streak',
@@ -436,28 +481,30 @@
 # name: test_all_entities[sensor.wordle_current_streak-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'duration',
-      'friendly_name': 'Wordle Current streak',
-      'state_class': <SensorStateClass.TOTAL: 'total'>,
-      'unit_of_measurement': <UnitOfTime.DAYS: 'd'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'duration',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wordle Current streak',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL: 'total'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfTime.DAYS: 'd'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.wordle_current_streak',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
-    'state': '1',
+    'state': '237',
   })
 # ---
 # name: test_all_entities[sensor.wordle_highest_streak-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -471,13 +518,18 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Highest streak',
     'options': dict({
+      'sensor': dict({
+        'suggested_display_precision': 2,
+      }),
     }),
     'original_device_class': <SensorDeviceClass.DURATION: 'duration'>,
     'original_icon': None,
     'original_name': 'Highest streak',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'max_streak',
     'unique_id': '218886794-wordle-wordles_max_streak',
@@ -487,28 +539,30 @@
 # name: test_all_entities[sensor.wordle_highest_streak-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'duration',
-      'friendly_name': 'Wordle Highest streak',
-      'state_class': <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
-      'unit_of_measurement': <UnitOfTime.DAYS: 'd'>,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'duration',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wordle Highest streak',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.TOTAL_INCREASING: 'total_increasing'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: <UnitOfTime.DAYS: 'd'>,
     }),
     'context': <ANY>,
     'entity_id': 'sensor.wordle_highest_streak',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
-    'state': '5',
+    'state': '241',
   })
 # ---
 # name: test_all_entities[sensor.wordle_played-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -522,6 +576,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Played',
     'options': dict({
     }),
     'original_device_class': None,
@@ -529,6 +584,7 @@
     'original_name': 'Played',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'wordles_played',
     'unique_id': '218886794-wordle-wordles_played',
@@ -538,27 +594,29 @@
 # name: test_all_entities[sensor.wordle_played-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Wordle Played',
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
-      'unit_of_measurement': 'games',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wordle Played',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'games',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.wordle_played',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
-    'state': '70',
+    'state': '1119',
   })
 # ---
 # name: test_all_entities[sensor.wordle_won-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -572,6 +630,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Won',
     'options': dict({
     }),
     'original_device_class': None,
@@ -579,6 +638,7 @@
     'original_name': 'Won',
     'platform': 'nyt_games',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'won',
     'unique_id': '218886794-wordle-wordles_won',
@@ -588,15 +648,15 @@
 # name: test_all_entities[sensor.wordle_won-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Wordle Won',
-      'state_class': <SensorStateClass.MEASUREMENT: 'measurement'>,
-      'unit_of_measurement': 'games',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Wordle Won',
+      <SensorEntityCapabilityAttribute.STATE_CLASS: 'state_class'>: <SensorStateClass.MEASUREMENT: 'measurement'>,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'games',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.wordle_won',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,
-    'state': '51',
+    'state': '1077',
   })
 # ---

@@ -28,6 +28,7 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
 
 from tests.common import MockEntityPlatform, async_mock_service
@@ -93,6 +94,32 @@ async def test_fire(hass: HomeAssistant, mock_notifier: list[ServiceCall]) -> No
     assert hass.states.get(ENTITY_ID).state == STATE_ON
 
 
+async def test_fire_when_already_in_alert_state(
+    hass: HomeAssistant, mock_notifier: list[ServiceCall]
+) -> None:
+    """Test the alert fires if the watched entity is already in the alert state.
+
+    This is the case after a restart when the watched entity's state is
+    restored before the alert subscribes to state changes.
+    """
+    hass.states.async_set("sensor.test", STATE_ON)
+    assert await async_setup_component(hass, DOMAIN, TEST_CONFIG)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_ON
+    assert len(mock_notifier) == 1
+
+
+async def test_idle_when_already_not_in_alert_state(
+    hass: HomeAssistant, mock_notifier: list[ServiceCall]
+) -> None:
+    """Test the alert stays idle if the watched entity is not in the alert state."""
+    hass.states.async_set("sensor.test", STATE_OFF)
+    assert await async_setup_component(hass, DOMAIN, TEST_CONFIG)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_IDLE
+    assert len(mock_notifier) == 0
+
+
 async def test_silence(hass: HomeAssistant, mock_notifier: list[ServiceCall]) -> None:
     """Test silencing the alert."""
     assert await async_setup_component(hass, DOMAIN, TEST_CONFIG)
@@ -113,6 +140,38 @@ async def test_silence(hass: HomeAssistant, mock_notifier: list[ServiceCall]) ->
     assert hass.states.get(ENTITY_ID).state == STATE_IDLE
     hass.states.async_set("sensor.test", STATE_ON)
     await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_ON
+
+
+async def test_silence_can_acknowledge_false(hass: HomeAssistant) -> None:
+    """Test silencing an alert with can_acknowledge=False.
+
+    Attempting to silence should not silence.
+    """
+    # Create copy of config where can_acknowledge is False
+    config = deepcopy(TEST_CONFIG)
+    config[DOMAIN][NAME]["can_acknowledge"] = False
+
+    # Setup the alert component
+    assert await async_setup_component(hass, DOMAIN, config)
+    await hass.async_block_till_done()
+
+    # Ensure the alert is currently on
+    hass.states.async_set(ENTITY_ID, STATE_ON)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_ON
+
+    # Attempt to acknowledge
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_TURN_OFF,
+            {ATTR_ENTITY_ID: ENTITY_ID},
+            blocking=True,
+        )
+    await hass.async_block_till_done()
+
+    # The state should still be ON because can_acknowledge=False
     assert hass.states.get(ENTITY_ID).state == STATE_ON
 
 

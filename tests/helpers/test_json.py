@@ -1,23 +1,29 @@
 """Test Home Assistant remote methods and classes."""
 
+from collections.abc import Callable
 import datetime
 from functools import partial
+import gc
 import json
 import math
 import os
 from pathlib import Path
 import time
+import tracemalloc
 from typing import Any, NamedTuple
 from unittest.mock import Mock, patch
 
 import pytest
 
 from homeassistant.core import Event, HomeAssistant, State
-from homeassistant.helpers import json as json_helper
 from homeassistant.helpers.json import (
     ExtendedJSONEncoder,
     JSONEncoder as DefaultHASSJSONEncoder,
+    cached_json_bytes,
+    cached_json_fragment,
+    cached_json_fragment_sorted,
     find_paths_unserializable_data,
+    json_bytes,
     json_bytes_sorted,
     json_bytes_strip_null,
     json_dumps,
@@ -27,14 +33,9 @@ from homeassistant.helpers.json import (
 )
 from homeassistant.util import dt as dt_util
 from homeassistant.util.color import RGBColor
-from homeassistant.util.json import (
-    JSON_DECODE_EXCEPTIONS,
-    JSON_ENCODE_EXCEPTIONS,
-    SerializationError,
-    load_json,
-)
+from homeassistant.util.json import SerializationError, load_json
 
-from tests.common import import_and_test_deprecated_constant, json_round_trip
+from tests.common import json_round_trip
 
 # Test data that can be saved as JSON
 TEST_JSON_A = {"a": 1, "B": "two"}
@@ -58,6 +59,17 @@ def test_json_encoder(hass: HomeAssistant, encoder: type[json.JSONEncoder]) -> N
     # Test serializing an object which implements as_dict
     default = ha_json_enc.default(state)
     assert json_round_trip(default) == json_round_trip(state.as_dict())
+
+
+def test_default_json_encoder(hass: HomeAssistant) -> None:
+    """Test the default JSON encoder for date and time."""
+    ha_json_enc = DefaultHASSJSONEncoder()
+
+    today = datetime.date(2026, 8, 23)
+    assert ha_json_enc.default(today) == today.isoformat()
+
+    current_time = datetime.time(12, 0)
+    assert ha_json_enc.default(current_time) == current_time.isoformat()
 
 
 def test_json_encoder_raises(hass: HomeAssistant) -> None:
@@ -153,6 +165,27 @@ def test_json_dumps_rgb_color_subclass() -> None:
     assert json_dumps(rgb) == "[4,2,1]"
 
 
+def test_json_dumps_date_time_subclasses() -> None:
+    """Test the json dumps with date and time subclasses."""
+
+    class CustomDate(datetime.date):
+        """Custom date subclass."""
+
+    class CustomTime(datetime.time):
+        """Custom time subclass."""
+
+    class CustomDatetime(datetime.datetime):
+        """Custom datetime subclass."""
+
+    d = CustomDate(2026, 8, 23)
+    t = CustomTime(12, 30, 45)
+    dt = CustomDatetime(2026, 8, 23, 12, 30, 45)
+
+    assert json_dumps({"date": d, "time": t, "datetime": dt}) == (
+        '{"date":"2026-08-23","time":"12:30:45","datetime":"2026-08-23T12:30:45"}'
+    )
+
+
 def test_json_fragments() -> None:
     """Test the json dumps with a fragment."""
 
@@ -180,6 +213,79 @@ def test_json_fragments() -> None:
         json_dumps([Fragment1(), Fragment2()])
         == '[{"inner":"fragment1"},{"inner":"fragment2"}]'
     )
+
+
+def test_cached_json_fragment() -> None:
+    """Test cached_json_fragment serializes identically to a plain fragment."""
+    data = {"a": 1, "b": [1, 2, 3], "c": {"nested": True}, "d": None}
+
+    fragment = cached_json_fragment(data)
+    assert isinstance(fragment, json_fragment)
+    assert json_dumps([fragment]) == json_dumps([json_fragment(json_bytes(data))])
+    assert (
+        json_dumps([fragment]) == '[{"a":1,"b":[1,2,3],"c":{"nested":true},"d":null}]'
+    )
+
+
+def test_cached_json_bytes() -> None:
+    """Test cached_json_bytes serializes identically to json_bytes."""
+    data = {"a": 1, "b": [1, 2, 3], "c": {"nested": True}, "d": None}
+
+    assert cached_json_bytes(data) == json_bytes(data)
+    assert (
+        cached_json_bytes(data) == b'{"a":1,"b":[1,2,3],"c":{"nested":true},"d":null}'
+    )
+
+
+def test_cached_json_fragment_sorted() -> None:
+    """Test cached_json_fragment_sorted serializes with sorted keys."""
+    data = {"c": 3, "a": 1, "b": 2}
+
+    fragment = cached_json_fragment_sorted(data)
+    assert isinstance(fragment, json_fragment)
+    assert json_dumps([fragment]) == '[{"a":1,"b":2,"c":3}]'
+
+
+@pytest.mark.parametrize(
+    "cached_serializer",
+    [cached_json_bytes, cached_json_fragment, cached_json_fragment_sorted],
+    ids=["cached_json_bytes", "cached_json_fragment", "cached_json_fragment_sorted"],
+)
+def test_cached_json_helpers_trim_buffer(
+    cached_serializer: Callable[[Any], object],
+) -> None:
+    """Test the cached_json_* helpers cache right-sized bytes, not orjson's slack.
+
+    orjson.dumps returns bytes whose backing buffer is rounded up to a power of
+    two and not shrunk; the helpers copy them to a right-sized buffer. Without
+    that copy the cached value would retain the full over-allocated buffer
+    (several KiB even for a small payload), which is the memory regression this
+    guards against.
+
+    The waste is invisible to normal object inspection: sys.getsizeof() reports
+    the logical length, not the backing buffer, and orjson.Fragment exposes no way
+    to reach the bytes it wraps, so the retained allocation can only be observed
+    via tracemalloc.
+    """
+    data = {f"key_{index}": "value" * 5 for index in range(40)}
+    serialized_size = len(json_bytes(data))
+
+    tracemalloc.start()
+    try:
+        # clear_traces resets the baseline to zero so pre-existing garbage from
+        # the test session is not counted; the transient over-allocated buffer is
+        # freed by refcounting before get_traced_memory, leaving only `cached`.
+        gc.collect()
+        tracemalloc.clear_traces()
+        cached = cached_serializer(data)
+        retained, _ = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert cached is not None  # keep alive until measured
+    # The cache holds ~the serialized size; without the copy it would hold
+    # orjson's oversized power-of-two buffer, which is far larger.
+    assert retained < serialized_size * 1.5
 
 
 def test_json_bytes_strip_null() -> None:
@@ -243,9 +349,7 @@ def test_save_bad_data() -> None:
     with pytest.raises(SerializationError) as excinfo:
         save_json("test4", {"hello": CannotSerializeMe()})
 
-    assert "Failed to serialize to JSON: test4. Bad data at $.hello=" in str(
-        excinfo.value
-    )
+    assert "Bad data at $.hello=" in str(excinfo.value)
 
 
 def test_custom_encoder(tmp_path: Path) -> None:
@@ -312,7 +416,7 @@ def test_find_unserializable_data() -> None:
     assert find_paths_unserializable_data({("A",): 1}) == {"$<key: ('A',)>": ("A",)}
     assert math.isnan(
         find_paths_unserializable_data(
-            float("nan"), dump=partial(json.dumps, allow_nan=False)
+            math.nan, dump=partial(json.dumps, allow_nan=False)
         )["$"]
     )
 
@@ -350,50 +454,3 @@ def test_find_unserializable_data() -> None:
         BadData(),
         dump=partial(json.dumps, cls=MockJSONEncoder),
     ) == {"$(BadData).bla": bad_data}
-
-
-def test_deprecated_json_loads(caplog: pytest.LogCaptureFixture) -> None:
-    """Test deprecated json_loads function.
-
-    It was moved from helpers to util in #88099
-    """
-    json_helper.json_loads("{}")
-    assert (
-        "json_loads is a deprecated function which will be removed in "
-        "HA Core 2025.8. Use homeassistant.util.json.json_loads instead"
-    ) in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("constant_name", "replacement_name", "replacement"),
-    [
-        (
-            "JSON_DECODE_EXCEPTIONS",
-            "homeassistant.util.json.JSON_DECODE_EXCEPTIONS",
-            JSON_DECODE_EXCEPTIONS,
-        ),
-        (
-            "JSON_ENCODE_EXCEPTIONS",
-            "homeassistant.util.json.JSON_ENCODE_EXCEPTIONS",
-            JSON_ENCODE_EXCEPTIONS,
-        ),
-    ],
-)
-def test_deprecated_aliases(
-    caplog: pytest.LogCaptureFixture,
-    constant_name: str,
-    replacement_name: str,
-    replacement: Any,
-) -> None:
-    """Test deprecated JSON_DECODE_EXCEPTIONS and JSON_ENCODE_EXCEPTIONS constants.
-
-    They were moved from helpers to util in #88099
-    """
-    import_and_test_deprecated_constant(
-        caplog,
-        json_helper,
-        constant_name,
-        replacement_name,
-        replacement,
-        "2025.8",
-    )

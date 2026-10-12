@@ -1,11 +1,12 @@
 """Base class for Switcher entities."""
 
 import logging
-from typing import Any
+from typing import Any, override
 
 from aioswitcher.api import SwitcherApi
 from aioswitcher.api.messages import SwitcherBaseResponse
 
+from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -28,6 +29,16 @@ class SwitcherEntity(CoordinatorEntity[SwitcherDataUpdateCoordinator]):
             connections={(dr.CONNECTION_NETWORK_MAC, coordinator.mac_address)}
         )
 
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._update_data()
+        super()._handle_coordinator_update()
+
+    def _update_data(self) -> None:
+        """Update data from device."""
+
     async def _async_call_api(self, api: str, *args: Any, **kwargs: Any) -> None:
         """Call Switcher API."""
         _LOGGER.debug("Calling api for %s, api: '%s', args: %s", self.name, api, args)
@@ -47,8 +58,8 @@ class SwitcherEntity(CoordinatorEntity[SwitcherDataUpdateCoordinator]):
             error = repr(err)
 
         if error or not response or not response.successful:
-            self.coordinator.last_update_success = False
-            self.async_write_ha_state()
+            # Availability is driven by the device broadcasts, so surface the
+            # failure without marking the entity unavailable.
             raise HomeAssistantError(
                 f"Call api for {self.name} failed, api: '{api}', "
                 f"args: {args}, response/error: {response or error}"

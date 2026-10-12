@@ -5,11 +5,24 @@
         "default": "mdi:cart-off"
       }
     },
+    "sensor": {
+      "expiration": {
+        "default": "mdi:account-reactivate"
+      },
+      "subscription": {
+        "default": "mdi:account",
+        "state": {
+          "free": "mdi:account",
+          "regular": "mdi:account-star",
+          "trial": "mdi:account-question"
+        }
+      }
+    },
     "todo": {
-      "ingredient_list": {
+      "additional_item_list": {
         "default": "mdi:cart-plus"
       },
-      "additional_item_list": {
+      "ingredient_list": {
         "default": "mdi:cart-plus"
       }
     }

@@ -4,9 +4,9 @@ import datetime
 from enum import Enum
 from functools import partial
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 
-from miio import DeviceException
+from miio import Device as MiioDevice, DeviceException
 
 from homeassistant.const import ATTR_CONNECTIONS, CONF_MAC, CONF_MODEL
 from homeassistant.helpers import device_registry as dr
@@ -16,8 +16,11 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
+from homeassistant.util import dt as dt_util
 
-from .const import ATTR_AVAILABLE, DOMAIN
+from .const import DOMAIN
+from .coordinator import GatewayDeviceCoordinator
+from .typing import XiaomiMiioConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,34 +28,33 @@ _LOGGER = logging.getLogger(__name__)
 class XiaomiMiioEntity(Entity):
     """Representation of a base Xiaomi Miio Entity."""
 
-    def __init__(self, name, device, entry, unique_id):
+    def __init__(
+        self,
+        name: str,
+        device: MiioDevice,
+        entry: XiaomiMiioConfigEntry,
+        unique_id: str | None,
+    ) -> None:
         """Initialize the Xiaomi Miio Device."""
         self._device = device
         self._model = entry.data[CONF_MODEL]
         self._mac = entry.data[CONF_MAC]
         self._device_id = entry.unique_id
-        self._unique_id = unique_id
-        self._name = name
-        self._available = None
+        self._attr_unique_id = unique_id
+        self._attr_name = name
+        self._attr_available = False
 
     @property
-    def unique_id(self):
-        """Return an unique ID."""
-        return self._unique_id
-
-    @property
-    def name(self):
-        """Return the name of this entity, if any."""
-        return self._name
-
-    @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
+        if TYPE_CHECKING:
+            assert self._device_id is not None
         device_info = DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
             manufacturer="Xiaomi",
             model=self._model,
-            name=self._name,
+            name=self._attr_name,
         )
 
         if self._mac is not None:
@@ -68,7 +70,13 @@ class XiaomiCoordinatedMiioEntity[_T: DataUpdateCoordinator[Any]](
 
     _attr_has_entity_name = True
 
-    def __init__(self, device, entry, unique_id, coordinator):
+    def __init__(
+        self,
+        device: MiioDevice,
+        entry: XiaomiMiioConfigEntry,
+        unique_id: str | None,
+        coordinator: _T,
+    ) -> None:
         """Initialize the coordinated Xiaomi Miio Device."""
         super().__init__(coordinator)
         self._device = device
@@ -76,16 +84,14 @@ class XiaomiCoordinatedMiioEntity[_T: DataUpdateCoordinator[Any]](
         self._mac = entry.data[CONF_MAC]
         self._device_id = entry.unique_id
         self._device_name = entry.title
-        self._unique_id = unique_id
+        self._attr_unique_id = unique_id
 
     @property
-    def unique_id(self):
-        """Return an unique ID."""
-        return self._unique_id
-
-    @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
+        if TYPE_CHECKING:
+            assert self._device_id is not None
         device_info = DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
             manufacturer="Xiaomi",
@@ -136,11 +142,12 @@ class XiaomiCoordinatedMiioEntity[_T: DataUpdateCoordinator[Any]](
 
     @staticmethod
     def _parse_datetime_time(initial_time: datetime.time) -> str:
-        time = datetime.datetime.now().replace(
+        now = dt_util.now()
+        time = now.replace(
             hour=initial_time.hour, minute=initial_time.minute, second=0, microsecond=0
         )
 
-        if time < datetime.datetime.now():
+        if time < now:
             time += datetime.timedelta(days=1)
 
         return time.isoformat()
@@ -150,44 +157,35 @@ class XiaomiCoordinatedMiioEntity[_T: DataUpdateCoordinator[Any]](
         return time.isoformat()
 
 
-class XiaomiGatewayDevice(CoordinatorEntity, Entity):
+class XiaomiGatewayDevice(CoordinatorEntity[GatewayDeviceCoordinator], Entity):
     """Representation of a base Xiaomi Gateway Device."""
 
-    def __init__(self, coordinator, sub_device, entry):
+    def __init__(self, coordinator: GatewayDeviceCoordinator) -> None:
         """Initialize the Xiaomi Gateway Device."""
         super().__init__(coordinator)
-        self._sub_device = sub_device
-        self._entry = entry
-        self._unique_id = sub_device.sid
-        self._name = f"{sub_device.name} ({sub_device.sid})"
-
-    @property
-    def unique_id(self):
-        """Return an unique ID."""
-        return self._unique_id
-
-    @property
-    def name(self):
-        """Return the name of this entity, if any."""
-        return self._name
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return the device info of the gateway."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._sub_device.sid)},
-            via_device=(DOMAIN, self._entry.unique_id),
-            manufacturer="Xiaomi",
-            name=self._sub_device.name,
-            model=self._sub_device.model,
-            sw_version=self._sub_device.firmware_version,
-            hw_version=self._sub_device.zigbee_model,
+        self._sub_device = coordinator.sub_device
+        self._entry = coordinator.config_entry
+        self._attr_unique_id = coordinator.sub_device.sid
+        self._attr_name = (
+            f"{coordinator.sub_device.name} ({coordinator.sub_device.sid})"
         )
 
     @property
-    def available(self):
-        """Return if entity is available."""
-        if self.coordinator.data is None:
-            return False
-
-        return self.coordinator.data[ATTR_AVAILABLE]
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info of the gateway."""
+        if TYPE_CHECKING:
+            assert self._entry.unique_id is not None
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._sub_device.sid)},
+            via_device_id=dr.async_get_device_id_by_identifier(
+                self.hass,
+                (DOMAIN, self._entry.unique_id),
+                config_entry_id=self._entry.entry_id,
+            ),
+            manufacturer="Xiaomi",
+            name=self._sub_device.name,
+            model=self._sub_device.model,
+            sw_version=str(self._sub_device.firmware_version),
+            hw_version=self._sub_device.zigbee_model,
+        )

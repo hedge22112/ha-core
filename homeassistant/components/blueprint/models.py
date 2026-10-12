@@ -1,7 +1,5 @@
 """Blueprint models."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Awaitable, Callable
 import logging
@@ -10,8 +8,8 @@ import shutil
 from typing import Any
 
 from awesomeversion import AwesomeVersion
-import voluptuous as vol
-from voluptuous.humanize import humanize_error
+import probatio
+from probatio.humanize import humanize_error
 
 from homeassistant import loader
 from homeassistant.const import (
@@ -23,7 +21,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.util import yaml
+from homeassistant.util import yaml as yaml_util
 
 from .const import (
     BLUEPRINT_FOLDER,
@@ -61,7 +59,7 @@ class Blueprint:
         """Initialize a blueprint."""
         try:
             data = self.data = schema(data)
-        except vol.Invalid as err:
+        except probatio.Invalid as err:
             raise InvalidBlueprint(expected_domain, path, data, err) from err
 
         # In future, we will treat this as "incorrect" and allow to recover from this
@@ -79,7 +77,7 @@ class Blueprint:
 
         self.domain = data_domain
 
-        missing = yaml.extract_inputs(data) - set(self.inputs)
+        missing = yaml_util.extract_inputs(data) - set(self.inputs)
 
         if missing:
             raise InvalidBlueprint(
@@ -117,7 +115,7 @@ class Blueprint:
 
     def yaml(self) -> str:
         """Dump blueprint as YAML."""
-        return yaml.dump(self.data)
+        return yaml_util.dump(self.data)
 
     @callback
     def validate(self) -> list[str] | None:
@@ -179,7 +177,7 @@ class BlueprintInputs:
     @callback
     def async_substitute(self) -> dict:
         """Get the blueprint value with the inputs substituted."""
-        processed = yaml.substitute(self.blueprint.data, self.inputs_with_default)
+        processed = yaml_util.substitute(self.blueprint.data, self.inputs_with_default)
         combined = {**processed, **self.config_with_inputs}
         # From config_with_inputs
         combined.pop(CONF_USE_BLUEPRINT)
@@ -225,7 +223,9 @@ class DomainBlueprints:
     def _load_blueprint(self, blueprint_path: str) -> Blueprint:
         """Load a blueprint."""
         try:
-            blueprint_data = yaml.load_yaml_dict(self.blueprint_folder / blueprint_path)
+            blueprint_data = yaml_util.load_yaml_dict(
+                self.blueprint_folder / blueprint_path
+            )
         except FileNotFoundError as err:
             raise FailedToLoad(
                 self.domain,
@@ -310,7 +310,7 @@ class DomainBlueprints:
         """Process a blueprint config."""
         try:
             config_with_blueprint = BLUEPRINT_INSTANCE_FIELDS(config_with_blueprint)
-        except vol.Invalid as err:
+        except probatio.Invalid as err:
             raise InvalidBlueprintInputs(
                 self.domain, humanize_error(config_with_blueprint, err)
             ) from err

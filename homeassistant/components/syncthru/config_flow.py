@@ -1,12 +1,12 @@
 """Config flow for Samsung SyncThru."""
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 from urllib.parse import urlparse
 
+import probatio
 from pysyncthru import ConnectionMode, SyncThru, SyncThruAPINotSupported
 from url_normalize import url_normalize
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_NAME, CONF_URL
@@ -29,6 +29,7 @@ class SyncThruConfigFlow(ConfigFlow, domain=DOMAIN):
     url: str
     name: str
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -37,6 +38,7 @@ class SyncThruConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self._async_show_form(step_id="user")
         return await self._async_check_and_create("user", user_input)
 
+    @override
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
@@ -44,12 +46,14 @@ class SyncThruConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.upnp[ATTR_UPNP_UDN])
         self._abort_if_unique_id_configured()
 
-        self.url = url_normalize(
-            discovery_info.upnp.get(
-                ATTR_UPNP_PRESENTATION_URL,
-                f"http://{urlparse(discovery_info.ssdp_location or '').hostname}/",
-            )
+        norm_url = url_normalize(
+            discovery_info.upnp.get(ATTR_UPNP_PRESENTATION_URL)
+            or f"http://{urlparse(discovery_info.ssdp_location or '').hostname}/"
         )
+        if TYPE_CHECKING:
+            # url_normalize only returns None if passed None, and we don't do that
+            assert norm_url is not None
+        self.url = norm_url
 
         for existing_entry in (
             x for x in self._async_current_entries() if x.data[CONF_URL] == self.url
@@ -87,10 +91,16 @@ class SyncThruConfigFlow(ConfigFlow, domain=DOMAIN):
             user_input = {}
         return self.async_show_form(
             step_id=step_id,
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_URL, default=user_input.get(CONF_URL, "")): str,
-                    vol.Optional(CONF_NAME, default=user_input.get(CONF_NAME, "")): str,
+                    probatio.Required(
+                        CONF_URL, default=user_input.get(CONF_URL, "")
+                    ): str,
+                    # Name field is no longer allowed in config flow schemas
+                    # pylint: disable-next=home-assistant-config-flow-name-field
+                    probatio.Optional(
+                        CONF_NAME, default=user_input.get(CONF_NAME, "")
+                    ): str,
                 }
             ),
             errors=errors or {},

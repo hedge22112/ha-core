@@ -1,13 +1,13 @@
 """Config flow for Roborock."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from copy import deepcopy
 import logging
-from typing import Any
+from typing import Any, override
+from urllib.parse import urlparse
 
-from roborock.containers import UserData
+import probatio
+from roborock.data import UserData
 from roborock.exceptions import (
     RoborockAccountDoesNotExist,
     RoborockException,
@@ -17,25 +17,42 @@ from roborock.exceptions import (
     RoborockUrlException,
 )
 from roborock.web_api import RoborockApiClient
-import voluptuous as vol
 
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
-    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_USERNAME
+from homeassistant.const import CONF_REGION, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
+from . import RoborockConfigEntry
 from .const import (
     CONF_BASE_URL,
     CONF_ENTRY_CODE,
+    CONF_ROBOROCK_SERVER_URL,
+    CONF_SHOW_BACKGROUND,
+    CONF_SHOW_ROOMS,
+    CONF_SHOW_WALLS,
     CONF_USER_DATA,
     DEFAULT_DRAWABLES,
     DOMAIN,
     DRAWABLES,
+    REGION_AUTO,
+    REGION_CUSTOM,
+    REGION_OPTIONS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,12 +62,14 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Roborock."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._username: str | None = None
         self._client: RoborockApiClient | None = None
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -59,17 +78,75 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             username = user_input[CONF_USERNAME]
-            await self.async_set_unique_id(username.lower())
-            self._abort_if_unique_id_configured(error="already_configured_account")
+            region = user_input[CONF_REGION]
             self._username = username
             _LOGGER.debug("Requesting code for Roborock account")
-            self._client = RoborockApiClient(username)
+            if region == REGION_CUSTOM:
+                return await self.async_step_custom_url()
+            base_url = None
+            if region != REGION_AUTO:
+                base_url = f"https://{region}iot.roborock.com"
+            self._client = RoborockApiClient(
+                username,
+                base_url=base_url,
+                session=async_get_clientsession(self.hass),
+            )
             errors = await self._request_code()
             if not errors:
                 return await self.async_step_code()
+
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_USERNAME): str}),
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_USERNAME): str,
+                    probatio.Required(CONF_REGION, default=REGION_AUTO): SelectSelector(
+                        SelectSelectorConfig(
+                            options=REGION_OPTIONS,
+                            mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="region",
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_custom_url(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle custom server URL entry."""
+        errors: dict[str, str] = {}
+        assert self._username
+        if user_input is not None:
+            url = user_input[CONF_ROBOROCK_SERVER_URL].strip()
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                errors[CONF_ROBOROCK_SERVER_URL] = "invalid_url_format"
+            else:
+                self._client = RoborockApiClient(
+                    self._username,
+                    base_url=url,
+                    session=async_get_clientsession(self.hass),
+                )
+                errors = await self._request_code()
+                if not errors:
+                    return await self.async_step_code()
+
+        return self.async_show_form(
+            step_id="custom_url",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        CONF_ROBOROCK_SERVER_URL,
+                        default=(
+                            user_input[CONF_ROBOROCK_SERVER_URL]
+                            if user_input is not None
+                            else "https://usiot.roborock.com"
+                        ),
+                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
+                }
+            ),
             errors=errors,
         )
 
@@ -77,7 +154,7 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
         assert self._client
         errors: dict[str, str] = {}
         try:
-            await self._client.request_code()
+            await self._client.request_code_v4()
         except RoborockAccountDoesNotExist:
             errors["base"] = "invalid_email"
         except RoborockUrlException:
@@ -106,9 +183,11 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
             code = user_input[CONF_ENTRY_CODE]
             _LOGGER.debug("Logging into Roborock account using email provided code")
             try:
-                login_data = await self._client.code_login(code)
+                user_data = await self._client.code_login_v4(code)
             except RoborockInvalidCode:
                 errors["base"] = "invalid_code"
+            except RoborockAccountDoesNotExist:
+                errors["base"] = "invalid_email_or_region"
             except RoborockException:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown_roborock"
@@ -116,23 +195,39 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
+                await self.async_set_unique_id(user_data.rruid)
                 if self.source == SOURCE_REAUTH:
+                    self._abort_if_unique_id_mismatch(reason="wrong_account")
                     reauth_entry = self._get_reauth_entry()
-                    self.hass.config_entries.async_update_entry(
-                        reauth_entry,
-                        data={
-                            **reauth_entry.data,
-                            CONF_USER_DATA: login_data.as_dict(),
-                        },
+                    return self.async_update_reload_and_abort(
+                        reauth_entry, data_updates={CONF_USER_DATA: user_data.as_dict()}
                     )
-                    return self.async_abort(reason="reauth_successful")
-                return self._create_entry(self._client, self._username, login_data)
+                self._abort_if_unique_id_configured(error="already_configured_account")
+                return await self._create_entry(self._client, self._username, user_data)
 
         return self.async_show_form(
             step_id="code",
-            data_schema=vol.Schema({vol.Required(CONF_ENTRY_CODE): str}),
+            data_schema=probatio.Schema({probatio.Required(CONF_ENTRY_CODE): str}),
             errors=errors,
         )
+
+    @override
+    async def async_step_dhcp(
+        self, discovery_info: DhcpServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle a flow started by a dhcp discovery."""
+        await self._async_handle_discovery_without_unique_id()
+        device_registry = dr.async_get(self.hass)
+        devices = device_registry.async_get_devices(
+            connections={(dr.CONNECTION_NETWORK_MAC, discovery_info.macaddress)}
+        )
+        if any(
+            identifier[0] == DOMAIN
+            for device in devices
+            for identifier in device.identifiers
+        ):
+            return self.async_abort(reason="already_configured")
+        return await self.async_step_user()
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
@@ -140,7 +235,11 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
         """Perform reauth upon an API authentication error."""
         self._username = entry_data[CONF_USERNAME]
         assert self._username
-        self._client = RoborockApiClient(self._username)
+        self._client = RoborockApiClient(
+            self._username,
+            base_url=entry_data[CONF_BASE_URL],
+            session=async_get_clientsession(self.hass),
+        )
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -154,7 +253,7 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_code()
         return self.async_show_form(step_id="reauth_confirm", errors=errors)
 
-    def _create_entry(
+    async def _create_entry(
         self, client: RoborockApiClient, username: str, user_data: UserData
     ) -> ConfigFlowResult:
         """Finished config flow and create entry."""
@@ -163,23 +262,24 @@ class RoborockFlowHandler(ConfigFlow, domain=DOMAIN):
             data={
                 CONF_USERNAME: username,
                 CONF_USER_DATA: user_data.as_dict(),
-                CONF_BASE_URL: client.base_url,
+                CONF_BASE_URL: await client.base_url,
             },
         )
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
-        config_entry: ConfigEntry,
+        config_entry: RoborockConfigEntry,
     ) -> RoborockOptionsFlowHandler:
         """Create the options flow."""
         return RoborockOptionsFlowHandler(config_entry)
 
 
-class RoborockOptionsFlowHandler(OptionsFlow):
+class RoborockOptionsFlowHandler(OptionsFlowWithReload):
     """Handle an option flow for Roborock."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
+    def __init__(self, config_entry: RoborockConfigEntry) -> None:
         """Initialize options flow."""
         self.options = deepcopy(dict(config_entry.options))
 
@@ -194,19 +294,40 @@ class RoborockOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage the map object drawable options."""
         if user_input is not None:
+            self.options[CONF_SHOW_BACKGROUND] = user_input.pop(CONF_SHOW_BACKGROUND)
+            self.options[CONF_SHOW_ROOMS] = user_input.pop(CONF_SHOW_ROOMS)
+            self.options[CONF_SHOW_WALLS] = user_input.pop(CONF_SHOW_WALLS)
             self.options.setdefault(DRAWABLES, {}).update(user_input)
             return self.async_create_entry(title="", data=self.options)
         data_schema = {}
         for drawable, default_value in DEFAULT_DRAWABLES.items():
             data_schema[
-                vol.Required(
+                probatio.Required(
                     drawable.value,
                     default=self.config_entry.options.get(DRAWABLES, {}).get(
                         drawable, default_value
                     ),
                 )
             ] = bool
+        data_schema[
+            probatio.Required(
+                CONF_SHOW_BACKGROUND,
+                default=self.config_entry.options.get(CONF_SHOW_BACKGROUND, False),
+            )
+        ] = bool
+        data_schema[
+            probatio.Required(
+                CONF_SHOW_ROOMS,
+                default=self.config_entry.options.get(CONF_SHOW_ROOMS, True),
+            )
+        ] = bool
+        data_schema[
+            probatio.Required(
+                CONF_SHOW_WALLS,
+                default=self.config_entry.options.get(CONF_SHOW_WALLS, True),
+            )
+        ] = bool
         return self.async_show_form(
             step_id=DRAWABLES,
-            data_schema=vol.Schema(data_schema),
+            data_schema=probatio.Schema(data_schema),
         )

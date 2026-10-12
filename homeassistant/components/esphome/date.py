@@ -1,9 +1,8 @@
 """Support for esphome dates."""
 
-from __future__ import annotations
-
 from datetime import date
 from functools import partial
+from typing import override
 
 from aioesphomeapi import DateInfo, DateState
 
@@ -11,12 +10,15 @@ from homeassistant.components.date import DateEntity
 
 from .entity import EsphomeEntity, esphome_state_property, platform_async_setup_entry
 
+PARALLEL_UPDATES = 0
+
 
 class EsphomeDate(EsphomeEntity[DateInfo, DateState], DateEntity):
     """A date implementation for esphome."""
 
     @property
     @esphome_state_property
+    @override
     def native_value(self) -> date | None:
         """Return the state of the entity."""
         state = self._state
@@ -24,9 +26,16 @@ class EsphomeDate(EsphomeEntity[DateInfo, DateState], DateEntity):
             return None
         return date(state.year, state.month, state.day)
 
+    @override
     async def async_set_value(self, value: date) -> None:
         """Update the current date."""
-        self._client.date_command(self._key, value.year, value.month, value.day)
+        self._client.date_command(
+            self._key,
+            value.year,
+            value.month,
+            value.day,
+            device_id=self._static_info.device_id,
+        )
 
 
 async_setup_entry = partial(

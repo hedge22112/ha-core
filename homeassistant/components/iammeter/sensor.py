@@ -1,15 +1,14 @@
 """Support for iammeter via local API."""
 
-from __future__ import annotations
-
 from asyncio import timeout
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
+from typing import override
 
 from iammeter.client import IamMeter
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
@@ -32,8 +31,12 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import PlatformNotReady
-from homeassistant.helpers import debounce, entity_registry as er, update_coordinator
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import (
+    config_validation as cv,
+    debounce,
+    entity_registry as er,
+    update_coordinator,
+)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -48,9 +51,9 @@ DEFAULT_DEVICE_NAME = "IamMeter"
 
 PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Optional(CONF_NAME, default=DEFAULT_DEVICE_NAME): cv.string,
-        vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
+        probatio.Required(CONF_HOST): cv.string,
+        probatio.Optional(CONF_NAME, default=DEFAULT_DEVICE_NAME): cv.string,
+        probatio.Optional(CONF_PORT, default=DEFAULT_PORT): probatio.Port(),
     }
 )
 
@@ -131,6 +134,7 @@ async def async_setup_platform(
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
+        config_entry=None,
         name=config_name,
         update_method=async_update_data,
         update_interval=SCAN_INTERVAL,
@@ -177,6 +181,7 @@ class IammeterSensor(update_coordinator.CoordinatorEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self):
         """Return the native sensor value."""
         raw_attr = self.coordinator.data.get(self.entity_description.key, None)

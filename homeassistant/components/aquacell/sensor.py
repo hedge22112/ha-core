@@ -1,9 +1,9 @@
 """Sensors exposing properties of the softener device."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from typing import override
 
 from aioaquacell import Softener
 
@@ -15,11 +15,12 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
 
-from . import AquacellConfigEntry
-from .coordinator import AquacellCoordinator
+from .const import STALE_DATA_TIMEOUT
+from .coordinator import AquacellConfigEntry, AquacellCoordinator
 from .entity import AquacellEntity
 
 PARALLEL_UPDATES = 1
@@ -29,7 +30,8 @@ PARALLEL_UPDATES = 1
 class SoftenerSensorEntityDescription(SensorEntityDescription):
     """Describes Softener sensor entity."""
 
-    value_fn: Callable[[Softener], StateType]
+    value_fn: Callable[[Softener], StateType | datetime]
+    available_when_stale: bool = False
 
 
 SENSORS: tuple[SoftenerSensorEntityDescription, ...] = (
@@ -38,39 +40,39 @@ SENSORS: tuple[SoftenerSensorEntityDescription, ...] = (
         translation_key="salt_left_side_percentage",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        value_fn=lambda softener: softener.salt.leftPercent,
+        value_fn=lambda softener: softener.salt.left_percent,
     ),
     SoftenerSensorEntityDescription(
         key="salt_right_side_percentage",
         translation_key="salt_right_side_percentage",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
-        value_fn=lambda softener: softener.salt.rightPercent,
+        value_fn=lambda softener: softener.salt.right_percent,
     ),
     SoftenerSensorEntityDescription(
         key="salt_left_side_time_remaining",
         translation_key="salt_left_side_time_remaining",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.DAYS,
-        value_fn=lambda softener: softener.salt.leftDays,
+        value_fn=lambda softener: softener.salt.left_days,
     ),
     SoftenerSensorEntityDescription(
         key="salt_right_side_time_remaining",
         translation_key="salt_right_side_time_remaining",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.DAYS,
-        value_fn=lambda softener: softener.salt.rightDays,
+        value_fn=lambda softener: softener.salt.right_days,
     ),
     SoftenerSensorEntityDescription(
         key="battery",
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
-        value_fn=lambda softener: softener.battery,
+        value_fn=lambda softener: softener.diagnostics.battery,
     ),
     SoftenerSensorEntityDescription(
         key="wi_fi_strength",
         translation_key="wi_fi_strength",
-        value_fn=lambda softener: softener.wifiLevel,
+        value_fn=lambda softener: softener.diagnostics.wifi_level,
         device_class=SensorDeviceClass.ENUM,
         options=[
             "high",
@@ -78,13 +80,20 @@ SENSORS: tuple[SoftenerSensorEntityDescription, ...] = (
             "low",
         ],
     ),
+    SoftenerSensorEntityDescription(
+        key="last_update",
+        translation_key="last_update",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda softener: softener.diagnostics.last_update,
+        available_when_stale=True,
+    ),
 )
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AquacellConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensors."""
     softeners = config_entry.runtime_data.data
@@ -112,6 +121,17 @@ class SoftenerSensor(AquacellEntity, SensorEntity):
         self.entity_description = description
 
     @property
-    def native_value(self) -> StateType:
+    @override
+    def available(self) -> bool:
+        """Return if the softener reported to the cloud recently."""
+        return super().available and (
+            self.entity_description.available_when_stale
+            or dt_util.utcnow() - self.softener.diagnostics.last_update
+            < STALE_DATA_TIMEOUT
+        )
+
+    @property
+    @override
+    def native_value(self) -> StateType | datetime:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.softener)

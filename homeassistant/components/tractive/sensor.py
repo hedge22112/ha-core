@@ -1,10 +1,8 @@
 """Support for Tractive sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -16,26 +14,22 @@ from homeassistant.const import (
     ATTR_BATTERY_LEVEL,
     PERCENTAGE,
     EntityCategory,
-    UnitOfEnergy,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from . import Trackables, TractiveClient, TractiveConfigEntry
 from .const import (
-    ATTR_ACTIVITY_LABEL,
-    ATTR_CALORIES,
     ATTR_DAILY_GOAL,
     ATTR_MINUTES_ACTIVE,
     ATTR_MINUTES_DAY_SLEEP,
     ATTR_MINUTES_NIGHT_SLEEP,
     ATTR_MINUTES_REST,
-    ATTR_SLEEP_LABEL,
     ATTR_TRACKER_STATE,
     TRACKER_HARDWARE_STATUS_UPDATED,
-    TRACKER_WELLNESS_STATUS_UPDATED,
+    TRACKER_HEALTH_OVERVIEW_UPDATED,
 )
 from .entity import TractiveEntity
 
@@ -57,6 +51,8 @@ class TractiveSensor(TractiveEntity, SensorEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
+        entry: TractiveConfigEntry,
         client: TractiveClient,
         item: Trackables,
         description: TractiveSensorEntityDescription,
@@ -69,7 +65,13 @@ class TractiveSensor(TractiveEntity, SensorEntity):
         else:
             dispatcher_signal = f"{description.signal_prefix}-{item.trackable['_id']}"
         super().__init__(
-            client, item.trackable, item.tracker_details, dispatcher_signal
+            hass,
+            entry,
+            client,
+            item.trackable,
+            item.tracker_details,
+            dispatcher_signal,
+            description.hardware_sensor,
         )
 
         self._attr_unique_id = f"{item.trackable['_id']}_{description.key}"
@@ -77,6 +79,7 @@ class TractiveSensor(TractiveEntity, SensorEntity):
         self.entity_description = description
 
     @callback
+    @override
     def handle_status_update(self, event: dict[str, Any]) -> None:
         """Handle status update."""
         self._attr_native_value = self.entity_description.value_fn(
@@ -89,7 +92,6 @@ class TractiveSensor(TractiveEntity, SensorEntity):
 SENSOR_TYPES: tuple[TractiveSensorEntityDescription, ...] = (
     TractiveSensorEntityDescription(
         key=ATTR_BATTERY_LEVEL,
-        translation_key="tracker_battery_level",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
         signal_prefix=TRACKER_HARDWARE_STATUS_UPDATED,
@@ -115,66 +117,35 @@ SENSOR_TYPES: tuple[TractiveSensorEntityDescription, ...] = (
         key=ATTR_MINUTES_ACTIVE,
         translation_key="activity_time",
         native_unit_of_measurement=UnitOfTime.MINUTES,
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
+        signal_prefix=TRACKER_HEALTH_OVERVIEW_UPDATED,
         state_class=SensorStateClass.TOTAL,
     ),
     TractiveSensorEntityDescription(
         key=ATTR_MINUTES_REST,
         translation_key="rest_time",
         native_unit_of_measurement=UnitOfTime.MINUTES,
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
-        state_class=SensorStateClass.TOTAL,
-    ),
-    TractiveSensorEntityDescription(
-        key=ATTR_CALORIES,
-        translation_key="calories",
-        native_unit_of_measurement=UnitOfEnergy.KILO_CALORIE,
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
+        signal_prefix=TRACKER_HEALTH_OVERVIEW_UPDATED,
         state_class=SensorStateClass.TOTAL,
     ),
     TractiveSensorEntityDescription(
         key=ATTR_DAILY_GOAL,
         translation_key="daily_goal",
         native_unit_of_measurement=UnitOfTime.MINUTES,
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
+        signal_prefix=TRACKER_HEALTH_OVERVIEW_UPDATED,
     ),
     TractiveSensorEntityDescription(
         key=ATTR_MINUTES_DAY_SLEEP,
         translation_key="minutes_day_sleep",
         native_unit_of_measurement=UnitOfTime.MINUTES,
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
+        signal_prefix=TRACKER_HEALTH_OVERVIEW_UPDATED,
         state_class=SensorStateClass.TOTAL,
     ),
     TractiveSensorEntityDescription(
         key=ATTR_MINUTES_NIGHT_SLEEP,
         translation_key="minutes_night_sleep",
         native_unit_of_measurement=UnitOfTime.MINUTES,
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
+        signal_prefix=TRACKER_HEALTH_OVERVIEW_UPDATED,
         state_class=SensorStateClass.TOTAL,
-    ),
-    TractiveSensorEntityDescription(
-        key=ATTR_SLEEP_LABEL,
-        translation_key="sleep",
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
-        value_fn=lambda state: state.lower() if isinstance(state, str) else state,
-        device_class=SensorDeviceClass.ENUM,
-        options=[
-            "good",
-            "low",
-            "ok",
-        ],
-    ),
-    TractiveSensorEntityDescription(
-        key=ATTR_ACTIVITY_LABEL,
-        translation_key="activity",
-        signal_prefix=TRACKER_WELLNESS_STATUS_UPDATED,
-        value_fn=lambda state: state.lower() if isinstance(state, str) else state,
-        device_class=SensorDeviceClass.ENUM,
-        options=[
-            "good",
-            "low",
-            "ok",
-        ],
     ),
 )
 
@@ -182,14 +153,14 @@ SENSOR_TYPES: tuple[TractiveSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TractiveConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tractive device trackers."""
     client = entry.runtime_data.client
     trackables = entry.runtime_data.trackables
 
     entities = [
-        TractiveSensor(client, item, description)
+        TractiveSensor(hass, entry, client, item, description)
         for description in SENSOR_TYPES
         for item in trackables
     ]

@@ -1,9 +1,9 @@
 """Config flow to configure Freedompro."""
 
-from typing import Any
+from typing import Any, override
 
+import probatio
 from pyfreedompro import get_list
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_API_KEY
@@ -13,7 +13,10 @@ from homeassistant.helpers import aiohttp_client
 
 from .const import DOMAIN
 
-STEP_USER_DATA_SCHEMA = vol.Schema({vol.Required(CONF_API_KEY): str})
+STEP_USER_DATA_SCHEMA = probatio.Schema(
+    {probatio.Required(probatio.Secret(CONF_API_KEY)): str}
+)
+API_KEY_URL = "https://freedompro.eu/"
 
 
 class Hub:
@@ -47,13 +50,18 @@ class FreedomProConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Show the setup form to the user."""
         if user_input is None:
             return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
+                step_id="user",
+                data_schema=STEP_USER_DATA_SCHEMA,
+                description_placeholders={
+                    "api_key_url": API_KEY_URL,
+                },
             )
 
         errors = {}
@@ -68,7 +76,12 @@ class FreedomProConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title="Freedompro", data=user_input)
 
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id="user",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={
+                "api_key_url": API_KEY_URL,
+            },
         )
 
 

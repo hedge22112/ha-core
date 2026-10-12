@@ -1,9 +1,8 @@
 """Support for V2C binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from pytrydan import Trydan
 
@@ -13,10 +12,9 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import V2CConfigEntry
-from .coordinator import V2CUpdateCoordinator
+from .coordinator import V2CConfigEntry, V2CUpdateCoordinator
 from .entity import V2CBaseEntity
 
 
@@ -36,7 +34,6 @@ TRYDAN_SENSORS = (
     ),
     V2CBinarySensorEntityDescription(
         key="charging",
-        translation_key="charging",
         device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
         value_fn=lambda evse: evse.charging,
     ),
@@ -51,7 +48,7 @@ TRYDAN_SENSORS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: V2CConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up V2C binary sensor platform."""
     coordinator = config_entry.runtime_data
@@ -78,6 +75,7 @@ class V2CBinarySensorBaseEntity(V2CBaseEntity, BinarySensorEntity):
         self._attr_unique_id = f"{entry_id}_{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state of the V2C binary_sensor."""
         return self.entity_description.value_fn(self.coordinator.evse)

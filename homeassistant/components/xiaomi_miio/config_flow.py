@@ -1,21 +1,18 @@
 """Config flow to configure Xiaomi Miio."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
 from re import search
-from typing import Any
+from typing import Any, override
 
 from micloud import MiCloud
 from micloud.micloudexception import MiCloudAccessDenied
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import (
-    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_MODEL, CONF_TOKEN
 from homeassistant.core import callback
@@ -40,27 +37,38 @@ from .const import (
     SetupException,
 )
 from .device import ConnectXiaomiDevice
+from .typing import XiaomiMiioConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 DEVICE_SETTINGS = {
-    vol.Required(CONF_TOKEN): vol.All(str, vol.Length(min=32, max=32)),
+    probatio.Required(probatio.Secret(CONF_TOKEN)): probatio.All(
+        str, probatio.Length(min=32, max=32)
+    ),
 }
-DEVICE_CONFIG = vol.Schema({vol.Required(CONF_HOST): str}).extend(DEVICE_SETTINGS)
-DEVICE_MODEL_CONFIG = vol.Schema({vol.Required(CONF_MODEL): vol.In(MODELS_ALL)})
-DEVICE_CLOUD_CONFIG = vol.Schema(
+DEVICE_CONFIG = probatio.Schema({probatio.Required(CONF_HOST): str}).extend(
+    DEVICE_SETTINGS
+)
+DEVICE_MODEL_CONFIG = probatio.Schema(
+    {probatio.Required(CONF_MODEL): probatio.In(MODELS_ALL)}
+)
+DEVICE_CLOUD_CONFIG = probatio.Schema(
     {
-        vol.Optional(CONF_CLOUD_USERNAME): str,
-        vol.Optional(CONF_CLOUD_PASSWORD): str,
-        vol.Optional(CONF_CLOUD_COUNTRY, default=DEFAULT_CLOUD_COUNTRY): vol.In(
-            SERVER_COUNTRY_CODES
-        ),
-        vol.Optional(CONF_MANUAL, default=False): bool,
+        probatio.Optional(CONF_CLOUD_USERNAME): str,
+        probatio.Optional(probatio.Secret(CONF_CLOUD_PASSWORD)): str,
+        probatio.Optional(
+            CONF_CLOUD_COUNTRY, default=DEFAULT_CLOUD_COUNTRY
+        ): probatio.In(SERVER_COUNTRY_CODES),
+        probatio.Optional(CONF_MANUAL, default=False): bool,
     }
 )
 
+CLOUD_STEP_PLACEHOLDERS = {
+    "country_servers_url": "https://www.openhab.org/addons/bindings/miio/#country-servers",
+}
 
-class OptionsFlowHandler(OptionsFlow):
+
+class OptionsFlowHandler(OptionsFlowWithReload):
     """Options for the component."""
 
     async def async_step_init(
@@ -83,9 +91,9 @@ class OptionsFlowHandler(OptionsFlow):
             if not errors:
                 return self.async_create_entry(title="", data=user_input)
 
-        settings_schema = vol.Schema(
+        settings_schema = probatio.Schema(
             {
-                vol.Optional(
+                probatio.Optional(
                     CONF_CLOUD_SUBDEVICES,
                     default=self.config_entry.options.get(CONF_CLOUD_SUBDEVICES, False),
                 ): bool
@@ -116,7 +124,10 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlowHandler:
+    @override
+    def async_get_options_flow(
+        config_entry: XiaomiMiioConfigEntry,
+    ) -> OptionsFlowHandler:
         """Get the options flow."""
         return OptionsFlowHandler()
 
@@ -138,12 +149,14 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
             return await self.async_step_cloud()
         return self.async_show_form(step_id="reauth_confirm")
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         return await self.async_step_cloud()
 
+    @override
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -222,7 +235,10 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
             if not cloud_username or not cloud_password or not cloud_country:
                 errors["base"] = "cloud_credentials_incomplete"
                 return self.async_show_form(
-                    step_id="cloud", data_schema=DEVICE_CLOUD_CONFIG, errors=errors
+                    step_id="cloud",
+                    data_schema=DEVICE_CLOUD_CONFIG,
+                    errors=errors,
+                    description_placeholders=CLOUD_STEP_PLACEHOLDERS,
                 )
 
             miio_cloud = await self.hass.async_add_executor_job(
@@ -239,7 +255,10 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
 
             if errors:
                 return self.async_show_form(
-                    step_id="cloud", data_schema=DEVICE_CLOUD_CONFIG, errors=errors
+                    step_id="cloud",
+                    data_schema=DEVICE_CLOUD_CONFIG,
+                    errors=errors,
+                    description_placeholders=CLOUD_STEP_PLACEHOLDERS,
                 )
 
             try:
@@ -253,7 +272,10 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
             if not devices_raw:
                 errors["base"] = "cloud_no_devices"
                 return self.async_show_form(
-                    step_id="cloud", data_schema=DEVICE_CLOUD_CONFIG, errors=errors
+                    step_id="cloud",
+                    data_schema=DEVICE_CLOUD_CONFIG,
+                    errors=errors,
+                    description_placeholders=CLOUD_STEP_PLACEHOLDERS,
                 )
 
             self.cloud_devices = {}
@@ -282,7 +304,10 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
             return await self.async_step_select()
 
         return self.async_show_form(
-            step_id="cloud", data_schema=DEVICE_CLOUD_CONFIG, errors=errors
+            step_id="cloud",
+            data_schema=DEVICE_CLOUD_CONFIG,
+            errors=errors,
+            description_placeholders=CLOUD_STEP_PLACEHOLDERS,
         )
 
     async def async_step_select(
@@ -295,8 +320,8 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
             self.extract_cloud_info(cloud_device)
             return await self.async_step_connect()
 
-        select_schema = vol.Schema(
-            {vol.Required("select_device"): vol.In(list(self.cloud_devices))}
+        select_schema = probatio.Schema(
+            {probatio.Required("select_device"): probatio.In(list(self.cloud_devices))}
         )
 
         return self.async_show_form(
@@ -316,11 +341,18 @@ class XiaomiMiioFlowHandler(ConfigFlow, domain=DOMAIN):
             return await self.async_step_connect()
 
         if self.host:
-            schema = vol.Schema(DEVICE_SETTINGS)
+            schema = probatio.Schema(DEVICE_SETTINGS)
         else:
             schema = DEVICE_CONFIG
 
-        return self.async_show_form(step_id="manual", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "retrieving_token_url": "https://www.home-assistant.io/integrations/xiaomi_miio#retrieving-the-access-token",
+            },
+        )
 
     async def async_step_connect(
         self, user_input: dict[str, Any] | None = None

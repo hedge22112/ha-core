@@ -2,7 +2,7 @@
 
 import logging
 
-from pyownet import protocol
+from aio_ownet.exceptions import OWServerError
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -27,10 +27,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OneWireConfigEntry) -> b
     onewire_hub = OneWireHub(hass, entry)
     try:
         await onewire_hub.initialize()
-    except (
-        protocol.ConnError,  # Failed to connect to the server
-        protocol.OwnetError,  # Connected to server, but failed to list the devices
-    ) as exc:
+    except OWServerError as exc:
         raise ConfigEntryNotReady from exc
 
     entry.runtime_data = onewire_hub
@@ -39,13 +36,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OneWireConfigEntry) -> b
 
     onewire_hub.schedule_scan_for_new_devices()
 
-    entry.async_on_unload(entry.add_update_listener(options_update_listener))
-
     return True
 
 
 async def async_remove_config_entry_device(
-    hass: HomeAssistant, config_entry: OneWireConfigEntry, device_entry: dr.DeviceEntry
+    hass: HomeAssistant,
+    config_entry: OneWireConfigEntry,
+    device_entry: dr.AnyDeviceEntry,
 ) -> bool:
     """Remove a config entry from a device."""
     onewire_hub = config_entry.runtime_data
@@ -59,11 +56,3 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(config_entry, _PLATFORMS)
-
-
-async def options_update_listener(
-    hass: HomeAssistant, entry: OneWireConfigEntry
-) -> None:
-    """Handle options update."""
-    _LOGGER.debug("Configuration options updated, reloading OneWire integration")
-    await hass.config_entries.async_reload(entry.entry_id)

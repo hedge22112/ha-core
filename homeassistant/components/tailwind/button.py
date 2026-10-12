@@ -1,10 +1,8 @@
 """Button entity platform for Tailwind."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from gotailwind import Tailwind, TailwindError
 
@@ -16,11 +14,13 @@ from homeassistant.components.button import (
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import TailwindConfigEntry
 from .entity import TailwindEntity
+
+PARALLEL_UPDATES = 1
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -43,7 +43,7 @@ DESCRIPTIONS = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TailwindConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tailwind button based on a config entry."""
     async_add_entities(
@@ -60,13 +60,13 @@ class TailwindButtonEntity(TailwindEntity, ButtonEntity):
 
     entity_description: TailwindButtonEntityDescription
 
+    @override
     async def async_press(self) -> None:
         """Trigger button press on the Tailwind device."""
         try:
             await self.entity_description.press_fn(self.coordinator.tailwind)
         except TailwindError as exc:
             raise HomeAssistantError(
-                str(exc),
                 translation_domain=DOMAIN,
                 translation_key="communication_error",
             ) from exc

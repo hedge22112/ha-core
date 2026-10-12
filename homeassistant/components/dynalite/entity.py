@@ -1,32 +1,29 @@
 """Support for the Dynalite devices as entities."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any
+from typing import Any, override
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .bridge import DynaliteBridge
+from .bridge import DynaliteBridge, DynaliteConfigEntry
 from .const import DOMAIN, LOGGER
 
 
 def async_setup_entry_base(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: DynaliteConfigEntry,
     async_add_entities: AddEntitiesCallback,
     platform: str,
     entity_from_device: Callable,
 ) -> None:
-    """Record the async_add_entities function to add them later when received from Dynalite."""
+    """Record the async_add_entities function to add them later."""
     LOGGER.debug("Setting up %s entry = %s", platform, config_entry.data)
-    bridge = hass.data[DOMAIN][config_entry.entry_id]
+    bridge = config_entry.runtime_data
 
     @callback
     def async_add_entities_platform(devices):
@@ -50,16 +47,19 @@ class DynaliteBase(RestoreEntity, ABC):
         self._unsub_dispatchers: list[Callable[[], None]] = []
 
     @property
+    @override
     def unique_id(self) -> str:
         """Return the unique ID of the entity."""
         return self._device.unique_id
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available."""
         return self._device.available
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Device info for this entity."""
         return DeviceInfo(
@@ -68,6 +68,7 @@ class DynaliteBase(RestoreEntity, ABC):
             name=self._device.name,
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle addition to hass: restore state and register to dispatch."""
         # register for device specific update
@@ -99,6 +100,7 @@ class DynaliteBase(RestoreEntity, ABC):
     def initialize_state(self, state):
         """Initialize the state from cache."""
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Unregister signal dispatch listeners when being removed."""
         for unsub in self._unsub_dispatchers:

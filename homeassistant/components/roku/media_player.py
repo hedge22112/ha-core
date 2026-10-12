@@ -1,14 +1,11 @@
 """Support for the Roku media player."""
 
-from __future__ import annotations
-
 import datetime as dt
 import logging
 import mimetypes
-from typing import Any
+from typing import Any, override
 
 from rokuecp.helpers import guess_stream_format
-import voluptuous as vol
 import yarl
 
 from homeassistant.components import media_source
@@ -25,22 +22,17 @@ from homeassistant.components.media_player import (
 from homeassistant.components.stream import FORMAT_CONTENT_TYPE, HLS_PROVIDER
 from homeassistant.const import ATTR_NAME
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_platform
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import VolDictType
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import RokuConfigEntry
 from .browse_media import async_browse_media
 from .const import (
     ATTR_ARTIST_NAME,
     ATTR_CONTENT_ID,
     ATTR_FORMAT,
-    ATTR_KEYWORD,
     ATTR_MEDIA_TYPE,
     ATTR_THUMBNAIL,
-    SERVICE_SEARCH,
 )
-from .coordinator import RokuDataUpdateCoordinator
+from .coordinator import RokuConfigEntry, RokuDataUpdateCoordinator
 from .entity import RokuEntity
 from .helpers import format_channel_name, roku_exception_handler
 
@@ -77,13 +69,13 @@ ATTRS_TO_PLAY_ON_ROKU_AUDIO_PARAMS = {
     ATTR_THUMBNAIL: "albumArtUrl",
 }
 
-SEARCH_SCHEMA: VolDictType = {vol.Required(ATTR_KEYWORD): str}
-
 PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: RokuConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RokuConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Roku config entry."""
     async_add_entities(
@@ -93,14 +85,6 @@ async def async_setup_entry(
             )
         ],
         True,
-    )
-
-    platform = entity_platform.async_get_current_platform()
-
-    platform.async_register_entity_service(
-        SERVICE_SEARCH,
-        SEARCH_SCHEMA,
-        "search",
     )
 
 
@@ -138,10 +122,11 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return self.coordinator.data.media.duration > 0
 
     @property
+    @override
     def state(self) -> MediaPlayerState | None:
         """Return the state of the device."""
         if self.coordinator.data.state.standby:
-            return MediaPlayerState.STANDBY
+            return MediaPlayerState.OFF
 
         if self.coordinator.data.app is None:
             return None
@@ -163,6 +148,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def media_content_type(self) -> MediaType | None:
         """Content type of current playing media."""
         if self.app_id is None or self.app_name in ("Power Saver", "Roku"):
@@ -174,6 +160,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return MediaType.APP
 
     @property
+    @override
     def media_image_url(self) -> str | None:
         """Image url of current playing media."""
         if self.app_id is None or self.app_name in ("Power Saver", "Roku"):
@@ -182,6 +169,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return self.coordinator.roku.app_icon_url(self.app_id)
 
     @property
+    @override
     def app_name(self) -> str | None:
         """Name of the current running app."""
         if self.coordinator.data.app is not None:
@@ -190,6 +178,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def app_id(self) -> str | None:
         """Return the ID of the current running app."""
         if self.coordinator.data.app is not None:
@@ -198,6 +187,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def media_channel(self) -> str | None:
         """Return the TV channel currently tuned."""
         if self.app_id != "tvinput.dtv" or self.coordinator.data.channel is None:
@@ -208,6 +198,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return format_channel_name(channel.number, channel.name)
 
     @property
+    @override
     def media_title(self) -> str | None:
         """Return the title of current playing media."""
         if self.app_id != "tvinput.dtv" or self.coordinator.data.channel is None:
@@ -219,6 +210,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def media_duration(self) -> int | None:
         """Duration of current playing media in seconds."""
         if self.coordinator.data.media is not None and self._media_playback_trackable():
@@ -227,6 +219,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def media_position(self) -> int | None:
         """Position of current playing media in seconds."""
         if self.coordinator.data.media is not None and self._media_playback_trackable():
@@ -235,6 +228,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def media_position_updated_at(self) -> dt.datetime | None:
         """When was the position of the current playing media valid."""
         if self.coordinator.data.media is not None and self._media_playback_trackable():
@@ -243,6 +237,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def source(self) -> str | None:
         """Return the current input source."""
         if self.coordinator.data.app is not None:
@@ -251,6 +246,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         return None
 
     @property
+    @override
     def source_list(self) -> list[str]:
         """List of available input sources."""
         return [
@@ -265,6 +261,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         """Emulate opening the search screen and entering the search keyword."""
         await self.coordinator.roku.search(keyword)
 
+    @override
     async def async_get_browse_image(
         self,
         media_content_type: MediaType | str,
@@ -278,6 +275,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
 
         return (None, None)
 
+    @override
     async def async_browse_media(
         self,
         media_content_type: MediaType | str | None = None,
@@ -293,71 +291,82 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         )
 
     @roku_exception_handler()
+    @override
     async def async_turn_on(self) -> None:
         """Turn on the Roku."""
         await self.coordinator.roku.remote("poweron")
         await self.coordinator.async_request_refresh()
 
     @roku_exception_handler(ignore_timeout=True)
+    @override
     async def async_turn_off(self) -> None:
         """Turn off the Roku."""
         await self.coordinator.roku.remote("poweroff")
         await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_media_pause(self) -> None:
         """Send pause command."""
-        if self.state not in {MediaPlayerState.STANDBY, MediaPlayerState.PAUSED}:
+        if self.state not in {MediaPlayerState.OFF, MediaPlayerState.PAUSED}:
             await self.coordinator.roku.remote("play")
             await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_media_play(self) -> None:
         """Send play command."""
-        if self.state not in {MediaPlayerState.STANDBY, MediaPlayerState.PLAYING}:
+        if self.state not in {MediaPlayerState.OFF, MediaPlayerState.PLAYING}:
             await self.coordinator.roku.remote("play")
             await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_media_play_pause(self) -> None:
         """Send play/pause command."""
-        if self.state != MediaPlayerState.STANDBY:
+        if self.state != MediaPlayerState.OFF:
             await self.coordinator.roku.remote("play")
             await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_media_previous_track(self) -> None:
         """Send previous track command."""
         await self.coordinator.roku.remote("reverse")
         await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_media_next_track(self) -> None:
         """Send next track command."""
         await self.coordinator.roku.remote("forward")
         await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute the volume."""
         await self.coordinator.roku.remote("volume_mute")
         await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_volume_up(self) -> None:
         """Volume up media player."""
         await self.coordinator.roku.remote("volume_up")
 
     @roku_exception_handler()
+    @override
     async def async_volume_down(self) -> None:
         """Volume down media player."""
         await self.coordinator.roku.remote("volume_down")
 
     @roku_exception_handler()
+    @override
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any
     ) -> None:
-        """Play media from a URL or file, launch an application, or tune to a channel."""
+        """Play media from a URL or file, launch an app, or tune to a channel."""
         extra: dict[str, Any] = kwargs.get(ATTR_MEDIA_EXTRA) or {}
         original_media_type: str = media_type
         original_media_id: str = media_id
@@ -469,6 +478,7 @@ class RokuMediaPlayer(RokuEntity, MediaPlayerEntity):
         await self.coordinator.async_request_refresh()
 
     @roku_exception_handler()
+    @override
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
         if source == "Home":

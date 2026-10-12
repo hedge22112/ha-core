@@ -1,23 +1,45 @@
 """The Opower integration."""
 
-from __future__ import annotations
+from opower import select_utility
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import issue_registry as ir
 
-from .coordinator import OpowerCoordinator
+from .const import CONF_UTILITY, DOMAIN
+from .coordinator import OpowerConfigEntry, OpowerCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
-type OpowerConfigEntry = ConfigEntry[OpowerCoordinator]
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: OpowerConfigEntry) -> bool:
     """Set up Opower from a config entry."""
+    utility_name = entry.data[CONF_UTILITY]
+    try:
+        select_utility(utility_name)
+    except ValueError as err:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            f"unsupported_utility_{entry.entry_id}",
+            is_fixable=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="unsupported_utility",
+            translation_placeholders={"utility": utility_name},
+            data={
+                "entry_id": entry.entry_id,
+                "utility": utility_name,
+                "title": entry.title,
+            },
+        )
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="unsupported_utility",
+            translation_placeholders={"utility": utility_name},
+        ) from err
 
-    coordinator = OpowerCoordinator(hass, entry.data)
+    coordinator = OpowerCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 

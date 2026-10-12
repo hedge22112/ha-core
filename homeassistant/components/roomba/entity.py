@@ -1,12 +1,13 @@
 """Base class for iRobot devices."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.const import ATTR_CONNECTIONS
-import homeassistant.helpers.device_registry as dr
+from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from . import roomba_reported_state
 from .const import DOMAIN
@@ -31,7 +32,11 @@ class IRobotEntity(Entity):
             model=self.vacuum_state.get("sku"),
             name=str(self.vacuum_state.get("name")),
             sw_version=self.vacuum_state.get("softwareVer"),
-            hw_version=self.vacuum_state.get("hardwareRev"),
+            hw_version=(
+                str(hw_rev)
+                if (hw_rev := self.vacuum_state.get("hardwareRev")) is not None
+                else None
+            ),
         )
 
         if mac_address := self.vacuum_state.get("hwPartsRev", {}).get(
@@ -47,14 +52,10 @@ class IRobotEntity(Entity):
         return f"roomba_{self._blid}"
 
     @property
+    @override
     def unique_id(self):
         """Return the uniqueid of the vacuum cleaner."""
         return self.robot_unique_id
-
-    @property
-    def battery_level(self):
-        """Return the battery level of the vacuum cleaner."""
-        return self.vacuum_state.get("batPct")
 
     @property
     def run_stats(self):
@@ -72,6 +73,16 @@ class IRobotEntity(Entity):
         return self.vacuum_state.get("bbchg3", {})
 
     @property
+    def tank_level(self) -> int | None:
+        """Return the tank level."""
+        return self.vacuum_state.get("tankLvl")
+
+    @property
+    def dock_tank_level(self) -> int | None:
+        """Return the dock tank level."""
+        return self.vacuum_state.get("dock", {}).get("tankLvl")
+
+    @property
     def last_mission(self):
         """Return last mission start time."""
         if (
@@ -80,16 +91,18 @@ class IRobotEntity(Entity):
             return None
         return dt_util.utc_from_timestamp(ts)
 
-    async def async_added_to_hass(self):
+    @override
+    async def async_added_to_hass(self) -> None:
         """Register callback function."""
-        self.vacuum.register_on_message_callback(self.on_message)
+        self.async_on_remove(self.vacuum.register_on_message_callback(self.on_message))
 
     def new_state_filter(self, new_state):
         """Filter out wifi state messages."""
         return len(new_state) > 1 or "signal" not in new_state
 
+    @callback
     def on_message(self, json_data):
         """Update state on message change."""
         state = json_data.get("state", {}).get("reported", {})
         if self.new_state_filter(state):
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()

@@ -2,7 +2,8 @@
 # name: test_device_info
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'http://192.168.20.218',
     'connections': set({
     }),
@@ -16,7 +17,6 @@
         '0020c2d8',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Cambridge Audio',
@@ -24,9 +24,7 @@
     'model_id': None,
     'name': 'Cambridge Audio CXNv2',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': '0020c2d8',
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })

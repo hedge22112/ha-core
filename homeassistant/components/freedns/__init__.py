@@ -5,12 +5,12 @@ from datetime import datetime, timedelta
 import logging
 
 import aiohttp
-import voluptuous as vol
+import probatio
 
 from homeassistant.const import CONF_ACCESS_TOKEN, CONF_SCAN_INTERVAL, CONF_URL
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
@@ -23,19 +23,21 @@ DEFAULT_INTERVAL = timedelta(minutes=10)
 TIMEOUT = 10
 UPDATE_URL = "https://freedns.afraid.org/dynamic/update.php"
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        DOMAIN: vol.Schema(
+        DOMAIN: probatio.Schema(
             {
-                vol.Exclusive(CONF_URL, DOMAIN): cv.string,
-                vol.Exclusive(CONF_ACCESS_TOKEN, DOMAIN): cv.string,
-                vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_INTERVAL): vol.All(
-                    cv.time_period, cv.positive_timedelta
-                ),
+                probatio.Exclusive(CONF_URL, DOMAIN): cv.string,
+                probatio.Exclusive(
+                    probatio.Secret(CONF_ACCESS_TOKEN), DOMAIN
+                ): cv.string,
+                probatio.Optional(
+                    CONF_SCAN_INTERVAL, default=DEFAULT_INTERVAL
+                ): probatio.All(cv.time_period, cv.positive_timedelta),
             }
         )
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=probatio.ALLOW_EXTRA,
 )
 
 

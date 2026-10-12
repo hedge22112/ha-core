@@ -1,24 +1,26 @@
 """Config validation helper for the automation integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from contextlib import suppress
 from enum import StrEnum
 from typing import Any
 
-import voluptuous as vol
-from voluptuous.humanize import humanize_error
+import probatio
+from probatio.humanize import humanize_error
 
 from homeassistant.components import blueprint
 from homeassistant.components.trace import TRACE_CONFIG_SCHEMA
 from homeassistant.config import config_per_platform, config_without_domain
 from homeassistant.const import (
+    CONF_ACTION,
+    CONF_ACTIONS,
     CONF_ALIAS,
     CONF_CONDITION,
     CONF_CONDITIONS,
     CONF_DESCRIPTION,
     CONF_ID,
+    CONF_TRIGGER,
+    CONF_TRIGGERS,
     CONF_VARIABLES,
 )
 from homeassistant.core import HomeAssistant
@@ -30,14 +32,10 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util.yaml.input import UndefinedSubstitution
 
 from .const import (
-    CONF_ACTION,
-    CONF_ACTIONS,
     CONF_HIDE_ENTITY,
     CONF_INITIAL_STATE,
     CONF_TRACE,
-    CONF_TRIGGER,
     CONF_TRIGGER_VARIABLES,
-    CONF_TRIGGERS,
     DOMAIN,
     LOGGER,
 )
@@ -45,50 +43,25 @@ from .helpers import async_get_blueprints
 
 PACKAGE_MERGE_HINT = "list"
 
-_MINIMAL_PLATFORM_SCHEMA = vol.Schema(
+_MINIMAL_PLATFORM_SCHEMA = probatio.Schema(
     {
         CONF_ID: str,
         CONF_ALIAS: cv.string,
-        vol.Optional(CONF_DESCRIPTION): cv.string,
+        probatio.Optional(CONF_DESCRIPTION): cv.string,
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=probatio.ALLOW_EXTRA,
 )
 
 
 def _backward_compat_schema(value: Any | None) -> Any:
     """Backward compatibility for automations."""
 
-    if not isinstance(value, dict):
-        return value
-
-    # `trigger` has been renamed to `triggers`
-    if CONF_TRIGGER in value:
-        if CONF_TRIGGERS in value:
-            raise vol.Invalid(
-                "Cannot specify both 'trigger' and 'triggers'. Please use 'triggers' only."
-            )
-        value[CONF_TRIGGERS] = value.pop(CONF_TRIGGER)
-
-    # `condition` has been renamed to `conditions`
-    if CONF_CONDITION in value:
-        if CONF_CONDITIONS in value:
-            raise vol.Invalid(
-                "Cannot specify both 'condition' and 'conditions'. Please use 'conditions' only."
-            )
-        value[CONF_CONDITIONS] = value.pop(CONF_CONDITION)
-
-    # `action` has been renamed to `actions`
-    if CONF_ACTION in value:
-        if CONF_ACTIONS in value:
-            raise vol.Invalid(
-                "Cannot specify both 'action' and 'actions'. Please use 'actions' only."
-            )
-        value[CONF_ACTIONS] = value.pop(CONF_ACTION)
-
-    return value
+    value = cv.renamed(CONF_TRIGGER, CONF_TRIGGERS)(value)
+    value = cv.renamed(CONF_ACTION, CONF_ACTIONS)(value)
+    return cv.renamed(CONF_CONDITION, CONF_CONDITIONS)(value)
 
 
-PLATFORM_SCHEMA = vol.All(
+PLATFORM_SCHEMA = probatio.All(
     _backward_compat_schema,
     cv.deprecated(CONF_HIDE_ENTITY),
     script.make_script_schema(
@@ -96,21 +69,21 @@ PLATFORM_SCHEMA = vol.All(
             # str on purpose
             CONF_ID: str,
             CONF_ALIAS: cv.string,
-            vol.Optional(CONF_DESCRIPTION): cv.string,
-            vol.Optional(CONF_TRACE, default={}): TRACE_CONFIG_SCHEMA,
-            vol.Optional(CONF_INITIAL_STATE): cv.boolean,
-            vol.Optional(CONF_HIDE_ENTITY): cv.boolean,
-            vol.Required(CONF_TRIGGERS): cv.TRIGGER_SCHEMA,
-            vol.Optional(CONF_CONDITIONS): cv.CONDITIONS_SCHEMA,
-            vol.Optional(CONF_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
-            vol.Optional(CONF_TRIGGER_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
-            vol.Required(CONF_ACTIONS): cv.SCRIPT_SCHEMA,
+            probatio.Optional(CONF_DESCRIPTION): cv.string,
+            probatio.Optional(CONF_TRACE, default={}): TRACE_CONFIG_SCHEMA,
+            probatio.Optional(CONF_INITIAL_STATE): cv.boolean,
+            probatio.Optional(CONF_HIDE_ENTITY): cv.boolean,
+            probatio.Required(CONF_TRIGGERS): cv.TRIGGER_SCHEMA,
+            probatio.Optional(CONF_CONDITIONS): cv.CONDITIONS_SCHEMA,
+            probatio.Optional(CONF_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
+            probatio.Optional(CONF_TRIGGER_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
+            probatio.Required(CONF_ACTIONS): cv.SCRIPT_SCHEMA,
         },
         script.SCRIPT_MODE_SINGLE,
     ),
 )
 
-AUTOMATION_BLUEPRINT_SCHEMA = vol.All(
+AUTOMATION_BLUEPRINT_SCHEMA = probatio.All(
     _backward_compat_schema, blueprint.schemas.BLUEPRINT_SCHEMA
 )
 
@@ -129,8 +102,8 @@ async def _async_validate_config_item(  # noqa: C901
         raw_config = dict(config)
 
     def _humanize(err: Exception, config: ConfigType) -> str:
-        """Humanize vol.Invalid, stringify other exceptions."""
-        if isinstance(err, vol.Invalid):
+        """Humanize probatio.Invalid, stringify other exceptions."""
+        if isinstance(err, probatio.Invalid):
             return humanize_error(config, err)
         return str(err)
 
@@ -231,7 +204,7 @@ async def _async_validate_config_item(  # noqa: C901
 
     try:
         validated_config = PLATFORM_SCHEMA(config)
-    except vol.Invalid as err:
+    except probatio.Invalid as err:
         _log_invalid_automation(err, automation_name, "could not be validated", config)
         if raise_on_errors:
             raise
@@ -246,7 +219,7 @@ async def _async_validate_config_item(  # noqa: C901
             hass, validated_config[CONF_TRIGGERS]
         )
     except (
-        vol.Invalid,
+        probatio.Invalid,
         HomeAssistantError,
     ) as err:
         _log_invalid_automation(
@@ -265,7 +238,7 @@ async def _async_validate_config_item(  # noqa: C901
                 hass, validated_config[CONF_CONDITIONS]
             )
         except (
-            vol.Invalid,
+            probatio.Invalid,
             HomeAssistantError,
         ) as err:
             _log_invalid_automation(
@@ -286,7 +259,7 @@ async def _async_validate_config_item(  # noqa: C901
             hass, validated_config[CONF_ACTIONS]
         )
     except (
-        vol.Invalid,
+        probatio.Invalid,
         HomeAssistantError,
     ) as err:
         _log_invalid_automation(
@@ -329,7 +302,7 @@ async def _try_async_validate_config_item(
     """Validate config item."""
     try:
         return await _async_validate_config_item(hass, config, False, True)
-    except (vol.Invalid, HomeAssistantError):
+    except probatio.Invalid, HomeAssistantError:
         return None
 
 

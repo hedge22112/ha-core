@@ -1,15 +1,13 @@
 """Camera platform that receives images through HTTP POST."""
 
-from __future__ import annotations
-
 import asyncio
 from collections import deque
 from datetime import timedelta
 import logging
-from typing import cast
+from typing import Any, cast, override
 
 from aiohttp import web
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import webhook
 from homeassistant.components.camera import (
@@ -24,7 +22,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,13 +38,13 @@ PUSH_CAMERA_DATA = "push_camera"
 
 PLATFORM_SCHEMA = CAMERA_PLATFORM_SCHEMA.extend(
     {
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_BUFFER_SIZE, default=1): cv.positive_int,
-        vol.Optional(CONF_TIMEOUT, default=timedelta(seconds=5)): vol.All(
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        probatio.Optional(CONF_BUFFER_SIZE, default=1): cv.positive_int,
+        probatio.Optional(CONF_TIMEOUT, default=timedelta(seconds=5)): probatio.All(
             cv.time_period, cv.positive_timedelta
         ),
-        vol.Optional(CONF_IMAGE_FIELD, default="image"): cv.string,
-        vol.Required(CONF_WEBHOOK_ID): cv.string,
+        probatio.Optional(CONF_IMAGE_FIELD, default="image"): cv.string,
+        probatio.Required(CONF_WEBHOOK_ID): cv.string,
     }
 )
 
@@ -61,7 +59,7 @@ async def async_setup_platform(
     if PUSH_CAMERA_DATA not in hass.data:
         hass.data[PUSH_CAMERA_DATA] = {}
 
-    webhook_id = config.get(CONF_WEBHOOK_ID)
+    webhook_id = config[CONF_WEBHOOK_ID]
 
     cameras = [
         PushCamera(
@@ -101,20 +99,32 @@ async def handle_webhook(
 class PushCamera(Camera):
     """The representation of a Push camera."""
 
-    def __init__(self, hass, name, buffer_size, timeout, image_field, webhook_id):
+    _attr_motion_detection_enabled = False
+    name: str
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        name: str,
+        buffer_size: int,
+        timeout: timedelta,
+        image_field: str,
+        webhook_id: str,
+    ) -> None:
         """Initialize push camera component."""
         super().__init__()
-        self._name = name
+        self._attr_name = name
         self._last_trip = None
         self._filename = None
         self._expired_listener = None
         self._timeout = timeout
-        self.queue = deque([], buffer_size)
-        self._current_image = None
+        self.queue: deque[bytes] = deque(maxlen=buffer_size)
+        self._current_image: bytes | None = None
         self._image_field = image_field
         self.webhook_id = webhook_id
         self.webhook_url = webhook.async_generate_url(hass, webhook_id)
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Call when entity is added to hass."""
         self.hass.data[PUSH_CAMERA_DATA][self.webhook_id] = self
@@ -160,6 +170,7 @@ class PushCamera(Camera):
 
         self.async_write_ha_state()
 
+    @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
@@ -172,17 +183,8 @@ class PushCamera(Camera):
         return self._current_image
 
     @property
-    def name(self):
-        """Return the name of this camera."""
-        return self._name
-
-    @property
-    def motion_detection_enabled(self):
-        """Camera Motion Detection Status."""
-        return False
-
-    @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
         return {
             name: value

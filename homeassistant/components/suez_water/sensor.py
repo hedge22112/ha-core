@@ -1,10 +1,8 @@
 """Sensor for Suez Water Consumption data."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, override
 
 from pysuez.const import ATTRIBUTION
 
@@ -12,11 +10,12 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorStateClass,
 )
 from homeassistant.const import CURRENCY_EURO, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_COUNTER_ID, DOMAIN
@@ -43,8 +42,8 @@ SENSORS: tuple[SuezWaterSensorEntityDescription, ...] = (
     SuezWaterSensorEntityDescription(
         key="water_price",
         translation_key="water_price",
-        native_unit_of_measurement=CURRENCY_EURO,
-        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=f"{CURRENCY_EURO}/{UnitOfVolume.CUBIC_METERS}",
+        state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda suez_data: suez_data.price,
     ),
 )
@@ -53,7 +52,7 @@ SENSORS: tuple[SuezWaterSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SuezWaterConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Suez Water sensor from a config entry."""
     coordinator = entry.runtime_data
@@ -88,11 +87,22 @@ class SuezWaterSensor(CoordinatorEntity[SuezWaterCoordinator], SensorEntity):
         self.entity_description = entity_description
 
     @property
+    @override
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return (
+            self.coordinator.last_update_success
+            and self.entity_description.value_fn(self.coordinator.data) is not None
+        )
+
+    @property
+    @override
     def native_value(self) -> float | str | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state of the sensor."""
         return self.entity_description.attr_fn(self.coordinator.data)

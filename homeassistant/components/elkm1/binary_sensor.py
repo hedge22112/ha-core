@@ -1,8 +1,6 @@
 """Support for control of ElkM1 binary sensors."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from elkm1_lib.const import ZoneLogicalStatus, ZoneType
 from elkm1_lib.elements import Element
@@ -10,7 +8,7 @@ from elkm1_lib.zones import Zone
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ElkM1ConfigEntry
 from .entity import ElkAttachedEntity, ElkEntity
@@ -19,7 +17,7 @@ from .entity import ElkAttachedEntity, ElkEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ElkM1ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create the Elk-M1 sensor platform."""
     elk_data = config_entry.runtime_data
@@ -49,8 +47,9 @@ class ElkBinarySensor(ElkAttachedEntity, BinarySensorEntity):
     _element: Zone
     _attr_entity_registry_enabled_default = False
 
+    @override
     def _element_changed(self, element: Element, changeset: dict[str, Any]) -> None:
         # Zone in NORMAL state is OFF; any other state is ON
         self._attr_is_on = bool(
-            self._element.logical_status != ZoneLogicalStatus.NORMAL
+            self._element.logical_status is not ZoneLogicalStatus.NORMAL
         )

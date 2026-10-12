@@ -1,9 +1,7 @@
 """Support for Awair sensors."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, override
 
 from python_awair.air_data import AirData
 from python_awair.devices import AwairBaseDevice, AwairLocalDevice
@@ -18,22 +16,22 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_CONNECTIONS,
     ATTR_SW_VERSION,
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_BILLION,
-    CONCENTRATION_PARTS_PER_MILLION,
     LIGHT_LUX,
-    PERCENTAGE,
+    UnitOfDensity,
+    UnitOfRatio,
     UnitOfSoundPressure,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    API_ABS_HUMID,
     API_CO2,
+    API_DEW_POINT,
     API_DUST,
     API_HUMID,
     API_LUX,
@@ -60,7 +58,7 @@ class AwairSensorEntityDescription(SensorEntityDescription):
 
 SENSOR_TYPE_SCORE = AwairSensorEntityDescription(
     key=API_SCORE,
-    native_unit_of_measurement=PERCENTAGE,
+    native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
     translation_key="score",
     unique_id_tag="score",  # matches legacy format
     state_class=SensorStateClass.MEASUREMENT,
@@ -70,7 +68,7 @@ SENSOR_TYPES: tuple[AwairSensorEntityDescription, ...] = (
     AwairSensorEntityDescription(
         key=API_HUMID,
         device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         unique_id_tag="HUMID",  # matches legacy format
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -92,7 +90,7 @@ SENSOR_TYPES: tuple[AwairSensorEntityDescription, ...] = (
     AwairSensorEntityDescription(
         key=API_VOC,
         device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS_PARTS,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_BILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_BILLION,
         unique_id_tag="VOC",  # matches legacy format
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -106,9 +104,26 @@ SENSOR_TYPES: tuple[AwairSensorEntityDescription, ...] = (
     AwairSensorEntityDescription(
         key=API_CO2,
         device_class=SensorDeviceClass.CO2,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         unique_id_tag="CO2",  # matches legacy format
         state_class=SensorStateClass.MEASUREMENT,
+    ),
+    AwairSensorEntityDescription(
+        key=API_DEW_POINT,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        translation_key="dew_point",
+        unique_id_tag="dew_point",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    AwairSensorEntityDescription(
+        key=API_ABS_HUMID,
+        device_class=SensorDeviceClass.ABSOLUTE_HUMIDITY,
+        native_unit_of_measurement=UnitOfDensity.GRAMS_PER_CUBIC_METER,
+        unique_id_tag="absolute_humidity",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
     ),
 )
 
@@ -116,14 +131,14 @@ SENSOR_TYPES_DUST: tuple[AwairSensorEntityDescription, ...] = (
     AwairSensorEntityDescription(
         key=API_PM25,
         device_class=SensorDeviceClass.PM25,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         unique_id_tag="PM25",  # matches legacy format
         state_class=SensorStateClass.MEASUREMENT,
     ),
     AwairSensorEntityDescription(
         key=API_PM10,
         device_class=SensorDeviceClass.PM10,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         unique_id_tag="PM10",  # matches legacy format
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -133,7 +148,7 @@ SENSOR_TYPES_DUST: tuple[AwairSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AwairConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Awair sensor entity based on a config entry."""
     coordinator = config_entry.runtime_data
@@ -187,6 +202,7 @@ class AwairSensor(CoordinatorEntity[AwairDataUpdateCoordinator], SensorEntity):
         self._device = device
 
     @property
+    @override
     def unique_id(self) -> str:
         """Return the uuid as the unique_id."""
         unique_id_tag = self.entity_description.unique_id_tag
@@ -205,6 +221,7 @@ class AwairSensor(CoordinatorEntity[AwairDataUpdateCoordinator], SensorEntity):
         return f"{self._device.uuid}_{unique_id_tag}"
 
     @property
+    @override
     def available(self) -> bool:
         """Determine if the sensor is available based on API results."""
         # If the last update was successful...
@@ -228,6 +245,7 @@ class AwairSensor(CoordinatorEntity[AwairDataUpdateCoordinator], SensorEntity):
         return False
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the state, rounding off to reasonable values."""
         if not self._air_data:
@@ -253,6 +271,7 @@ class AwairSensor(CoordinatorEntity[AwairDataUpdateCoordinator], SensorEntity):
         return round(state, 2)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the Awair Index alongside state attributes.
 
@@ -286,6 +305,7 @@ class AwairSensor(CoordinatorEntity[AwairDataUpdateCoordinator], SensorEntity):
         return attrs
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Device information."""
         info = DeviceInfo(

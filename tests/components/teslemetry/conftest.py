@@ -1,31 +1,67 @@
-"""Fixtures for Teslemetry."""
-
-from __future__ import annotations
+"""Test fixtures for Teslemetry component."""
 
 from collections.abc import Generator
 from copy import deepcopy
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from teslemetry_stream.const import EnergyTotalsEvent
 from teslemetry_stream.stream import recursive_match
+
+from homeassistant.components.teslemetry.const import TOKEN_URL
 
 from .const import (
     COMMAND_OK,
-    ENERGY_HISTORY,
+    ENERGY_TOTALS,
+    ENERGY_TOTALS_DATE,
     LIVE_STATUS,
     METADATA,
+    METADATA_ENERGY,
+    METADATA_LEGACY,
     PRODUCTS,
+    PRODUCTS_ENERGY,
     SITE_INFO,
     VEHICLE_DATA,
     WAKE_UP_ONLINE,
 )
+
+from tests.test_util.aiohttp import AiohttpClientMocker
+
+
+@pytest.fixture
+def mock_setup_entry():
+    """Mock Teslemetry async_setup_entry method."""
+    with patch(
+        "homeassistant.components.teslemetry.async_setup_entry", return_value=True
+    ) as mock_async_setup_entry:
+        yield mock_async_setup_entry
+
+
+@pytest.fixture
+def mock_token_response() -> dict[str, Any]:
+    """Return a mock OAuth token response."""
+    return {
+        "refresh_token": "mock-refresh-token",
+        "access_token": "mock-access-token",
+        "type": "Bearer",
+        "expires_in": 60,
+    }
+
+
+@pytest.fixture
+def mock_token_post(
+    aioclient_mock: AiohttpClientMocker, mock_token_response: dict[str, Any]
+) -> None:
+    """Mock the OAuth token endpoint."""
+    aioclient_mock.post(TOKEN_URL, json=mock_token_response)
 
 
 @pytest.fixture(autouse=True)
 def mock_metadata():
     """Mock Tesla Fleet Api metadata method."""
     with patch(
-        "homeassistant.components.teslemetry.Teslemetry.metadata", return_value=METADATA
+        "tesla_fleet_api.teslemetry.Teslemetry.metadata", return_value=METADATA
     ) as mock_products:
         yield mock_products
 
@@ -34,7 +70,7 @@ def mock_metadata():
 def mock_products():
     """Mock Tesla Fleet Api products method."""
     with patch(
-        "homeassistant.components.teslemetry.Teslemetry.products", return_value=PRODUCTS
+        "tesla_fleet_api.teslemetry.Teslemetry.products", return_value=PRODUCTS
     ) as mock_products:
         yield mock_products
 
@@ -43,7 +79,7 @@ def mock_products():
 def mock_vehicle_data() -> Generator[AsyncMock]:
     """Mock Tesla Fleet API Vehicle Specific vehicle_data method."""
     with patch(
-        "homeassistant.components.teslemetry.VehicleSpecific.vehicle_data",
+        "tesla_fleet_api.teslemetry.Vehicle.vehicle_data",
         return_value=VEHICLE_DATA,
     ) as mock_vehicle_data:
         yield mock_vehicle_data
@@ -53,16 +89,16 @@ def mock_vehicle_data() -> Generator[AsyncMock]:
 def mock_legacy():
     """Mock Tesla Fleet Api products method."""
     with patch(
-        "homeassistant.components.teslemetry.VehicleSpecific.pre2021", return_value=True
-    ) as mock_pre2021:
-        yield mock_pre2021
+        "tesla_fleet_api.teslemetry.Teslemetry.metadata", return_value=METADATA_LEGACY
+    ) as mock_products:
+        yield mock_products
 
 
 @pytest.fixture(autouse=True)
 def mock_wake_up():
     """Mock Tesla Fleet API Vehicle Specific wake_up method."""
     with patch(
-        "homeassistant.components.teslemetry.VehicleSpecific.wake_up",
+        "tesla_fleet_api.teslemetry.Vehicle.wake_up",
         return_value=WAKE_UP_ONLINE,
     ) as mock_wake_up:
         yield mock_wake_up
@@ -72,7 +108,7 @@ def mock_wake_up():
 def mock_vehicle() -> Generator[AsyncMock]:
     """Mock Tesla Fleet API Vehicle Specific vehicle method."""
     with patch(
-        "homeassistant.components.teslemetry.VehicleSpecific.vehicle",
+        "tesla_fleet_api.teslemetry.Vehicle.vehicle",
         return_value=WAKE_UP_ONLINE,
     ) as mock_vehicle:
         yield mock_vehicle
@@ -82,7 +118,7 @@ def mock_vehicle() -> Generator[AsyncMock]:
 def mock_request():
     """Mock Tesla Fleet API Vehicle Specific class."""
     with patch(
-        "homeassistant.components.teslemetry.Teslemetry._request",
+        "tesla_fleet_api.teslemetry.Teslemetry._request",
         return_value=COMMAND_OK,
     ) as mock_request:
         yield mock_request
@@ -92,7 +128,7 @@ def mock_request():
 def mock_live_status():
     """Mock Teslemetry Energy Specific live_status method."""
     with patch(
-        "homeassistant.components.teslemetry.EnergySpecific.live_status",
+        "tesla_fleet_api.tesla.energysite.EnergySite.live_status",
         side_effect=lambda: deepcopy(LIVE_STATUS),
     ) as mock_live_status:
         yield mock_live_status
@@ -102,34 +138,33 @@ def mock_live_status():
 def mock_site_info():
     """Mock Teslemetry Energy Specific site_info method."""
     with patch(
-        "homeassistant.components.teslemetry.EnergySpecific.site_info",
+        "tesla_fleet_api.tesla.energysite.EnergySite.site_info",
         side_effect=lambda: deepcopy(SITE_INFO),
     ) as mock_live_status:
         yield mock_live_status
 
 
 @pytest.fixture(autouse=True)
-def mock_energy_history():
-    """Mock Teslemetry Energy Specific site_info method."""
+def mock_stream_listen():
+    """Mock Teslemetry Stream listen method."""
     with patch(
-        "homeassistant.components.teslemetry.EnergySpecific.energy_history",
-        return_value=ENERGY_HISTORY,
-    ) as mock_live_status:
-        yield mock_live_status
+        "teslemetry_stream.TeslemetryStream.listen",
+    ) as mock_stream_listen:
+        yield mock_stream_listen
 
 
 @pytest.fixture(autouse=True)
 def mock_add_listener():
-    """Mock Teslemetry Stream listen method."""
+    """Mock Teslemetry Stream add listener method."""
     with patch(
-        "homeassistant.components.teslemetry.TeslemetryStream.async_add_listener",
+        "teslemetry_stream.TeslemetryStream.async_add_listener",
     ) as mock_add_listener:
         mock_add_listener.listeners = []
 
         def unsubscribe() -> None:
             return
 
-        def side_effect(callback, filters):
+        def side_effect(callback, filters, internal=False):
             mock_add_listener.listeners.append((callback, filters))
             return unsubscribe
 
@@ -141,6 +176,137 @@ def mock_add_listener():
         mock_add_listener.send = send
         mock_add_listener.side_effect = side_effect
         yield mock_add_listener
+
+
+@pytest.fixture
+def mock_add_connection_listener():
+    """Mock Teslemetry Stream add connection listener method."""
+    with patch(
+        "teslemetry_stream.TeslemetryStream.async_add_connection_listener",
+    ) as mock_add_connection_listener:
+        mock_add_connection_listener.listeners = []
+
+        def unsubscribe() -> None:
+            return
+
+        def side_effect(callback):
+            mock_add_connection_listener.listeners.append(callback)
+            return unsubscribe
+
+        def send(connected: bool) -> None:
+            for listener in mock_add_connection_listener.listeners:
+                listener(connected)
+
+        mock_add_connection_listener.send = send
+        mock_add_connection_listener.side_effect = side_effect
+        yield mock_add_connection_listener
+
+
+@pytest.fixture
+def mock_energy_live_stream() -> Generator[MagicMock]:
+    """Capture the callback the integration registers for live_status events."""
+    with patch(
+        "teslemetry_stream.TeslemetryStreamEnergySite.listen_LiveStatus",
+    ) as mock_listen:
+        callbacks: list = []
+
+        def side_effect(callback):
+            callbacks.append(callback)
+            return MagicMock()
+
+        def send(live_status: dict) -> None:
+            for callback in callbacks:
+                callback(live_status)
+
+        mock_listen.side_effect = side_effect
+        mock_listen.send = send
+        yield mock_listen
+
+
+@pytest.fixture
+def mock_energy_info_stream() -> Generator[MagicMock]:
+    """Capture the callback the integration registers for site_info events."""
+    with patch(
+        "teslemetry_stream.TeslemetryStreamEnergySite.listen_SiteInfo",
+    ) as mock_listen:
+        callbacks: list = []
+
+        def side_effect(callback):
+            callbacks.append(callback)
+            return MagicMock()
+
+        def send(site_info: dict) -> None:
+            for callback in callbacks:
+                callback(site_info)
+
+        mock_listen.side_effect = side_effect
+        mock_listen.send = send
+        yield mock_listen
+
+
+@pytest.fixture
+def mock_energy_totals_stream() -> Generator[MagicMock]:
+    """Capture the callback the integration registers for energy_totals events."""
+    with patch(
+        "teslemetry_stream.TeslemetryStreamEnergySite.listen_EnergyTotals",
+    ) as mock_listen:
+        callbacks: list = []
+
+        def side_effect(callback):
+            callbacks.append(callback)
+            return MagicMock()
+
+        def send(
+            totals: dict[str, float | None] | None = None,
+            *,
+            date: str = ENERGY_TOTALS_DATE,
+            created_at: str = "2024-09-18T08:50:00.000Z",
+            is_cache: bool = False,
+        ) -> None:
+            """Deliver a wire event through the library's own parsing."""
+            event = EnergyTotalsEvent.from_dict(
+                {
+                    "id": 123456,
+                    "date": date,
+                    "createdAt": created_at,
+                    "isCache": is_cache,
+                    "totals": ENERGY_TOTALS if totals is None else totals,
+                }
+            )
+            for callback in callbacks:
+                callback(event)
+
+        mock_listen.side_effect = side_effect
+        mock_listen.send = send
+        yield mock_listen
+
+
+@pytest.fixture
+def mock_energy_tariff_stream() -> Generator[MagicMock]:
+    """Capture the callback the integration registers for tariff events."""
+    with patch(
+        "teslemetry_stream.TeslemetryStreamEnergySite.listen_TariffContentV2",
+    ) as mock_listen:
+        callbacks: list = []
+
+        def side_effect(callback):
+            callbacks.append(callback)
+            return MagicMock()
+
+        def send(tariff: dict | None) -> None:
+            for callback in callbacks:
+                callback(tariff)
+
+        mock_listen.side_effect = side_effect
+        mock_listen.send = send
+        yield mock_listen
+
+
+@pytest.fixture
+def mock_energy_only(mock_products: AsyncMock, mock_metadata: MagicMock) -> None:
+    """Patch products and metadata to an energy-only account."""
+    mock_products.return_value = PRODUCTS_ENERGY
+    mock_metadata.return_value = METADATA_ENERGY
 
 
 @pytest.fixture(autouse=True)
@@ -165,7 +331,16 @@ def mock_stream_update_config():
 def mock_stream_connected():
     """Mock Teslemetry Stream listen method."""
     with patch(
-        "homeassistant.components.teslemetry.TeslemetryStream.connected",
+        "teslemetry_stream.TeslemetryStream.connected",
         return_value=True,
     ) as mock_stream_connected:
         yield mock_stream_connected
+
+
+@pytest.fixture(autouse=True)
+def mock_powerwall_connect() -> Generator[AsyncMock]:
+    """Mock the local Powerwall gateway connection."""
+    with patch(
+        "aiopowerwall.PowerwallClient.connect", return_value="GATEWAY-DIN"
+    ) as mock_connect:
+        yield mock_connect

@@ -1,35 +1,34 @@
 """Support for Hydrawise cloud switches."""
 
-from __future__ import annotations
-
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, override
 
-from pydrawise import Hydrawise, Zone
+from pydrawise import Controller, HydrawiseBase, Zone
 
 from homeassistant.components.switch import (
     SwitchDeviceClass,
     SwitchEntity,
     SwitchEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DEFAULT_WATERING_TIME, DOMAIN
-from .coordinator import HydrawiseUpdateCoordinators
-from .entity import HydrawiseEntity
+from .const import DEFAULT_WATERING_TIME
+from .coordinator import HydrawiseConfigEntry
+from .entity import HydrawiseEntity, exception_handler
+
+PARALLEL_UPDATES = 1
 
 
 @dataclass(frozen=True, kw_only=True)
 class HydrawiseSwitchEntityDescription(SwitchEntityDescription):
     """Describes Hydrawise binary sensor."""
 
-    turn_on_fn: Callable[[Hydrawise, Zone], Coroutine[Any, Any, None]]
-    turn_off_fn: Callable[[Hydrawise, Zone], Coroutine[Any, Any, None]]
+    turn_on_fn: Callable[[HydrawiseBase, Zone], Coroutine[Any, Any, None]]
+    turn_off_fn: Callable[[HydrawiseBase, Zone], Coroutine[Any, Any, None]]
     value_fn: Callable[[Zone], bool]
 
 
@@ -62,17 +61,26 @@ SWITCH_KEYS: list[str] = [desc.key for desc in SWITCH_TYPES]
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: HydrawiseConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Hydrawise switch platform."""
-    coordinators: HydrawiseUpdateCoordinators = hass.data[DOMAIN][config_entry.entry_id]
-    async_add_entities(
-        HydrawiseSwitch(coordinators.main, description, controller, zone_id=zone.id)
-        for controller in coordinators.main.data.controllers.values()
-        for zone in controller.zones
-        for description in SWITCH_TYPES
+    coordinators = config_entry.runtime_data
+
+    def _add_new_zones(zones: Iterable[tuple[Zone, Controller]]) -> None:
+        async_add_entities(
+            HydrawiseSwitch(coordinators.main, description, controller, zone_id=zone.id)
+            for zone, controller in zones
+            for description in SWITCH_TYPES
+        )
+
+    _add_new_zones(
+        [
+            (zone, coordinators.main.data.zone_id_to_controller[zone.id])
+            for zone in coordinators.main.data.zones.values()
+        ]
     )
+    coordinators.main.new_zones_callbacks.append(_add_new_zones)
 
 
 class HydrawiseSwitch(HydrawiseEntity, SwitchEntity):
@@ -81,18 +89,23 @@ class HydrawiseSwitch(HydrawiseEntity, SwitchEntity):
     entity_description: HydrawiseSwitchEntityDescription
     zone: Zone
 
+    @override
+    @exception_handler
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the device on."""
         await self.entity_description.turn_on_fn(self.coordinator.api, self.zone)
         self._attr_is_on = True
         self.async_write_ha_state()
 
+    @override
+    @exception_handler
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off."""
         await self.entity_description.turn_off_fn(self.coordinator.api, self.zone)
         self._attr_is_on = False
         self.async_write_ha_state()
 
+    @override
     def _update_attrs(self) -> None:
         """Update state attributes."""
         self._attr_is_on = self.entity_description.value_fn(self.zone)

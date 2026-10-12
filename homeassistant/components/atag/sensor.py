@@ -1,5 +1,7 @@
 """Initialization of ATAG One sensor platform."""
 
+from typing import override
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import (
     PERCENTAGE,
@@ -8,7 +10,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import AtagConfigEntry, AtagDataUpdateCoordinator
 from .entity import AtagEntity
@@ -28,7 +30,7 @@ SENSORS = {
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AtagConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize sensor platform from config entry."""
     coordinator = config_entry.runtime_data
@@ -59,11 +61,13 @@ class AtagSensor(AtagEntity, SensorEntity):
             ].measure
 
     @property
+    @override
     def native_value(self):
         """Return the state of the sensor."""
         return self.coordinator.atag.report[self._id].state
 
     @property
-    def icon(self):
+    @override
+    def icon(self) -> str:
         """Return icon."""
         return self.coordinator.atag.report[self._id].icon

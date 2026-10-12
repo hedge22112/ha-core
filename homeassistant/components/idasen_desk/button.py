@@ -3,14 +3,14 @@
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 import logging
-from typing import Any, Final
+from typing import Any, Final, override
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import IdasenDeskConfigEntry, IdasenDeskCoordinator
+from .coordinator import IdasenDeskConfigEntry, IdasenDeskCoordinator
 from .entity import IdasenDeskEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ BUTTONS: Final = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: IdasenDeskConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set buttons for device."""
     coordinator = entry.runtime_data
@@ -65,6 +65,7 @@ class IdasenDeskButton(IdasenDeskEntity, ButtonEntity):
         super().__init__(f"{description.key}-{coordinator.address}", coordinator)
         self.entity_description = description
 
+    @override
     async def async_press(self) -> None:
         """Triggers the IdasenDesk button press service."""
         _LOGGER.debug(
@@ -75,6 +76,7 @@ class IdasenDeskButton(IdasenDeskEntity, ButtonEntity):
         await self.entity_description.press_action(self.coordinator)()
 
     @property
+    @override
     def available(self) -> bool:
         """Connect/disconnect buttons should always be available."""
         return True

@@ -1,40 +1,51 @@
 """The ukraine_alarm component."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 import aiohttp
 from aiohttp import ClientSession
 from uasiren.client import Client
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_REGION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import ALERT_TYPES, DOMAIN
+from .const import AIR_ALERT_LEVELS, ALERT_TYPE_AIR, ALERT_TYPES, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(seconds=10)
 
+type UkraineAlarmConfigEntry = ConfigEntry[UkraineAlarmDataUpdateCoordinator]
+
 
 class UkraineAlarmDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching Ukraine Alarm API."""
 
+    config_entry: UkraineAlarmConfigEntry
+
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: UkraineAlarmConfigEntry,
         session: ClientSession,
-        region_id: str,
     ) -> None:
         """Initialize."""
-        self.region_id = region_id
+        self.region_id = config_entry.data[CONF_REGION]
         self.uasiren = Client(session)
 
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=UPDATE_INTERVAL)
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=config_entry,
+            name=DOMAIN,
+            update_interval=UPDATE_INTERVAL,
+        )
 
+    @override
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via library."""
         try:
@@ -42,8 +53,14 @@ class UkraineAlarmDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except aiohttp.ClientError as error:
             raise UpdateFailed(f"Error fetching alerts from API: {error}") from error
 
-        current = {alert_type: False for alert_type in ALERT_TYPES}
+        current = dict.fromkeys(ALERT_TYPES, False)
         for alert in res[0]["activeAlerts"]:
             current[alert["type"]] = True
+
+            if alert["type"] != ALERT_TYPE_AIR:
+                continue
+            for level in alert.get("activeAlertLevels") or []:
+                if key := AIR_ALERT_LEVELS.get(str(level.get("alertLevel")).lower()):
+                    current[key] = True
 
         return current

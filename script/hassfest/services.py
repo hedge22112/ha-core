@@ -1,15 +1,13 @@
 """Validate dependencies."""
 
-from __future__ import annotations
-
 import contextlib
 import json
 import pathlib
 import re
 from typing import Any
 
-import voluptuous as vol
-from voluptuous.humanize import humanize_error
+import probatio
+from probatio.humanize import humanize_error
 
 from homeassistant.const import CONF_SELECTOR
 from homeassistant.exceptions import HomeAssistantError
@@ -22,7 +20,7 @@ from .model import Config, Integration
 def exists(value: Any) -> Any:
     """Check if value exists."""
     if value is None:
-        raise vol.Invalid("Value cannot be None")
+        raise probatio.Invalid("Value cannot be None")
     return value
 
 
@@ -33,118 +31,170 @@ def unique_field_validator(fields: Any) -> Any:
         if value and "fields" in value:
             for key in value["fields"]:
                 if key in all_fields:
-                    raise vol.Invalid(f"Duplicate use of field {key} in service.")
+                    raise probatio.Invalid(f"Duplicate use of field {key} in service.")
                 all_fields.add(key)
         else:
             if key in all_fields:
-                raise vol.Invalid(f"Duplicate use of field {key} in service.")
+                raise probatio.Invalid(f"Duplicate use of field {key} in service.")
             all_fields.add(key)
 
     return fields
 
 
-CORE_INTEGRATION_FIELD_SCHEMA = vol.Schema(
-    {
-        vol.Optional("example"): exists,
-        vol.Optional("default"): exists,
-        vol.Optional("required"): bool,
-        vol.Optional("advanced"): bool,
-        vol.Optional(CONF_SELECTOR): selector.validate_selector,
-        vol.Optional("filter"): {
-            vol.Exclusive("attribute", "field_filter"): {
-                vol.Required(str): [vol.All(str, service.validate_attribute_option)],
-            },
-            vol.Exclusive("supported_features", "field_filter"): [
-                vol.All(str, service.validate_supported_feature)
+CUSTOM_INTEGRATION_EXTRA_SCHEMA_DICT = {
+    probatio.Optional("description"): str,
+    probatio.Optional("name"): str,
+}
+
+
+CORE_INTEGRATION_NOT_TARGETED_FIELD_SCHEMA_DICT = {
+    probatio.Optional("example"): exists,
+    probatio.Optional("default"): exists,
+    probatio.Optional("required"): bool,
+    probatio.Optional("advanced"): bool,
+    probatio.Optional(CONF_SELECTOR): selector.validate_selector,
+}
+
+FIELD_FILTER_SCHEMA_DICT = {
+    probatio.Optional("filter"): {
+        probatio.Exclusive("attribute", "field_filter"): {
+            probatio.Required(str): [
+                probatio.All(str, service.validate_attribute_option)
             ],
         },
+        probatio.Exclusive("supported_features", "field_filter"): [
+            probatio.All(str, service.validate_supported_feature)
+        ],
     }
-)
+}
 
-CORE_INTEGRATION_SECTION_SCHEMA = vol.Schema(
-    {
-        vol.Optional("collapsed"): bool,
-        vol.Required("fields"): vol.Schema({str: CORE_INTEGRATION_FIELD_SCHEMA}),
+
+def _field_schema(targeted: bool, custom: bool) -> probatio.Schema:
+    """Return the field schema."""
+    schema_dict = CORE_INTEGRATION_NOT_TARGETED_FIELD_SCHEMA_DICT.copy()
+
+    # Filters are only allowed for targeted services because they rely on the presence
+    # of a `target` field to determine the scope of the service call. Non-targeted
+    # services do not have a `target` field, making filters inapplicable.
+    if targeted:
+        schema_dict |= FIELD_FILTER_SCHEMA_DICT
+
+    if custom:
+        schema_dict |= CUSTOM_INTEGRATION_EXTRA_SCHEMA_DICT
+
+    return probatio.Schema(schema_dict)
+
+
+def _section_schema(targeted: bool, custom: bool) -> probatio.Schema:
+    """Return the section schema."""
+    schema_dict = {
+        probatio.Optional("collapsed"): bool,
+        probatio.Required("fields"): probatio.Schema(
+            {
+                str: _field_schema(targeted, custom),
+            }
+        ),
     }
-)
 
-CUSTOM_INTEGRATION_FIELD_SCHEMA = CORE_INTEGRATION_FIELD_SCHEMA.extend(
-    {
-        vol.Optional("description"): str,
-        vol.Optional("name"): str,
-    }
-)
+    if custom:
+        schema_dict |= CUSTOM_INTEGRATION_EXTRA_SCHEMA_DICT
 
-CUSTOM_INTEGRATION_SECTION_SCHEMA = vol.Schema(
-    {
-        vol.Optional("description"): str,
-        vol.Optional("name"): str,
-        vol.Optional("collapsed"): bool,
-        vol.Required("fields"): vol.Schema({str: CUSTOM_INTEGRATION_FIELD_SCHEMA}),
-    }
-)
+    return probatio.Schema(schema_dict)
 
 
-CORE_INTEGRATION_SERVICE_SCHEMA = vol.Any(
-    vol.Schema(
-        {
-            vol.Optional("target"): vol.Any(
-                selector.TargetSelector.CONFIG_SCHEMA, None
+def _service_schema(targeted: bool, custom: bool) -> probatio.Schema:
+    """Return the service schema."""
+    schema_dict = {
+        probatio.Optional("fields"): probatio.All(
+            probatio.Schema(
+                {
+                    str: probatio.Any(
+                        _field_schema(targeted, custom),
+                        _section_schema(targeted, custom),
+                    ),
+                }
             ),
-            vol.Optional("fields"): vol.All(
-                vol.Schema(
-                    {
-                        str: vol.Any(
-                            CORE_INTEGRATION_FIELD_SCHEMA,
-                            CORE_INTEGRATION_SECTION_SCHEMA,
-                        )
-                    }
-                ),
-                unique_field_validator,
-            ),
-        }
-    ),
+            unique_field_validator,
+        )
+    }
+
+    def raise_on_target_device_filter(value: dict[str, Any]) -> dict[str, Any]:
+        """Raise error if target has a device filter."""
+        if "device" in value:
+            raise probatio.Invalid(
+                "Services do not support device filters on target, use a device "
+                "selector instead"
+            )
+        return value
+
+    if targeted:
+        schema_dict[probatio.Required("target")] = probatio.All(
+            selector.TargetSelector.CONFIG_SCHEMA,
+            raise_on_target_device_filter,
+        )
+
+    if custom:
+        schema_dict |= CUSTOM_INTEGRATION_EXTRA_SCHEMA_DICT
+
+    return probatio.Schema(schema_dict)
+
+
+CORE_INTEGRATION_SERVICE_SCHEMA = probatio.Any(
+    _service_schema(targeted=True, custom=False),
+    _service_schema(targeted=False, custom=False),
     None,
 )
 
-CUSTOM_INTEGRATION_SERVICE_SCHEMA = vol.Any(
-    vol.Schema(
-        {
-            vol.Optional("description"): str,
-            vol.Optional("name"): str,
-            vol.Optional("target"): vol.Any(
-                selector.TargetSelector.CONFIG_SCHEMA, None
-            ),
-            vol.Optional("fields"): vol.All(
-                vol.Schema(
-                    {
-                        str: vol.Any(
-                            CUSTOM_INTEGRATION_FIELD_SCHEMA,
-                            CUSTOM_INTEGRATION_SECTION_SCHEMA,
-                        )
-                    }
-                ),
-                unique_field_validator,
-            ),
-        }
-    ),
+CUSTOM_INTEGRATION_SERVICE_SCHEMA = probatio.Any(
+    _service_schema(targeted=True, custom=True),
+    _service_schema(targeted=False, custom=True),
     None,
 )
 
-CORE_INTEGRATION_SERVICES_SCHEMA = vol.Schema(
+
+CORE_INTEGRATION_SERVICES_SCHEMA = probatio.Schema(
     {
-        vol.Remove(vol.All(str, service.starts_with_dot)): object,
+        probatio.Remove(probatio.All(str, service.starts_with_dot)): object,
         cv.slug: CORE_INTEGRATION_SERVICE_SCHEMA,
     }
 )
-CUSTOM_INTEGRATION_SERVICES_SCHEMA = vol.Schema(
+
+CUSTOM_INTEGRATION_SERVICES_SCHEMA = probatio.Schema(
     {cv.slug: CUSTOM_INTEGRATION_SERVICE_SCHEMA}
 )
+
 
 VALIDATE_AS_CUSTOM_INTEGRATION = {
     # Adding translations would be a breaking change
     "foursquare",
 }
+
+
+def check_extraneous_translation_fields(
+    integration: Integration,
+    service_name: str,
+    strings: dict[str, Any],
+    service_schema: dict[str, Any],
+) -> None:
+    """Check for extraneous translation fields."""
+    if integration.core and "services" in strings:
+        section_fields = set()
+        for field in service_schema.get("fields", {}).values():
+            if "fields" in field:
+                # This is a section
+                section_fields.update(field["fields"].keys())
+        translation_fields = {
+            field
+            for field in strings["services"][service_name].get("fields", {})
+            if field not in service_schema.get("fields", {})
+        }
+        for field in translation_fields - section_fields:
+            integration.add_error(
+                "services",
+                f"Service {service_name} has a field"
+                f" {field} in the translations file"
+                " that is not in the schema",
+            )
 
 
 def grep_dir(path: pathlib.Path, glob_pattern: str, search_pattern: str) -> bool:
@@ -190,7 +240,7 @@ def validate_services(config: Config, integration: Integration) -> None:  # noqa
             services = CORE_INTEGRATION_SERVICES_SCHEMA(data)
         else:
             services = CUSTOM_INTEGRATION_SERVICES_SCHEMA(data)
-    except vol.Invalid as err:
+    except probatio.Invalid as err:
         integration.add_error(
             "services", f"Invalid services.yaml: {humanize_error(data, err)}"
         )
@@ -233,7 +283,7 @@ def validate_services(config: Config, integration: Integration) -> None:  # noqa
             )
         if service_schema is None:
             continue
-        if "name" not in service_schema:
+        if "name" not in service_schema and integration.core:
             try:
                 strings["services"][service_name]["name"]
             except KeyError:
@@ -242,7 +292,7 @@ def validate_services(config: Config, integration: Integration) -> None:  # noqa
                     f"Service {service_name} has no name {error_msg_suffix}",
                 )
 
-        if "description" not in service_schema:
+        if "description" not in service_schema and integration.core:
             try:
                 strings["services"][service_name]["description"]
             except KeyError:
@@ -251,30 +301,25 @@ def validate_services(config: Config, integration: Integration) -> None:  # noqa
                     f"Service {service_name} has no description {error_msg_suffix}",
                 )
 
-        # The same check is done for the description in each of the fields of the
-        # service schema.
+        check_extraneous_translation_fields(
+            integration, service_name, strings, service_schema
+        )
+
+        # The same check is done for each field in the service schema,
+        # except that we don't require fields to have a description.
         for field_name, field_schema in service_schema.get("fields", {}).items():
             if "fields" in field_schema:
                 # This is a section
                 continue
-            if "name" not in field_schema:
+            if "name" not in field_schema and integration.core:
                 try:
                     strings["services"][service_name]["fields"][field_name]["name"]
                 except KeyError:
                     integration.add_error(
                         "services",
-                        f"Service {service_name} has a field {field_name} with no name {error_msg_suffix}",
-                    )
-
-            if "description" not in field_schema:
-                try:
-                    strings["services"][service_name]["fields"][field_name][
-                        "description"
-                    ]
-                except KeyError:
-                    integration.add_error(
-                        "services",
-                        f"Service {service_name} has a field {field_name} with no description {error_msg_suffix}",
+                        f"Service {service_name} has a"
+                        f" field {field_name} with"
+                        f" no name {error_msg_suffix}",
                     )
 
             if "selector" in field_schema:
@@ -287,7 +332,14 @@ def validate_services(config: Config, integration: Integration) -> None:  # noqa
                     except KeyError:
                         integration.add_error(
                             "services",
-                            f"Service {service_name} has a field {field_name} with a selector with a translation key {translation_key} that is not in the translations file",
+                            f"Service {service_name}"
+                            f" has a field"
+                            f" {field_name} with a"
+                            " selector with a"
+                            " translation key"
+                            f" {translation_key}"
+                            " that is not in the"
+                            " translations file",
                         )
 
         # The same check is done for the description in each of the sections of the
@@ -296,13 +348,17 @@ def validate_services(config: Config, integration: Integration) -> None:  # noqa
             if "fields" not in section_schema:
                 # This is not a section
                 continue
-            try:
-                strings["services"][service_name]["sections"][section_name]["name"]
-            except KeyError:
-                integration.add_error(
-                    "services",
-                    f"Service {service_name} has a section {section_name} with no name {error_msg_suffix}",
-                )
+            if "name" not in section_schema and integration.core:
+                try:
+                    strings["services"][service_name]["sections"][section_name]["name"]
+                except KeyError:
+                    integration.add_error(
+                        "services",
+                        f"Service {service_name}"
+                        f" has a section"
+                        f" {section_name} with no"
+                        f" name {error_msg_suffix}",
+                    )
 
 
 def validate(integrations: dict[str, Integration], config: Config) -> None:

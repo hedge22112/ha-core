@@ -1,28 +1,38 @@
 """Config flow for Smart Meter Texas integration."""
 
+from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 
 from aiohttp import ClientError
-from smart_meter_texas import Account, Client, ClientSSLContext
+import probatio
+from smart_meter_texas import Account, Client
 from smart_meter_texas.exceptions import (
     SmartMeterTexasAPIError,
     SmartMeterTexasAuthError,
 )
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import aiohttp_client
+from homeassistant.util.ssl import get_default_context
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-DATA_SCHEMA = vol.Schema(
-    {vol.Required(CONF_USERNAME): str, vol.Required(CONF_PASSWORD): str}
+DATA_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
+    }
+)
+REAUTH_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
+    }
 )
 
 
@@ -31,8 +41,7 @@ async def validate_input(hass: HomeAssistant, data):
 
     Data has the keys from DATA_SCHEMA with values provided by the user.
     """
-    client_ssl_context = ClientSSLContext()
-    ssl_context = await client_ssl_context.get_ssl_context()
+    ssl_context = get_default_context()
     client_session = aiohttp_client.async_get_clientsession(hass)
     account = Account(data["username"], data["password"])
     client = Client(client_session, account, ssl_context)
@@ -53,6 +62,7 @@ class SMTConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -79,6 +89,47 @@ class SMTConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle reauthentication."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm reauthentication with a new password."""
+        errors = {}
+        reauth_entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            try:
+                await validate_input(
+                    self.hass,
+                    {
+                        CONF_USERNAME: reauth_entry.data[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                    },
+                )
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    reauth_entry, data_updates=user_input
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=REAUTH_SCHEMA,
+            description_placeholders={CONF_USERNAME: reauth_entry.data[CONF_USERNAME]},
+            errors=errors,
         )
 
 

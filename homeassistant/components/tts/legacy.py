@@ -1,21 +1,19 @@
 """Provide the legacy TTS service provider interface."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
 from collections.abc import Coroutine, Mapping
 from functools import partial
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, final
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.media_player import (
     ATTR_MEDIA_ANNOUNCE,
     ATTR_MEDIA_CONTENT_ID,
     ATTR_MEDIA_CONTENT_TYPE,
-    DOMAIN as DOMAIN_MP,
+    DOMAIN as MP_DOMAIN,
     SERVICE_PLAY_MEDIA,
     MediaType,
 )
@@ -27,8 +25,7 @@ from homeassistant.const import (
     CONF_PLATFORM,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.helpers import discovery
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv, discovery
 from homeassistant.helpers.service import async_set_service_schema
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.setup import (
@@ -65,7 +62,7 @@ CONF_SERVICE_NAME = "service_name"
 def _deprecated_platform(value: str) -> str:
     """Validate if platform is deprecated."""
     if value == "google":
-        raise vol.Invalid(
+        raise probatio.Invalid(
             "google tts service has been renamed to google_translate,"
             " please update your configuration."
         )
@@ -74,26 +71,26 @@ def _deprecated_platform(value: str) -> str:
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_PLATFORM): vol.All(cv.string, _deprecated_platform),
-        vol.Optional(CONF_CACHE, default=DEFAULT_CACHE): cv.boolean,
-        vol.Optional(CONF_CACHE_DIR, default=DEFAULT_CACHE_DIR): cv.string,
-        vol.Optional(CONF_TIME_MEMORY, default=DEFAULT_TIME_MEMORY): vol.All(
-            vol.Coerce(int), vol.Range(min=60, max=57600)
+        probatio.Required(CONF_PLATFORM): probatio.All(cv.string, _deprecated_platform),
+        probatio.Optional(CONF_CACHE, default=DEFAULT_CACHE): cv.boolean,
+        probatio.Optional(CONF_CACHE_DIR, default=DEFAULT_CACHE_DIR): cv.string,
+        probatio.Optional(CONF_TIME_MEMORY, default=DEFAULT_TIME_MEMORY): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=60, max=57600)
         ),
-        vol.Optional(CONF_SERVICE_NAME): cv.string,
+        probatio.Optional(CONF_SERVICE_NAME): cv.string,
     }
 )
 PLATFORM_SCHEMA_BASE = cv.PLATFORM_SCHEMA_BASE.extend(PLATFORM_SCHEMA.schema)
 
 SERVICE_SAY = "say"
 
-SCHEMA_SERVICE_SAY = vol.Schema(
+SCHEMA_SERVICE_SAY = probatio.Schema(
     {
-        vol.Required(ATTR_MESSAGE): cv.string,
-        vol.Optional(ATTR_CACHE): cv.boolean,
-        vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
-        vol.Optional(ATTR_LANGUAGE): cv.string,
-        vol.Optional(ATTR_OPTIONS): dict,
+        probatio.Required(ATTR_MESSAGE): cv.string,
+        probatio.Optional(ATTR_CACHE): cv.boolean,
+        probatio.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
+        probatio.Optional(ATTR_LANGUAGE): cv.string,
+        probatio.Optional(ATTR_OPTIONS): dict,
     }
 )
 
@@ -154,7 +151,7 @@ async def async_setup_legacy(
             entity_ids = service.data[ATTR_ENTITY_ID]
 
             await hass.services.async_call(
-                DOMAIN_MP,
+                MP_DOMAIN,
                 SERVICE_PLAY_MEDIA,
                 {
                     ATTR_ENTITY_ID: entity_ids,
@@ -208,6 +205,7 @@ class Provider:
 
     hass: HomeAssistant | None = None
     name: str | None = None
+    has_entity: bool = False
 
     @property
     def default_language(self) -> str | None:
@@ -252,3 +250,15 @@ class Provider:
         return await self.hass.async_add_executor_job(
             partial(self.get_tts_audio, message, language, options=options)
         )
+
+    @final
+    async def async_internal_get_tts_audio(
+        self, message: str, language: str, options: dict[str, Any]
+    ) -> TtsAudioType:
+        """Load tts audio file from provider.
+
+        Proxies request to mimic the entity interface.
+
+        Return a tuple of file extension and data as bytes.
+        """
+        return await self.async_get_tts_audio(message, language, options)

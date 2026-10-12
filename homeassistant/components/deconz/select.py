@@ -1,6 +1,6 @@
 """Support for deCONZ select entities."""
 
-from __future__ import annotations
+from typing import override
 
 from pydeconz.models.event import EventType
 from pydeconz.models.sensor.air_purifier import AirPurifier, AirPurifierFanMode
@@ -12,13 +12,12 @@ from pydeconz.models.sensor.presence import (
 )
 
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import DeconzConfigEntry
 from .entity import DeconzDevice
-from .hub import DeconzHub
 
 SENSITIVITY_TO_DECONZ = {
     "High": PresenceConfigSensitivity.HIGH.value,
@@ -30,11 +29,11 @@ DECONZ_TO_SENSITIVITY = {value: key for key, value in SENSITIVITY_TO_DECONZ.item
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: DeconzConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the deCONZ button entity."""
-    hub = DeconzHub.get_hub(hass, config_entry)
+    hub = config_entry.runtime_data
     hub.entities[SELECT_DOMAIN] = set()
 
     @callback
@@ -88,10 +87,12 @@ class DeconzAirPurifierFanMode(DeconzDevice[AirPurifier], SelectEntity):
     TYPE = SELECT_DOMAIN
 
     @property
+    @override
     def current_option(self) -> str:
         """Return the selected entity option to represent the entity state."""
         return self._device.fan_mode.value
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         await self.hub.api.sensors.air_purifier.set_config(
@@ -116,12 +117,14 @@ class DeconzPresenceDeviceModeSelect(DeconzDevice[Presence], SelectEntity):
     TYPE = SELECT_DOMAIN
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
         if self._device.device_mode is not None:
             return self._device.device_mode.value
         return None
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         await self.hub.api.sensors.presence.set_config(
@@ -143,12 +146,14 @@ class DeconzPresenceSensitivitySelect(DeconzDevice[Presence], SelectEntity):
     TYPE = SELECT_DOMAIN
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
         if self._device.sensitivity is not None:
             return DECONZ_TO_SENSITIVITY[self._device.sensitivity]
         return None
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         await self.hub.api.sensors.presence.set_config(
@@ -174,12 +179,14 @@ class DeconzPresenceTriggerDistanceSelect(DeconzDevice[Presence], SelectEntity):
     TYPE = SELECT_DOMAIN
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
         if self._device.trigger_distance is not None:
             return self._device.trigger_distance.value
         return None
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         await self.hub.api.sensors.presence.set_config(

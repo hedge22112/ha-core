@@ -8,7 +8,7 @@ from pytest_unordered import unordered
 from homeassistant.components.automation import DOMAIN as AUTOMATION_DOMAIN
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 
-# pylint: disable-next=hass-component-root-import
+# pylint: disable-next=home-assistant-component-root-import
 from homeassistant.components.binary_sensor.device_trigger import (
     CONF_BAT_LOW,
     CONF_NOT_BAT_LOW,
@@ -16,9 +16,12 @@ from homeassistant.components.binary_sensor.device_trigger import (
     CONF_TAMPERED,
 )
 from homeassistant.components.deconz import device_trigger
-from homeassistant.components.deconz.const import DOMAIN as DECONZ_DOMAIN
+from homeassistant.components.deconz.const import DOMAIN
 from homeassistant.components.deconz.device_trigger import CONF_SUBTYPE
-from homeassistant.components.device_automation import DeviceAutomationType
+from homeassistant.components.device_automation import (
+    DeviceAutomationType,
+    InvalidDeviceAutomationConfig,
+)
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import (
     ATTR_BATTERY_LEVEL,
@@ -37,11 +40,6 @@ from homeassistant.setup import async_setup_component
 from .conftest import WebsocketDataType
 
 from tests.common import MockConfigEntry, async_get_device_automations
-
-
-@pytest.fixture(autouse=True, name="stub_blueprint_populate")
-def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
-    """Stub copying the blueprints to the config folder."""
 
 
 @pytest.mark.parametrize(
@@ -68,15 +66,15 @@ def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
         }
     ],
 )
-@pytest.mark.usefixtures("config_entry_setup")
 async def test_get_triggers(
     hass: HomeAssistant,
+    config_entry_setup: MockConfigEntry,
     device_registry: dr.DeviceRegistry,
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test triggers work."""
-    device = device_registry.async_get_device(
-        identifiers={(DECONZ_DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")}
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a"), config_entry_setup.entry_id
     )
     battery_sensor_entry = entity_registry.async_get(
         "sensor.tradfri_on_off_switch_battery"
@@ -89,7 +87,7 @@ async def test_get_triggers(
     expected_triggers = [
         {
             CONF_DEVICE_ID: device.id,
-            CONF_DOMAIN: DECONZ_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: "device",
             CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
             CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -97,7 +95,7 @@ async def test_get_triggers(
         },
         {
             CONF_DEVICE_ID: device.id,
-            CONF_DOMAIN: DECONZ_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: "device",
             CONF_TYPE: device_trigger.CONF_LONG_PRESS,
             CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -105,7 +103,7 @@ async def test_get_triggers(
         },
         {
             CONF_DEVICE_ID: device.id,
-            CONF_DOMAIN: DECONZ_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: "device",
             CONF_TYPE: device_trigger.CONF_LONG_RELEASE,
             CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -113,7 +111,7 @@ async def test_get_triggers(
         },
         {
             CONF_DEVICE_ID: device.id,
-            CONF_DOMAIN: DECONZ_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: "device",
             CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
             CONF_SUBTYPE: device_trigger.CONF_TURN_OFF,
@@ -121,7 +119,7 @@ async def test_get_triggers(
         },
         {
             CONF_DEVICE_ID: device.id,
-            CONF_DOMAIN: DECONZ_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: "device",
             CONF_TYPE: device_trigger.CONF_LONG_PRESS,
             CONF_SUBTYPE: device_trigger.CONF_TURN_OFF,
@@ -129,7 +127,7 @@ async def test_get_triggers(
         },
         {
             CONF_DEVICE_ID: device.id,
-            CONF_DOMAIN: DECONZ_DOMAIN,
+            CONF_DOMAIN: DOMAIN,
             CONF_PLATFORM: "device",
             CONF_TYPE: device_trigger.CONF_LONG_RELEASE,
             CONF_SUBTYPE: device_trigger.CONF_TURN_OFF,
@@ -179,15 +177,15 @@ async def test_get_triggers(
         }
     ],
 )
-@pytest.mark.usefixtures("config_entry_setup")
 async def test_get_triggers_for_alarm_event(
     hass: HomeAssistant,
+    config_entry_setup: MockConfigEntry,
     device_registry: dr.DeviceRegistry,
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test triggers work."""
-    device = device_registry.async_get_device(
-        identifiers={(DECONZ_DOMAIN, "00:00:00:00:00:00:00:00")}
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "00:00:00:00:00:00:00:00"), config_entry_setup.entry_id
     )
     bat_entity = entity_registry.async_get("sensor.keypad_battery")
     low_bat_entity = entity_registry.async_get("binary_sensor.keypad_low_battery")
@@ -266,13 +264,14 @@ async def test_get_triggers_for_alarm_event(
         }
     ],
 )
-@pytest.mark.usefixtures("config_entry_setup")
 async def test_get_triggers_manage_unsupported_remotes(
-    hass: HomeAssistant, device_registry: dr.DeviceRegistry
+    hass: HomeAssistant,
+    config_entry_setup: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
 ) -> None:
     """Verify no triggers for an unsupported remote."""
-    device = device_registry.async_get_device(
-        identifiers={(DECONZ_DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")}
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a"), config_entry_setup.entry_id
     )
 
     triggers = await async_get_device_automations(
@@ -308,16 +307,16 @@ async def test_get_triggers_manage_unsupported_remotes(
         }
     ],
 )
-@pytest.mark.usefixtures("config_entry_setup")
 async def test_functional_device_trigger(
     hass: HomeAssistant,
+    config_entry_setup: MockConfigEntry,
     device_registry: dr.DeviceRegistry,
     service_calls: list[ServiceCall],
     sensor_ws_data: WebsocketDataType,
 ) -> None:
     """Test proper matching and attachment of device trigger automation."""
-    device = device_registry.async_get_device(
-        identifiers={(DECONZ_DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")}
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a"), config_entry_setup.entry_id
     )
 
     assert await async_setup_component(
@@ -328,7 +327,7 @@ async def test_functional_device_trigger(
                 {
                     "trigger": {
                         CONF_PLATFORM: "device",
-                        CONF_DOMAIN: DECONZ_DOMAIN,
+                        CONF_DOMAIN: DOMAIN,
                         CONF_DEVICE_ID: device.id,
                         CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
                         CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -362,7 +361,7 @@ async def test_validate_trigger_unknown_device(hass: HomeAssistant) -> None:
                 {
                     "trigger": {
                         CONF_PLATFORM: "device",
-                        CONF_DOMAIN: DECONZ_DOMAIN,
+                        CONF_DOMAIN: DOMAIN,
                         CONF_DEVICE_ID: "unknown device",
                         CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
                         CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -388,7 +387,7 @@ async def test_validate_trigger_unsupported_device(
     """Test unsupported device doesn't return a trigger config."""
     device = device_registry.async_get_or_create(
         config_entry_id=config_entry_setup.entry_id,
-        identifiers={(DECONZ_DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")},
+        identifiers={(DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")},
         model="unsupported",
     )
 
@@ -400,7 +399,7 @@ async def test_validate_trigger_unsupported_device(
                 {
                     "trigger": {
                         CONF_PLATFORM: "device",
-                        CONF_DOMAIN: DECONZ_DOMAIN,
+                        CONF_DOMAIN: DOMAIN,
                         CONF_DEVICE_ID: device.id,
                         CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
                         CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -428,13 +427,13 @@ async def test_validate_trigger_unsupported_trigger(
     """Test unsupported trigger does not return a trigger config."""
     device = device_registry.async_get_or_create(
         config_entry_id=config_entry_setup.entry_id,
-        identifiers={(DECONZ_DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")},
+        identifiers={(DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")},
         model="TRADFRI on/off switch",
     )
 
     trigger_config = {
         CONF_PLATFORM: "device",
-        CONF_DOMAIN: DECONZ_DOMAIN,
+        CONF_DOMAIN: DOMAIN,
         CONF_DEVICE_ID: device.id,
         CONF_TYPE: "unsupported",
         CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -470,14 +469,14 @@ async def test_attach_trigger_no_matching_event(
     """Test no matching event for device doesn't return a trigger config."""
     device = device_registry.async_get_or_create(
         config_entry_id=config_entry_setup.entry_id,
-        identifiers={(DECONZ_DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")},
+        identifiers={(DOMAIN, "d0:cf:5e:ff:fe:71:a4:3a")},
         name="Tradfri switch",
         model="TRADFRI on/off switch",
     )
 
     trigger_config = {
         CONF_PLATFORM: "device",
-        CONF_DOMAIN: DECONZ_DOMAIN,
+        CONF_DOMAIN: DOMAIN,
         CONF_DEVICE_ID: device.id,
         CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
         CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
@@ -511,3 +510,39 @@ async def test_attach_trigger_no_matching_event(
         name="mock-name",
         log_cb=Mock(),
     )
+
+
+async def test_child_device_id_resolves_cleanly(
+    hass: HomeAssistant,
+    device_registry: dr.DeviceRegistry,
+    config_entry_setup: MockConfigEntry,
+) -> None:
+    """Test a child device id is handled cleanly at both trigger sites.
+
+    A child device id is not in the main device dict, so bare dict access would
+    raise KeyError. Both async_get_triggers and async_attach_trigger must instead
+    resolve it as not-found.
+    """
+    parent = device_registry.async_get_or_create(
+        config_entry_id=config_entry_setup.entry_id,
+        identifiers={(DOMAIN, "parent_device")},
+        name="Parent",
+    )
+    child = device_registry.async_get_or_create_child(
+        config_entry_id=config_entry_setup.entry_id,
+        identifiers={(DOMAIN, "child_device")},
+        parent_device_id=parent.id,
+        name="Child",
+    )
+
+    assert await device_trigger.async_get_triggers(hass, child.id) == []
+
+    trigger_config = {
+        CONF_PLATFORM: "device",
+        CONF_DOMAIN: DOMAIN,
+        CONF_DEVICE_ID: child.id,
+        CONF_TYPE: device_trigger.CONF_SHORT_PRESS,
+        CONF_SUBTYPE: device_trigger.CONF_TURN_ON,
+    }
+    with pytest.raises(InvalidDeviceAutomationConfig):
+        await device_trigger.async_attach_trigger(hass, trigger_config, Mock(), Mock())

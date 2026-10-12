@@ -1,12 +1,10 @@
 """Component providing support to the Ring Door Bell camera."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import TYPE_CHECKING, Any, Generic
+from typing import TYPE_CHECKING, Any, Generic, override
 
 from aiohttp import web
 from haffmpeg.camera import CameraMjpeg
@@ -27,12 +25,17 @@ from homeassistant.components.camera import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_aiohttp_proxy_stream
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import RingConfigEntry
+from .const import DOMAIN
 from .coordinator import RingDataCoordinator
 from .entity import RingDeviceT, RingEntity, exception_wrap
+
+# Coordinator is used to centralize the data updates
+# Actions restricted to 1 at a time
+PARALLEL_UPDATES = 1
 
 FORCE_REFRESH_INTERVAL = timedelta(minutes=3)
 MOTION_DETECTION_CAPABILITY = "motion_detection"
@@ -41,7 +44,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
-class RingCameraEntityDescription(CameraEntityDescription, Generic[RingDeviceT]):
+class RingCameraEntityDescription(CameraEntityDescription, Generic[RingDeviceT]):  # noqa: UP046
     """Base class for event entity description."""
 
     exists_fn: Callable[[RingDoorBell], bool]
@@ -71,7 +74,7 @@ CAMERA_DESCRIPTIONS: tuple[RingCameraEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RingConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a Ring Door Bell and StickUp Camera."""
     ring_data = entry.runtime_data
@@ -118,13 +121,15 @@ class RingCam(RingEntity[RingDoorBell], Camera):
             self._attr_supported_features |= CameraEntityFeature.STREAM
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Call update method."""
         self._device = self._get_coordinator_data().get_video_device(
             self._device.device_api_id
         )
+
         history_data = self._device.last_history
-        if history_data:
+        if history_data and self._device.has_subscription:
             self._last_event = history_data[0]
             # will call async_update to update the attributes and get the
             # video url from the api
@@ -138,6 +143,7 @@ class RingCam(RingEntity[RingDoorBell], Camera):
             self.async_write_ha_state()
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
         return {
@@ -145,12 +151,21 @@ class RingCam(RingEntity[RingDoorBell], Camera):
             "last_video_id": self._last_video_id,
         }
 
+    @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return a still image response from the camera."""
+        if self._video_url is None:
+            if not self._device.has_subscription:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="no_subscription",
+                )
+            return None
+
         key = (width, height)
-        if not (image := self._images.get(key)) and self._video_url is not None:
+        if not (image := self._images.get(key)):
             image = await ffmpeg.async_get_image(
                 self.hass,
                 self._video_url,
@@ -163,6 +178,7 @@ class RingCam(RingEntity[RingDoorBell], Camera):
 
         return image
 
+    @override
     async def handle_async_mjpeg_stream(
         self, request: web.Request
     ) -> web.StreamResponse | None:
@@ -184,6 +200,7 @@ class RingCam(RingEntity[RingDoorBell], Camera):
         finally:
             await stream.close()
 
+    @override
     async def async_handle_async_webrtc_offer(
         self, offer_sdp: str, session_id: str, send_message: WebRTCSendMessage
     ) -> None:
@@ -209,22 +226,30 @@ class RingCam(RingEntity[RingDoorBell], Camera):
             offer_sdp, session_id, message_wrapper, keep_alive_timeout=None
         )
 
+    @override
     async def async_on_webrtc_candidate(
         self, session_id: str, candidate: RTCIceCandidateInit
     ) -> None:
         """Handle a WebRTC candidate."""
         if candidate.sdp_m_line_index is None:
-            msg = "The sdp_m_line_index is required for ring webrtc streaming"
-            raise HomeAssistantError(msg)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="sdp_m_line_index_required",
+                translation_placeholders={
+                    "device": self._device.name,
+                },
+            )
         await self._device.on_webrtc_candidate(
             session_id, candidate.candidate, candidate.sdp_m_line_index
         )
 
     @callback
+    @override
     def close_webrtc_session(self, session_id: str) -> None:
         """Close a WebRTC session."""
         self._device.sync_close_webrtc_stream(session_id)
 
+    @override
     async def async_update(self) -> None:
         """Update camera entity and refresh attributes."""
         if (
@@ -274,10 +299,12 @@ class RingCam(RingEntity[RingDoorBell], Camera):
         self._attr_motion_detection_enabled = new_state
         self.async_write_ha_state()
 
+    @override
     async def async_enable_motion_detection(self) -> None:
         """Enable motion detection in the camera."""
         await self._async_set_motion_detection_enabled(True)
 
+    @override
     async def async_disable_motion_detection(self) -> None:
         """Disable motion detection in camera."""
         await self._async_set_motion_detection_enabled(False)

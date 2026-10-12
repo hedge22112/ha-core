@@ -1,13 +1,12 @@
 """Mock of a devolo Home Network device."""
 
-from __future__ import annotations
-
 from unittest.mock import AsyncMock
 
 from devolo_plc_api.device import Device
 from devolo_plc_api.device_api.deviceapi import DeviceApi
+from devolo_plc_api.exceptions.device import DevicePasswordProtected
 from devolo_plc_api.plcnet_api.plcnetapi import PlcNetApi
-import httpx
+import httpx2
 from zeroconf import Zeroconf
 from zeroconf.asyncio import AsyncZeroconf
 
@@ -47,7 +46,7 @@ class MockDevice(Device):
         self._firmware_version = version
 
     async def async_connect(
-        self, session_instance: httpx.AsyncClient | None = None
+        self, session_instance: httpx2.AsyncClient | None = None
     ) -> None:
         """Give a mocked device the needed properties."""
         self.mac = DISCOVERY_INFO.properties["PlcMacAddress"] if self.plcnet else None
@@ -64,6 +63,7 @@ class MockDevice(Device):
             return_value=FIRMWARE_UPDATE_AVAILABLE
         )
         self.device.async_get_led_setting = AsyncMock(return_value=False)
+        self.device.async_set_led_setting = AsyncMock(return_value=True)
         self.device.async_restart = AsyncMock(return_value=True)
         self.device.async_uptime = AsyncMock(return_value=UPTIME)
         self.device.async_start_wps = AsyncMock(return_value=True)
@@ -71,6 +71,7 @@ class MockDevice(Device):
             return_value=CONNECTED_STATIONS
         )
         self.device.async_get_wifi_guest_access = AsyncMock(return_value=GUEST_WIFI)
+        self.device.async_set_wifi_guest_access = AsyncMock(return_value=True)
         self.device.async_get_wifi_neighbor_access_points = AsyncMock(
             return_value=NEIGHBOR_ACCESS_POINTS
         )
@@ -79,3 +80,16 @@ class MockDevice(Device):
         self.plcnet.async_get_network_overview = AsyncMock(return_value=PLCNET)
         self.plcnet.async_identify_device_start = AsyncMock(return_value=True)
         self.plcnet.async_pair_device = AsyncMock(return_value=True)
+
+
+class MockDeviceWrongPassword(MockDevice):
+    """Mock of a devolo Home Network device that complains about a wrong password."""
+
+    def __init__(
+        self,
+        ip: str,
+        zeroconf_instance: AsyncZeroconf | Zeroconf | None = None,
+    ) -> None:
+        """Bring mock in a well defined state."""
+        super().__init__(ip, zeroconf_instance)
+        self.device.async_uptime = AsyncMock(side_effect=DevicePasswordProtected)

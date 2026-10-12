@@ -1,10 +1,10 @@
 """Tests for LCN device triggers."""
 
+from probatio import to_field_list
 from pypck.inputs import ModSendKeysHost, ModStatusAccessControl
 from pypck.lcn_addr import LcnAddr
 from pypck.lcn_defs import AccessControlPeriphery, KeyAction, SendKeyCommand
 from pytest_unordered import unordered
-import voluptuous_serialize
 
 from homeassistant.components import automation
 from homeassistant.components.device_automation import DeviceAutomationType
@@ -45,9 +45,14 @@ async def test_get_triggers_module_device(
         )
     ]
 
-    triggers = await async_get_device_automations(
-        hass, DeviceAutomationType.TRIGGER, device.id
-    )
+    triggers = [
+        trigger
+        for trigger in await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device.id
+        )
+        if trigger[CONF_DOMAIN] == DOMAIN
+    ]
+
     assert triggers == unordered(expected_triggers)
 
 
@@ -59,20 +64,36 @@ async def test_get_triggers_non_module_device(
 
     not_included_types = ("transmitter", "transponder", "fingerprint", "send_keys")
 
-    host_device = device_registry.async_get_device(
-        identifiers={(DOMAIN, entry.entry_id)}
+    host_device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, entry.entry_id), entry.entry_id
     )
     group_device = get_device(hass, entry, (0, 5, True))
-    resource_device = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{entry.entry_id}-m000007-output1")}
-    )
 
-    for device in (host_device, group_device, resource_device):
+    for device in (host_device, group_device):
         triggers = await async_get_device_automations(
             hass, DeviceAutomationType.TRIGGER, device.id
         )
         for trigger in triggers:
             assert trigger[CONF_TYPE] not in not_included_types
+
+
+async def test_get_triggers_child_device(
+    hass: HomeAssistant, device_registry: dr.DeviceRegistry, entry: MockConfigEntry
+) -> None:
+    """Test a child device id yields no triggers instead of raising."""
+    await init_integration(hass, entry)
+
+    module_device = get_device(hass, entry, (0, 7, False))
+    # A single dash in the identifier makes the old code reach the device.model
+    # access, which a child device does not have.
+    child_device = device_registry.async_get_or_create_child(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "child-1")},
+        parent_device_id=module_device.id,
+        name="Child",
+    )
+
+    assert await device_trigger.async_get_triggers(hass, child_device.id) == []
 
 
 async def test_if_fires_on_transponder_event(
@@ -345,9 +366,17 @@ async def test_get_transponder_trigger_capabilities(
     )
     assert capabilities and "extra_fields" in capabilities
 
-    assert voluptuous_serialize.convert(
+    assert to_field_list(
         capabilities["extra_fields"], custom_serializer=cv.custom_serializer
-    ) == [{"name": "code", "optional": True, "type": "string", "lower": True}]
+    ) == [
+        {
+            "name": "code",
+            "optional": True,
+            "required": False,
+            "type": "string",
+            "lower": True,
+        }
+    ]
 
 
 async def test_get_fingerprint_trigger_capabilities(
@@ -369,9 +398,17 @@ async def test_get_fingerprint_trigger_capabilities(
     )
     assert capabilities and "extra_fields" in capabilities
 
-    assert voluptuous_serialize.convert(
+    assert to_field_list(
         capabilities["extra_fields"], custom_serializer=cv.custom_serializer
-    ) == [{"name": "code", "optional": True, "type": "string", "lower": True}]
+    ) == [
+        {
+            "name": "code",
+            "optional": True,
+            "required": False,
+            "type": "string",
+            "lower": True,
+        }
+    ]
 
 
 async def test_get_transmitter_trigger_capabilities(
@@ -393,16 +430,35 @@ async def test_get_transmitter_trigger_capabilities(
     )
     assert capabilities and "extra_fields" in capabilities
 
-    assert voluptuous_serialize.convert(
+    assert to_field_list(
         capabilities["extra_fields"], custom_serializer=cv.custom_serializer
     ) == [
-        {"name": "code", "type": "string", "optional": True, "lower": True},
-        {"name": "level", "type": "integer", "optional": True, "valueMin": 0},
-        {"name": "key", "type": "integer", "optional": True, "valueMin": 0},
+        {
+            "name": "code",
+            "type": "string",
+            "optional": True,
+            "required": False,
+            "lower": True,
+        },
+        {
+            "name": "level",
+            "type": "integer",
+            "optional": True,
+            "required": False,
+            "valueMin": 0,
+        },
+        {
+            "name": "key",
+            "type": "integer",
+            "optional": True,
+            "required": False,
+            "valueMin": 0,
+        },
         {
             "name": "action",
             "type": "select",
             "optional": True,
+            "required": False,
             "options": [("hit", "hit"), ("make", "make"), ("break", "break")],
         },
     ]
@@ -427,13 +483,14 @@ async def test_get_send_keys_trigger_capabilities(
     )
     assert capabilities and "extra_fields" in capabilities
 
-    assert voluptuous_serialize.convert(
+    assert to_field_list(
         capabilities["extra_fields"], custom_serializer=cv.custom_serializer
     ) == [
         {
             "name": "key",
             "type": "select",
             "optional": True,
+            "required": False,
             "options": [(send_key.lower(), send_key.lower()) for send_key in SENDKEYS],
         },
         {
@@ -443,6 +500,7 @@ async def test_get_send_keys_trigger_capabilities(
                 (key_action.lower(), key_action.lower()) for key_action in KEY_ACTIONS
             ],
             "optional": True,
+            "required": False,
         },
     ]
 

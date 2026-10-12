@@ -4,19 +4,19 @@ import logging
 from typing import TYPE_CHECKING
 
 from aiopvapi.resources.model import PowerviewData
+from aiopvapi.resources.shade_data import PowerviewShadeData
 from aiopvapi.rooms import Rooms
 from aiopvapi.scenes import Scenes
 from aiopvapi.shades import Shades
 
 from homeassistant.const import CONF_API_VERSION, CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
-import homeassistant.helpers.entity_registry as er
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from .const import DOMAIN, HUB_EXCEPTIONS
+from .const import DOMAIN, HUB_EXCEPTIONS, MANUFACTURER
 from .coordinator import PowerviewShadeUpdateCoordinator
 from .model import PowerviewConfigEntry, PowerviewEntryData
-from .shade_data import PowerviewShadeData
 from .util import async_connect_hub
 
 PARALLEL_UPDATES = 1
@@ -55,14 +55,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: PowerviewConfigEntry) ->
     if hub.role != "Primary":
         # this should be caught in config_flow, but account for a hub changing roles
         # this will only happen manually by a user
-        _LOGGER.error(
-            "%s (%s) is performing role of %s Hub. "
-            "Only the Primary Hub can manage shades",
-            hub.name,
-            hub.hub_address,
-            hub.role,
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="not_primary_hub",
+            translation_placeholders={
+                "name": hub.name,
+                "address": hub.hub_address,
+                "role": hub.role,
+            },
         )
-        return False
+
+    # manual registration of the hub
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, hub.mac_address)},
+        identifiers={(DOMAIN, hub.serial_number)},
+        manufacturer=MANUFACTURER,
+        name=hub.name,
+        model=hub.model,
+        sw_version=hub.firmware,
+        hw_version=hub.main_processor_version.name,
+    )
 
     try:
         rooms = Rooms(pv_request)
@@ -91,7 +105,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PowerviewConfigEntry) ->
             entry, unique_id=device_info.serial_number
         )
 
-    coordinator = PowerviewShadeUpdateCoordinator(hass, shades, hub)
+    coordinator = PowerviewShadeUpdateCoordinator(hass, entry, shades, hub)
     coordinator.async_set_updated_data(PowerviewShadeData())
     # populate raw shade data into the coordinator for diagnostics
     coordinator.data.store_group_data(shade_data)

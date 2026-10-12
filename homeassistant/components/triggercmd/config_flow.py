@@ -1,23 +1,23 @@
 """Config flow for TRIGGERcmd integration."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
 import jwt
+import probatio
 from triggercmd import TRIGGERcmdConnectionError, client
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.const import CONF_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import httpx_client
 
-from .const import CONF_TOKEN, DOMAIN
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-DATA_SCHEMA = vol.Schema({(CONF_TOKEN): str})
+DATA_SCHEMA = probatio.Schema({(CONF_TOKEN): str})
 
 
 async def validate_input(hass: HomeAssistant, data: dict) -> str:
@@ -32,8 +32,9 @@ async def validate_input(hass: HomeAssistant, data: dict) -> str:
     if not token_data["id"]:
         raise InvalidToken
 
+    hass_client = httpx_client.get_async_client(hass)
     try:
-        await client.async_connection_test(data[CONF_TOKEN])
+        await client.async_connection_test(data[CONF_TOKEN], hass_client)
     except Exception as e:
         raise TRIGGERcmdConnectionError from e
     else:
@@ -45,6 +46,7 @@ class TriggerCMDConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -57,7 +59,7 @@ class TriggerCMDConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[CONF_TOKEN] = "invalid_token"
             except TRIGGERcmdConnectionError:
                 errors["base"] = "cannot_connect"
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:

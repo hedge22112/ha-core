@@ -1,11 +1,9 @@
 """Config flow for Ping (ICMP) integration."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.device_tracker import (
     CONF_CONSIDER_HOME,
@@ -15,7 +13,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_HOST
 from homeassistant.core import callback
@@ -37,7 +35,9 @@ class PingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Ping."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -45,9 +45,9 @@ class PingConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(
                 step_id="user",
-                data_schema=vol.Schema(
+                data_schema=probatio.Schema(
                     {
-                        vol.Required(CONF_HOST): str,
+                        probatio.Required(CONF_HOST): str,
                     }
                 ),
             )
@@ -69,14 +69,15 @@ class PingConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: ConfigEntry,
-    ) -> OptionsFlow:
+    ) -> OptionsFlowHandler:
         """Create the options flow."""
         return OptionsFlowHandler()
 
 
-class OptionsFlowHandler(OptionsFlow):
+class OptionsFlowHandler(OptionsFlowWithReload):
     """Handle an options flow for Ping."""
 
     async def async_step_init(
@@ -88,12 +89,12 @@ class OptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(
+                    probatio.Required(
                         CONF_HOST, default=self.config_entry.options[CONF_HOST]
                     ): str,
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_PING_COUNT,
                         default=self.config_entry.options[CONF_PING_COUNT],
                     ): selector.NumberSelector(
@@ -101,7 +102,7 @@ class OptionsFlowHandler(OptionsFlow):
                             min=1, max=100, mode=selector.NumberSelectorMode.BOX
                         )
                     ),
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_CONSIDER_HOME,
                         default=self.config_entry.options.get(
                             CONF_CONSIDER_HOME, DEFAULT_CONSIDER_HOME.seconds

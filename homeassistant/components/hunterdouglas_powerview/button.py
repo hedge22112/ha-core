@@ -1,10 +1,8 @@
 """Buttons for Hunter Douglas Powerview advanced features."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, override
 
 from aiopvapi.helpers.constants import (
     ATTR_NAME,
@@ -22,7 +20,7 @@ from homeassistant.components.button import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import PowerviewShadeUpdateCoordinator
 from .entity import ShadeEntity
@@ -74,7 +72,7 @@ BUTTONS_SHADE: Final = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PowerviewConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the hunter douglas advanced feature buttons."""
     pv_entry = entry.runtime_data
@@ -113,6 +111,7 @@ class PowerviewShadeButton(ShadeEntity, ButtonEntity):
         self.entity_description: PowerviewButtonDescription = description
         self._attr_unique_id = f"{self._attr_unique_id}_{description.key}"
 
+    @override
     async def async_press(self) -> None:
         """Handle the button press."""
         async with self.coordinator.radio_operation_lock:

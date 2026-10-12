@@ -1,6 +1,6 @@
 """Support for PoolSense binary sensors."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -8,9 +8,9 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import PoolSenseConfigEntry
+from .coordinator import PoolSenseConfigEntry
 from .entity import PoolSenseEntity
 
 BINARY_SENSOR_TYPES: tuple[BinarySensorEntityDescription, ...] = (
@@ -30,7 +30,7 @@ BINARY_SENSOR_TYPES: tuple[BinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: PoolSenseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Defer sensor setup to the shared sensor module."""
     coordinator = config_entry.runtime_data
@@ -45,6 +45,7 @@ class PoolSenseBinarySensor(PoolSenseEntity, BinarySensorEntity):
     """Representation of PoolSense binary sensors."""
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return self.coordinator.data[self.entity_description.key] == "red"

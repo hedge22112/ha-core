@@ -1,11 +1,10 @@
 """Support for the CO2signal platform."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
-from aioelectricitymaps.models import CarbonIntensityResponse
+from aioelectricitymaps import HomeAssistantCarbonIntensityResponse
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -15,12 +14,11 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import CO2SignalConfigEntry
 from .const import ATTRIBUTION, DOMAIN
-from .coordinator import CO2SignalCoordinator
+from .coordinator import CO2SignalConfigEntry, CO2SignalCoordinator
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -29,10 +27,10 @@ class CO2SensorEntityDescription(SensorEntityDescription):
 
     # For backwards compat, allow description to override unique ID key to use
     unique_id: str | None = None
-    unit_of_measurement_fn: Callable[[CarbonIntensityResponse], str | None] | None = (
-        None
-    )
-    value_fn: Callable[[CarbonIntensityResponse], float | None]
+    unit_of_measurement_fn: (
+        Callable[[HomeAssistantCarbonIntensityResponse], str | None] | None
+    ) = None
+    value_fn: Callable[[HomeAssistantCarbonIntensityResponse], float | None]
 
 
 SENSORS = (
@@ -55,7 +53,7 @@ SENSORS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: CO2SignalConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the CO2signal sensor."""
     coordinator = entry.runtime_data
@@ -94,11 +92,13 @@ class CO2Sensor(CoordinatorEntity[CO2SignalCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return sensor state."""
         return self.entity_description.value_fn(self.coordinator.data)
 
     @property
+    @override
     def native_unit_of_measurement(self) -> str | None:
         """Return the unit of measurement."""
         if self.entity_description.unit_of_measurement_fn:

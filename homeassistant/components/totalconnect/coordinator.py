@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 import logging
+from typing import override
 
 from total_connect_client.client import TotalConnectClient
 from total_connect_client.exceptions import (
@@ -20,19 +21,31 @@ from .const import DOMAIN
 SCAN_INTERVAL = timedelta(seconds=30)
 _LOGGER = logging.getLogger(__name__)
 
+type TotalConnectConfigEntry = ConfigEntry[TotalConnectDataUpdateCoordinator]
+
 
 class TotalConnectDataUpdateCoordinator(DataUpdateCoordinator[None]):
     """Class to fetch data from TotalConnect."""
 
-    config_entry: ConfigEntry
+    config_entry: TotalConnectConfigEntry
 
-    def __init__(self, hass: HomeAssistant, client: TotalConnectClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: TotalConnectConfigEntry,
+        client: TotalConnectClient,
+    ) -> None:
         """Initialize."""
         self.client = client
         super().__init__(
-            hass, logger=_LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL
+            hass,
+            logger=_LOGGER,
+            config_entry=config_entry,
+            name=DOMAIN,
+            update_interval=SCAN_INTERVAL,
         )
 
+    @override
     async def _async_update_data(self) -> None:
         """Update data."""
         await self.hass.async_add_executor_job(self.sync_update_data)

@@ -31,7 +31,8 @@ async def test_setup_success_no_region(hass: HomeAssistant) -> None:
     )
     mock_config.add_to_hass(hass)
 
-    result = await async_setup_component(hass=hass, domain=DOMAIN, config={})
+    with patch("homeassistant.components.sharkiq.async_setup_entry", return_value=True):
+        result = await async_setup_component(hass=hass, domain=DOMAIN, config={})
 
     assert result is True
 
@@ -47,6 +48,7 @@ async def test_form(hass: HomeAssistant) -> None:
 
     with (
         patch("sharkiq.AylaApi.async_sign_in", return_value=True),
+        patch("sharkiq.AylaApi.async_set_cookie"),
         patch(
             "homeassistant.components.sharkiq.async_setup_entry",
             return_value=True,
@@ -64,6 +66,7 @@ async def test_form(hass: HomeAssistant) -> None:
         "password": TEST_PASSWORD,
         "region": TEST_REGION,
     }
+    assert result2["result"].unique_id == TEST_USERNAME
 
     await hass.async_block_till_done()
     mock_setup_entry.assert_called_once()
@@ -84,7 +87,10 @@ async def test_form_error(hass: HomeAssistant, exc: Exception, base_error: str) 
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
-    with patch.object(AylaApi, "async_sign_in", side_effect=exc):
+    with (
+        patch.object(AylaApi, "async_sign_in", side_effect=exc),
+        patch("sharkiq.AylaApi.async_set_cookie"),
+    ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             CONFIG,
@@ -92,6 +98,21 @@ async def test_form_error(hass: HomeAssistant, exc: Exception, base_error: str) 
 
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"].get("base") == base_error
+
+    with (
+        patch("sharkiq.AylaApi.async_sign_in", return_value=True),
+        patch("sharkiq.AylaApi.async_set_cookie"),
+        patch(
+            "homeassistant.components.sharkiq.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            CONFIG,
+        )
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_reauth_success(hass: HomeAssistant) -> None:
@@ -101,7 +122,10 @@ async def test_reauth_success(hass: HomeAssistant) -> None:
 
     result = await mock_config.start_reauth_flow(hass)
 
-    with patch("sharkiq.AylaApi.async_sign_in", return_value=True):
+    with (
+        patch("sharkiq.AylaApi.async_sign_in", return_value=True),
+        patch("sharkiq.AylaApi.async_set_cookie"),
+    ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input=CONFIG
         )
@@ -132,7 +156,10 @@ async def test_reauth(
 
     result = await mock_config.start_reauth_flow(hass)
 
-    with patch("sharkiq.AylaApi.async_sign_in", side_effect=side_effect):
+    with (
+        patch("sharkiq.AylaApi.async_sign_in", side_effect=side_effect),
+        patch("sharkiq.AylaApi.async_set_cookie"),
+    ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input=CONFIG
         )

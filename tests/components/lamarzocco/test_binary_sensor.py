@@ -1,16 +1,14 @@
 """Tests for La Marzocco binary sensors."""
 
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
-from pylamarzocco.const import MachineModel
-from pylamarzocco.exceptions import RequestNotSuccessful
-from pylamarzocco.models import LaMarzoccoScale
+from pylamarzocco.exceptions import BluetoothConnectionFailed, RequestNotSuccessful
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
-from homeassistant.const import STATE_UNAVAILABLE, Platform
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -18,11 +16,15 @@ from . import async_init_integration
 
 from tests.common import MockConfigEntry, async_fire_time_changed, snapshot_platform
 
+pytestmark = pytest.mark.usefixtures("mock_websocket_terminated")
 
+
+@pytest.mark.usefixtures(
+    "entity_registry_enabled_by_default", "mock_ble_device_from_address"
+)
 async def test_binary_sensors(
     hass: HomeAssistant,
-    mock_lamarzocco: MagicMock,
-    mock_config_entry: MockConfigEntry,
+    mock_config_entry_bluetooth: MockConfigEntry,
     entity_registry: er.EntityRegistry,
     snapshot: SnapshotAssertion,
 ) -> None:
@@ -31,30 +33,68 @@ async def test_binary_sensors(
     with patch(
         "homeassistant.components.lamarzocco.PLATFORMS", [Platform.BINARY_SENSOR]
     ):
-        await async_init_integration(hass, mock_config_entry)
-    await snapshot_platform(hass, entity_registry, snapshot, mock_config_entry.entry_id)
+        await async_init_integration(hass, mock_config_entry_bluetooth)
+    await snapshot_platform(
+        hass, entity_registry, snapshot, mock_config_entry_bluetooth.entry_id
+    )
 
 
-async def test_brew_active_does_not_exists(
+@pytest.mark.usefixtures(
+    "entity_registry_enabled_by_default", "mock_ble_device_from_address"
+)
+async def test_bluetooth_connected(
     hass: HomeAssistant,
     mock_lamarzocco: MagicMock,
-    mock_config_entry_no_local_connection: MockConfigEntry,
+    mock_config_entry_bluetooth: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Test the La Marzocco currently_making_coffee doesn't exist if host not set."""
+    """Test the Bluetooth connected binary sensor follows the connection."""
+    await async_init_integration(hass, mock_config_entry_bluetooth)
 
-    await async_init_integration(hass, mock_config_entry_no_local_connection)
-    state = hass.states.get(f"sensor.{mock_lamarzocco.serial_number}_brewing_active")
-    assert state is None
+    entity_id = "binary_sensor.gs012345_bluetooth_connected"
+    assert (state := hass.states.get(entity_id))
+    assert state.state == STATE_ON
+
+    # the library reports connection changes through the registered callback
+    mock_lamarzocco.bluetooth_connected = False
+    connection_callback = (
+        mock_lamarzocco.register_bluetooth_connection_callback.call_args.args[0]
+    )
+    connection_callback(False)
+    await hass.async_block_till_done()
+
+    assert (state := hass.states.get(entity_id))
+    assert state.state == STATE_OFF
+
+    # a failing Bluetooth poll doesn't hide the known connection state
+    mock_lamarzocco.websocket.connected = False
+    mock_lamarzocco.get_dashboard_from_bluetooth.side_effect = (
+        BluetoothConnectionFailed("")
+    )
+    freezer.tick(timedelta(seconds=61))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    # entities relying on Bluetooth updates are unavailable now
+    assert (state := hass.states.get("binary_sensor.gs012345_water_tank_empty"))
+    assert state.state == STATE_UNAVAILABLE
+    assert (state := hass.states.get(entity_id))
+    assert state.state == STATE_OFF
+
+    unregister = mock_lamarzocco.register_bluetooth_connection_callback.return_value
+    await hass.config_entries.async_unload(mock_config_entry_bluetooth.entry_id)
+    unregister.assert_called_once()
 
 
 async def test_brew_active_unavailable(
     hass: HomeAssistant,
     mock_lamarzocco: MagicMock,
     mock_config_entry: MockConfigEntry,
+    mock_websocket_terminated: PropertyMock,
 ) -> None:
-    """Test the La Marzocco currently_making_coffee becomes unavailable."""
+    """Test the La Marzocco brew active becomes unavailable."""
 
-    mock_lamarzocco.websocket_connected = False
+    mock_websocket_terminated.return_value = True
     await async_init_integration(hass, mock_config_entry)
     state = hass.states.get(
         f"binary_sensor.{mock_lamarzocco.serial_number}_brewing_active"
@@ -79,7 +119,8 @@ async def test_sensor_going_unavailable(
     assert state
     assert state.state != STATE_UNAVAILABLE
 
-    mock_lamarzocco.get_config.side_effect = RequestNotSuccessful("")
+    mock_lamarzocco.websocket.connected = False
+    mock_lamarzocco.ensure_token_valid.side_effect = RequestNotSuccessful("")
     freezer.tick(timedelta(minutes=10))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
@@ -87,68 +128,3 @@ async def test_sensor_going_unavailable(
     state = hass.states.get(brewing_active_sensor)
     assert state
     assert state.state == STATE_UNAVAILABLE
-
-
-@pytest.mark.parametrize("device_fixture", [MachineModel.LINEA_MINI])
-async def test_scale_connectivity(
-    hass: HomeAssistant,
-    mock_lamarzocco: MagicMock,
-    mock_config_entry: MockConfigEntry,
-    entity_registry: er.EntityRegistry,
-    snapshot: SnapshotAssertion,
-) -> None:
-    """Test the scale binary sensors."""
-    await async_init_integration(hass, mock_config_entry)
-
-    state = hass.states.get("binary_sensor.lmz_123a45_connectivity")
-    assert state
-    assert state == snapshot
-
-    entry = entity_registry.async_get(state.entity_id)
-    assert entry
-    assert entry.device_id
-    assert entry == snapshot
-
-
-@pytest.mark.parametrize(
-    "device_fixture",
-    [MachineModel.GS3_AV, MachineModel.GS3_MP, MachineModel.LINEA_MICRA],
-)
-async def test_other_models_no_scale_connectivity(
-    hass: HomeAssistant,
-    mock_lamarzocco: MagicMock,
-    mock_config_entry: MockConfigEntry,
-    snapshot: SnapshotAssertion,
-) -> None:
-    """Ensure the other models don't have a connectivity sensor."""
-    await async_init_integration(hass, mock_config_entry)
-
-    state = hass.states.get("binary_sensor.lmz_123a45_connectivity")
-    assert state is None
-
-
-@pytest.mark.parametrize("device_fixture", [MachineModel.LINEA_MINI])
-async def test_connectivity_on_new_scale_added(
-    hass: HomeAssistant,
-    mock_lamarzocco: MagicMock,
-    mock_config_entry: MockConfigEntry,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    """Ensure the connectivity binary sensor for a new scale is added automatically."""
-
-    mock_lamarzocco.config.scale = None
-    await async_init_integration(hass, mock_config_entry)
-
-    state = hass.states.get("binary_sensor.scale_123a45_connectivity")
-    assert state is None
-
-    mock_lamarzocco.config.scale = LaMarzoccoScale(
-        connected=True, name="Scale-123A45", address="aa:bb:cc:dd:ee:ff", battery=50
-    )
-
-    freezer.tick(timedelta(minutes=10))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
-
-    state = hass.states.get("binary_sensor.scale_123a45_connectivity")
-    assert state

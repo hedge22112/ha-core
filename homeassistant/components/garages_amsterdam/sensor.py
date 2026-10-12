@@ -1,9 +1,8 @@
 """Sensor platform for Garages Amsterdam."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from odp_amsterdam import Garage
 
@@ -13,11 +12,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import GaragesAmsterdamConfigEntry
-from .coordinator import GaragesAmsterdamDataUpdateCoordinator
+from .coordinator import (
+    GaragesAmsterdamConfigEntry,
+    GaragesAmsterdamDataUpdateCoordinator,
+)
 from .entity import GaragesAmsterdamEntity
 
 
@@ -57,7 +58,7 @@ SENSORS: tuple[GaragesAmsterdamSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GaragesAmsterdamConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Defer sensor setup to the shared sensor module."""
     coordinator = entry.runtime_data
@@ -91,6 +92,7 @@ class GaragesAmsterdamSensor(GaragesAmsterdamEntity, SensorEntity):
         self._attr_unique_id = f"{garage_name}-{description.key}"
 
     @property
+    @override
     def available(self) -> bool:
         """Return if sensor is available."""
         return self.coordinator.last_update_success and (
@@ -98,6 +100,7 @@ class GaragesAmsterdamSensor(GaragesAmsterdamEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(

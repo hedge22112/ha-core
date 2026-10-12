@@ -1,13 +1,12 @@
 """Sensor platform for Ista EcoTrend integration."""
 
-from __future__ import annotations
-
-import asyncio
 from dataclasses import dataclass
 import datetime
 from enum import StrEnum
 import logging
+from typing import override
 
+from homeassistant.components.recorder.models import StatisticMeanType
 from homeassistant.components.recorder.models.statistics import (
     StatisticData,
     StatisticMetaData,
@@ -30,13 +29,13 @@ from homeassistant.helpers.device_registry import (
     DeviceEntryType,
     DeviceInfo,
 )
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util.unit_conversion import EnergyConverter, VolumeConverter
 
-from . import IstaConfigEntry
 from .const import DOMAIN
-from .coordinator import IstaCoordinator
+from .coordinator import IstaConfigEntry, IstaCoordinator
 from .util import IstaConsumptionType, IstaValueType, get_native_value, get_statistics
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +48,7 @@ class IstaSensorEntityDescription(SensorEntityDescription):
     """Ista EcoTrend Sensor Description."""
 
     consumption_type: IstaConsumptionType
+    unit_class: str | None = None
     value_type: IstaValueType | None = None
 
 
@@ -84,6 +84,7 @@ SENSOR_DESCRIPTIONS: tuple[IstaSensorEntityDescription, ...] = (
         suggested_display_precision=1,
         consumption_type=IstaConsumptionType.HEATING,
         value_type=IstaValueType.ENERGY,
+        unit_class=EnergyConverter.UNIT_CLASS,
     ),
     IstaSensorEntityDescription(
         key=IstaSensorEntity.HEATING_COST,
@@ -104,6 +105,7 @@ SENSOR_DESCRIPTIONS: tuple[IstaSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         suggested_display_precision=1,
         consumption_type=IstaConsumptionType.HOT_WATER,
+        unit_class=VolumeConverter.UNIT_CLASS,
     ),
     IstaSensorEntityDescription(
         key=IstaSensorEntity.HOT_WATER_ENERGY,
@@ -114,6 +116,7 @@ SENSOR_DESCRIPTIONS: tuple[IstaSensorEntityDescription, ...] = (
         suggested_display_precision=1,
         consumption_type=IstaConsumptionType.HOT_WATER,
         value_type=IstaValueType.ENERGY,
+        unit_class=EnergyConverter.UNIT_CLASS,
     ),
     IstaSensorEntityDescription(
         key=IstaSensorEntity.HOT_WATER_COST,
@@ -135,6 +138,7 @@ SENSOR_DESCRIPTIONS: tuple[IstaSensorEntityDescription, ...] = (
         suggested_display_precision=1,
         entity_registry_enabled_default=False,
         consumption_type=IstaConsumptionType.WATER,
+        unit_class=VolumeConverter.UNIT_CLASS,
     ),
     IstaSensorEntityDescription(
         key=IstaSensorEntity.WATER_COST,
@@ -153,7 +157,7 @@ SENSOR_DESCRIPTIONS: tuple[IstaSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: IstaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the ista EcoTrend sensors."""
 
@@ -195,6 +199,7 @@ class IstaSensor(CoordinatorEntity[IstaCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the device."""
 
@@ -204,16 +209,22 @@ class IstaSensor(CoordinatorEntity[IstaCoordinator], SensorEntity):
             value_type=self.entity_description.value_type,
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """When added to hass."""
-        # perform initial statistics import when sensor is added, otherwise it would take
-        # 1 day when _handle_coordinator_update is triggered for the first time.
+        # Perform initial statistics import when sensor is
+        # added, otherwise it would take 1 day when
+        # _handle_coordinator_update is triggered for the
+        # first time.
         await self.update_statistics()
         await super().async_added_to_hass()
 
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle coordinator update."""
-        asyncio.run_coroutine_threadsafe(self.update_statistics(), self.hass.loop)
+        self.coordinator.config_entry.async_create_task(
+            self.hass, self.update_statistics()
+        )
 
     async def update_statistics(self) -> None:
         """Import ista EcoTrend historical statistics."""
@@ -271,12 +282,15 @@ class IstaSensor(CoordinatorEntity[IstaCoordinator], SensorEntity):
             ]
 
             metadata: StatisticMetaData = {
-                "has_mean": False,
+                "mean_type": StatisticMeanType.NONE,
                 "has_sum": True,
                 "name": f"{self.device_entry.name} {self.name}",
                 "source": DOMAIN,
                 "statistic_id": statistic_id,
-                "unit_of_measurement": self.entity_description.native_unit_of_measurement,
+                "unit_class": self.entity_description.unit_class,
+                "unit_of_measurement": (
+                    self.entity_description.native_unit_of_measurement
+                ),
             }
             if statistics:
                 _LOGGER.debug("Insert statistics: %s %s", metadata, statistics)

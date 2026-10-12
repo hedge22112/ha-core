@@ -1,10 +1,8 @@
 """Support for Overkiz switches."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pyoverkiz.enums import OverkizCommand, OverkizCommandParam, OverkizState
 from pyoverkiz.enums.ui import UIClass, UIWidget
@@ -17,7 +15,7 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OverkizDataConfigEntry
 from .entity import OverkizDescriptiveEntity
@@ -100,6 +98,15 @@ SWITCH_DESCRIPTIONS: list[OverkizSwitchDescription] = [
         ),
         entity_category=EntityCategory.CONFIG,
     ),
+    OverkizSwitchDescription(
+        key=UIWidget.DISCRETE_EXTERIOR_HEATING,
+        turn_on=OverkizCommand.ON,
+        turn_off=OverkizCommand.OFF,
+        icon="mdi:radiator",
+        is_on=lambda select_state: (
+            select_state(OverkizState.CORE_ON_OFF) == OverkizCommandParam.ON
+        ),
+    ),
 ]
 
 SUPPORTED_DEVICES = {
@@ -107,10 +114,13 @@ SUPPORTED_DEVICES = {
 }
 
 
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: OverkizDataConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Overkiz switch from a config entry."""
     data = entry.runtime_data
@@ -135,13 +145,15 @@ class OverkizSwitch(OverkizDescriptiveEntity, SwitchEntity):
     entity_description: OverkizSwitchDescription
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return True if entity is on."""
         if self.entity_description.is_on:
-            return self.entity_description.is_on(self.executor.select_state)
+            return self.entity_description.is_on(self.device.states.get_value)
 
         return None
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.executor.async_execute_command(
@@ -149,6 +161,7 @@ class OverkizSwitch(OverkizDescriptiveEntity, SwitchEntity):
             self.entity_description.turn_on_args,
         )
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         await self.executor.async_execute_command(

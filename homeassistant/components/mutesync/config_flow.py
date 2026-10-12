@@ -1,13 +1,12 @@
 """Config flow for mütesync integration."""
 
-from __future__ import annotations
-
 import asyncio
-from typing import Any
+import logging
+from typing import Any, override
 
 import aiohttp
 import mutesync
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.core import HomeAssistant
@@ -16,7 +15,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
 
-STEP_USER_DATA_SCHEMA = vol.Schema({vol.Required("host"): str})
+_LOGGER = logging.getLogger(__name__)
+
+STEP_USER_DATA_SCHEMA = probatio.Schema({probatio.Required("host"): str})
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -43,6 +44,7 @@ class MuteSyncConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -60,7 +62,8 @@ class MuteSyncConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = "cannot_connect"
         except InvalidAuth:
             errors["base"] = "invalid_auth"
-        except Exception:  # noqa: BLE001
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
             return self.async_create_entry(

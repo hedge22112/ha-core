@@ -1,19 +1,19 @@
 """Update data from Nextcoud."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.update import UpdateEntity, UpdateEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import NextcloudConfigEntry
+from .coordinator import NextcloudConfigEntry
 from .entity import NextcloudEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NextcloudConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Nextcloud update entity."""
     coordinator = entry.runtime_data
@@ -32,11 +32,13 @@ class NextcloudUpdateSensor(NextcloudEntity, UpdateEntity):
     """Represents a Nextcloud update entity."""
 
     @property
+    @override
     def installed_version(self) -> str:
         """Version installed and in use."""
         return self.coordinator.data["system_version"]
 
     @property
+    @override
     def latest_version(self) -> str:
         """Latest version available for install."""
         return self.coordinator.data.get(
@@ -44,6 +46,7 @@ class NextcloudUpdateSensor(NextcloudEntity, UpdateEntity):
         )
 
     @property
+    @override
     def release_url(self) -> str | None:
         """URL to the full release notes of the latest version available."""
         ver = "-".join(self.latest_version.split(".")[:3])

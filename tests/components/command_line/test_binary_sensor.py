@@ -1,7 +1,5 @@
 """The tests for the Command line Binary sensor platform."""
 
-from __future__ import annotations
-
 import asyncio
 from datetime import timedelta
 from typing import Any
@@ -19,7 +17,7 @@ from homeassistant.components.homeassistant import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from . import mock_asyncio_subprocess_run
@@ -56,24 +54,6 @@ async def test_setup_integration_yaml(
     assert entity_state.name == "Test"
 
 
-async def test_setup_platform_yaml(hass: HomeAssistant) -> None:
-    """Test setting up the platform with platform yaml."""
-    await setup.async_setup_component(
-        hass,
-        "binary_sensor",
-        {
-            "binary_sensor": {
-                "platform": "command_line",
-                "command": "echo 1",
-                "payload_on": "1",
-                "payload_off": "0",
-            }
-        },
-    )
-    await hass.async_block_till_done()
-    assert len(hass.states.async_all()) == 0
-
-
 @pytest.mark.parametrize(
     "get_config",
     [
@@ -87,7 +67,9 @@ async def test_setup_platform_yaml(hass: HomeAssistant) -> None:
                         "payload_off": "0",
                         "value_template": "{{ value | multiply(0.1) }}",
                         "icon": (
-                            '{% if this.attributes.icon=="mdi:icon2" %} mdi:icon1 {% else %} mdi:icon2 {% endif %}'
+                            '{% if this.attributes.icon=="mdi:icon2" %}'
+                            " mdi:icon1"
+                            " {% else %} mdi:icon2 {% endif %}"
                         ),
                     }
                 }
@@ -253,8 +235,8 @@ async def test_updating_to_often(
     wait_till_event.set()
     await asyncio.sleep(0)
     assert (
-        "Updating Command Line Binary Sensor Test took longer than the scheduled update interval"
-        not in caplog.text
+        "Updating Command Line Binary Sensor Test took longer"
+        " than the scheduled update interval" not in caplog.text
     )
 
     # Simulate update takes too long
@@ -266,8 +248,8 @@ async def test_updating_to_often(
     await asyncio.sleep(0)
 
     assert (
-        "Updating Command Line Binary Sensor Test took longer than the scheduled update interval"
-        in caplog.text
+        "Updating Command Line Binary Sensor Test took longer"
+        " than the scheduled update interval" in caplog.text
     )
 
 
@@ -331,9 +313,10 @@ async def test_updating_manually(
                         "name": "Test",
                         "command": "echo 10",
                         "payload_on": "1.0",
-                        "payload_off": "0",
+                        "payload_off": "0.0",
                         "value_template": "{{ value | multiply(0.1) }}",
-                        "availability": '{{ states("sensor.input1")=="on" }}',
+                        "availability": '{{ "sensor.input1" | has_value }}',
+                        "icon": 'mdi:{{ states("sensor.input1") }}',
                     }
                 }
             ]
@@ -346,8 +329,7 @@ async def test_availability(
     freezer: FrozenDateTimeFactory,
 ) -> None:
     """Test availability."""
-
-    hass.states.async_set("sensor.input1", "on")
+    hass.states.async_set("sensor.input1", STATE_ON)
     freezer.tick(timedelta(minutes=1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
@@ -355,8 +337,9 @@ async def test_availability(
     entity_state = hass.states.get("binary_sensor.test")
     assert entity_state
     assert entity_state.state == STATE_ON
+    assert entity_state.attributes["icon"] == "mdi:on"
 
-    hass.states.async_set("sensor.input1", "off")
+    hass.states.async_set("sensor.input1", STATE_UNAVAILABLE)
     await hass.async_block_till_done()
     with mock_asyncio_subprocess_run(b"0"):
         freezer.tick(timedelta(minutes=1))
@@ -366,3 +349,113 @@ async def test_availability(
     entity_state = hass.states.get("binary_sensor.test")
     assert entity_state
     assert entity_state.state == STATE_UNAVAILABLE
+    assert "icon" not in entity_state.attributes
+
+    hass.states.async_set("sensor.input1", STATE_OFF)
+    await hass.async_block_till_done()
+    with mock_asyncio_subprocess_run(b"0"):
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    entity_state = hass.states.get("binary_sensor.test")
+    assert entity_state
+    assert entity_state.state == STATE_OFF
+    assert entity_state.attributes["icon"] == "mdi:off"
+
+
+@pytest.mark.parametrize(
+    "get_config",
+    [
+        {
+            "command_line": [
+                {
+                    "binary_sensor": {
+                        "name": "Test",
+                        "command": "echo 10",
+                        "payload_on": "1.0",
+                        "payload_off": "0.0",
+                        "value_template": "{{ x - 1 }}",
+                        "availability": "{{ value == '50' }}",
+                    }
+                }
+            ]
+        }
+    ],
+)
+async def test_availability_blocks_value_template(
+    hass: HomeAssistant,
+    load_yaml_integration: None,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test availability blocks value_template from rendering."""
+    error = "Error parsing value for binary_sensor.test: 'x' is undefined"
+    await hass.async_block_till_done()
+    with mock_asyncio_subprocess_run(b"51\n"):
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert error not in caplog.text
+
+    entity_state = hass.states.get("binary_sensor.test")
+    assert entity_state
+    assert entity_state.state == STATE_UNAVAILABLE
+
+    await hass.async_block_till_done()
+    with mock_asyncio_subprocess_run(b"50\n"):
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert error in caplog.text
+
+
+async def test_template_with_shell_features_uses_shell_and_creates_issue(
+    hass: HomeAssistant,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """Templated command with shell metacharacters keeps shell path and creates a repair issue."""
+    hass.states.async_set("sensor.input_sensor", "1")
+    await setup.async_setup_component(
+        hass,
+        DOMAIN,
+        {
+            "command_line": [
+                {
+                    "binary_sensor": {
+                        "name": "Test",
+                        "command": "echo {{ states.sensor.input_sensor.state }} | cat",
+                        "payload_on": "1",
+                        "payload_off": "0",
+                    }
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+
+    with mock_asyncio_subprocess_run(b"1\n") as mock_shell:
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=1))
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_shell.assert_called_once_with(
+        "echo 1 | cat",
+        stdin=None,
+        stdout=-1,
+        close_fds=False,
+    )
+    issues = [
+        issue
+        for issue in issue_registry.issues.values()
+        if issue.translation_key == "shell_command_template_deprecation"
+    ]
+    assert len(issues) == 1
+    assert issues[0].breaks_in_ha_version == "2027.4.0"
+    assert issues[0].severity == ir.IssueSeverity.WARNING
+    assert issues[0].translation_placeholders == {
+        "program": "echo",
+        "platform": "binary_sensor",
+        "name": "Test",
+    }

@@ -1,21 +1,19 @@
 """Support for Elgato switches."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
-from elgato import Elgato, ElgatoError
+from elgato import Elgato
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import ElgatoConfigEntry, ElgatoData, ElgatoDataUpdateCoordinator
 from .entity import ElgatoEntity
+from .helpers import elgato_device_action
 
 PARALLEL_UPDATES = 1
 
@@ -54,7 +52,7 @@ SWITCHES = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ElgatoConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Elgato switches based on a config entry."""
     coordinator = entry.runtime_data
@@ -88,28 +86,19 @@ class ElgatoSwitchEntity(ElgatoEntity, SwitchEntity):
         )
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return state of the switch."""
         return self.entity_description.is_on_fn(self.coordinator.data)
 
+    @elgato_device_action
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
-        try:
-            await self.entity_description.set_fn(self.coordinator.client, True)
-        except ElgatoError as error:
-            raise HomeAssistantError(
-                "An error occurred while updating the Elgato Light"
-            ) from error
-        finally:
-            await self.coordinator.async_refresh()
+        await self.entity_description.set_fn(self.coordinator.client, True)
 
+    @elgato_device_action
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
-        try:
-            await self.entity_description.set_fn(self.coordinator.client, False)
-        except ElgatoError as error:
-            raise HomeAssistantError(
-                "An error occurred while updating the Elgato Light"
-            ) from error
-        finally:
-            await self.coordinator.async_refresh()
+        await self.entity_description.set_fn(self.coordinator.client, False)

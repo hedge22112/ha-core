@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from syrupy.assertion import SnapshotAssertion
+from tesla_fleet_api.exceptions import InvalidCommand
+from teslemetry_stream import Signal
 
 from homeassistant.components.number import (
     ATTR_VALUE,
@@ -12,10 +14,11 @@ from homeassistant.components.number import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from . import assert_entities, setup_platform
-from .const import COMMAND_OK, VEHICLE_DATA_ALT
+from . import assert_entities, reload_platform, setup_platform
+from .const import COMMAND_ERRORS, COMMAND_OK, VEHICLE_DATA_ALT
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
@@ -23,6 +26,7 @@ async def test_number(
     hass: HomeAssistant,
     snapshot: SnapshotAssertion,
     entity_registry: er.EntityRegistry,
+    mock_legacy: AsyncMock,
 ) -> None:
     """Tests that the number entities are correct."""
 
@@ -40,7 +44,7 @@ async def test_number_services(
 
     entity_id = "number.test_charge_current"
     with patch(
-        "homeassistant.components.teslemetry.VehicleSpecific.set_charging_amps",
+        "tesla_fleet_api.teslemetry.Vehicle.set_charging_amps",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -55,7 +59,7 @@ async def test_number_services(
 
     entity_id = "number.test_charge_limit"
     with patch(
-        "homeassistant.components.teslemetry.VehicleSpecific.set_charge_limit",
+        "tesla_fleet_api.teslemetry.Vehicle.set_charge_limit",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -70,7 +74,7 @@ async def test_number_services(
 
     entity_id = "number.energy_site_backup_reserve"
     with patch(
-        "homeassistant.components.teslemetry.EnergySpecific.backup",
+        "tesla_fleet_api.teslemetry.EnergySite.backup",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -88,7 +92,7 @@ async def test_number_services(
 
     entity_id = "number.energy_site_off_grid_reserve"
     with patch(
-        "homeassistant.components.teslemetry.EnergySpecific.off_grid_vehicle_charging_reserve",
+        "tesla_fleet_api.teslemetry.EnergySite.off_grid_vehicle_charging_reserve",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -100,3 +104,77 @@ async def test_number_services(
         state = hass.states.get(entity_id)
         assert state.state == "88"
         call.assert_called_once()
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize("response", COMMAND_ERRORS)
+async def test_number_command_errors(
+    hass: HomeAssistant, mock_vehicle_data: AsyncMock, response: dict
+) -> None:
+    """Tests that vehicle command failures raise HomeAssistantError."""
+    mock_vehicle_data.return_value = VEHICLE_DATA_ALT
+    await setup_platform(hass, [Platform.NUMBER])
+
+    with (
+        patch(
+            "tesla_fleet_api.teslemetry.Vehicle.set_charging_amps",
+            return_value=response,
+        ),
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            NUMBER_DOMAIN,
+            SERVICE_SET_VALUE,
+            {ATTR_ENTITY_ID: "number.test_charge_current", ATTR_VALUE: 16},
+            blocking=True,
+        )
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_number_command_exception(hass: HomeAssistant) -> None:
+    """Tests that an energy command SDK exception raises HomeAssistantError."""
+    await setup_platform(hass, [Platform.NUMBER])
+
+    with (
+        patch(
+            "tesla_fleet_api.teslemetry.EnergySite.backup",
+            side_effect=InvalidCommand,
+        ),
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            NUMBER_DOMAIN,
+            SERVICE_SET_VALUE,
+            {ATTR_ENTITY_ID: "number.energy_site_backup_reserve", ATTR_VALUE: 80},
+            blocking=True,
+        )
+
+
+async def test_number_streaming(
+    hass: HomeAssistant,
+    mock_vehicle_data: AsyncMock,
+    mock_add_listener: AsyncMock,
+) -> None:
+    """Tests that the number entities with streaming are correct."""
+
+    entry = await setup_platform(hass, [Platform.NUMBER])
+
+    # Stream update
+    mock_add_listener.send(
+        {
+            "vin": VEHICLE_DATA_ALT["response"]["vin"],
+            "data": {
+                Signal.CHARGE_CURRENT_REQUEST: 24,
+                Signal.CHARGE_CURRENT_REQUEST_MAX: 32,
+                Signal.CHARGE_LIMIT_SOC: 99,
+            },
+            "createdAt": "2024-10-04T10:45:17.537Z",
+        }
+    )
+    await hass.async_block_till_done()
+
+    await reload_platform(hass, entry, [Platform.NUMBER])
+
+    # Assert the entities restored their values with concrete assertions
+    assert hass.states.get("number.test_charge_current").state == "24"
+    assert hass.states.get("number.test_charge_limit").state == "99"

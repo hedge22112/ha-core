@@ -3,7 +3,8 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
+from tesla_fleet_api.const import AutoSeat
 from tesla_fleet_api.exceptions import VehicleOffline
 
 from homeassistant.components.switch import (
@@ -71,41 +72,41 @@ async def test_switch_offline(
 @pytest.mark.parametrize(
     ("name", "on", "off"),
     [
-        ("test_charge", "VehicleSpecific.charge_start", "VehicleSpecific.charge_stop"),
+        ("test_charge", "VehicleFleet.charge_start", "VehicleFleet.charge_stop"),
         (
             "test_auto_seat_climate_left",
-            "VehicleSpecific.remote_auto_seat_climate_request",
-            "VehicleSpecific.remote_auto_seat_climate_request",
+            "VehicleFleet.remote_auto_seat_climate_request",
+            "VehicleFleet.remote_auto_seat_climate_request",
         ),
         (
             "test_auto_seat_climate_right",
-            "VehicleSpecific.remote_auto_seat_climate_request",
-            "VehicleSpecific.remote_auto_seat_climate_request",
+            "VehicleFleet.remote_auto_seat_climate_request",
+            "VehicleFleet.remote_auto_seat_climate_request",
         ),
         (
             "test_auto_steering_wheel_heater",
-            "VehicleSpecific.remote_auto_steering_wheel_heat_climate_request",
-            "VehicleSpecific.remote_auto_steering_wheel_heat_climate_request",
+            "VehicleFleet.remote_auto_steering_wheel_heat_climate_request",
+            "VehicleFleet.remote_auto_steering_wheel_heat_climate_request",
         ),
         (
             "test_defrost",
-            "VehicleSpecific.set_preconditioning_max",
-            "VehicleSpecific.set_preconditioning_max",
+            "VehicleFleet.set_preconditioning_max",
+            "VehicleFleet.set_preconditioning_max",
         ),
         (
             "energy_site_storm_watch",
-            "EnergySpecific.storm_mode",
-            "EnergySpecific.storm_mode",
+            "EnergySite.storm_mode",
+            "EnergySite.storm_mode",
         ),
         (
             "energy_site_allow_charging_from_grid",
-            "EnergySpecific.grid_import_export",
-            "EnergySpecific.grid_import_export",
+            "EnergySite.grid_import_export",
+            "EnergySite.grid_import_export",
         ),
         (
             "test_sentry_mode",
-            "VehicleSpecific.set_sentry_mode",
-            "VehicleSpecific.set_sentry_mode",
+            "VehicleFleet.set_sentry_mode",
+            "VehicleFleet.set_sentry_mode",
         ),
     ],
 )
@@ -122,7 +123,7 @@ async def test_switch_services(
 
     entity_id = f"switch.{name}"
     with patch(
-        f"homeassistant.components.tesla_fleet.{on}",
+        f"tesla_fleet_api.tesla.{on}",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -136,7 +137,7 @@ async def test_switch_services(
         call.assert_called_once()
 
     with patch(
-        f"homeassistant.components.tesla_fleet.{off}",
+        f"tesla_fleet_api.tesla.{off}",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -148,6 +149,27 @@ async def test_switch_services(
         state = hass.states.get(entity_id)
         assert state.state == STATE_OFF
         call.assert_called_once()
+
+
+async def test_switch_auto_seat_climate_off_seat_position(
+    hass: HomeAssistant,
+    normal_config_entry: MockConfigEntry,
+) -> None:
+    """Tests that turning off auto seat climate sends the 1-indexed AutoSeat position."""
+
+    await setup_platform(hass, normal_config_entry, [Platform.SWITCH])
+
+    with patch(
+        "tesla_fleet_api.tesla.VehicleFleet.remote_auto_seat_climate_request",
+        return_value=COMMAND_OK,
+    ) as call:
+        await hass.services.async_call(
+            SWITCH_DOMAIN,
+            SERVICE_TURN_OFF,
+            {ATTR_ENTITY_ID: "switch.test_auto_seat_climate_left"},
+            blocking=True,
+        )
+        call.assert_called_once_with(AutoSeat.FRONT_LEFT, False)
 
 
 async def test_switch_no_scope(

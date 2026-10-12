@@ -1,29 +1,45 @@
 """Flo device object."""
 
-from __future__ import annotations
-
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, override
 
 from aioflo.api import API
 from aioflo.errors import RequestError
 from orjson import JSONDecodeError
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN as FLO_DOMAIN, LOGGER
+from .const import DOMAIN, IMPLAUSIBLE_WATER_TEMP_F, LOGGER
+
+type FloConfigEntry = ConfigEntry[FloRuntimeData]
+
+
+@dataclass
+class FloRuntimeData:
+    """Flo runtime data."""
+
+    client: API
+    devices: list[FloDeviceDataUpdateCoordinator]
 
 
 class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator):
     """Flo device object."""
 
+    config_entry: FloConfigEntry
     _failure_count: int = 0
 
     def __init__(
-        self, hass: HomeAssistant, api_client: API, location_id: str, device_id: str
+        self,
+        hass: HomeAssistant,
+        config_entry: FloConfigEntry,
+        api_client: API,
+        location_id: str,
+        device_id: str,
     ) -> None:
         """Initialize the device."""
         self.hass: HomeAssistant = hass
@@ -36,10 +52,12 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator):
         super().__init__(
             hass,
             LOGGER,
-            name=f"{FLO_DOMAIN}-{device_id}",
+            config_entry=config_entry,
+            name=f"{DOMAIN}-{device_id}",
             update_interval=timedelta(seconds=60),
         )
 
+    @override
     async def _async_update_data(self):
         """Update data via library."""
         try:
@@ -126,9 +144,12 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator):
         return self._device_information["telemetry"]["current"]["psi"]
 
     @property
-    def temperature(self) -> float:
-        """Return the current temperature in degrees F."""
-        return self._device_information["telemetry"]["current"]["tempF"]
+    def temperature(self) -> float | None:
+        """Return the current temperature in degrees F, or None if not measured."""
+        temperature = self._device_information["telemetry"]["current"]["tempF"]
+        if temperature is None or temperature >= IMPLAUSIBLE_WATER_TEMP_F:
+            return None
+        return temperature
 
     @property
     def humidity(self) -> float:
@@ -171,7 +192,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator):
         return bool(
             self.pending_info_alerts_count
             or self.pending_warning_alerts_count
-            or self.pending_warning_alerts_count
+            or self.pending_critical_alerts_count
         )
 
     @property
@@ -229,6 +250,9 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator):
         start_date = datetime(today.year, today.month, today.day, 0, 0)
         end_date = datetime(today.year, today.month, today.day, 23, 59, 59, 999000)
         self._water_usage = await self.api_client.water.get_consumption_info(
-            self._flo_location_id, start_date, end_date
+            self._flo_location_id,
+            start_date,
+            end_date,
+            device_mac_address=self.mac_address,
         )
         LOGGER.debug("Updated Flo consumption data: %s", self._water_usage)

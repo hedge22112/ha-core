@@ -1,9 +1,8 @@
 """Support for the NextDNS service."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from nextdns import ConnectionStatus
 
@@ -13,14 +12,13 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NextDnsConfigEntry
-from .coordinator import NextDnsUpdateCoordinator
+from .entity import NextDnsEntity
 
-PARALLEL_UPDATES = 1
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -51,40 +49,26 @@ SENSORS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NextDnsConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add NextDNS entities from a config_entry."""
-    coordinator = entry.runtime_data.connection
+    for subentry_id, profile_data in entry.runtime_data.profiles.items():
+        coordinator = profile_data.connection
+        async_add_entities(
+            (NextDnsBinarySensor(coordinator, description) for description in SENSORS),
+            config_subentry_id=subentry_id,
+        )
 
-    async_add_entities(
-        NextDnsBinarySensor(coordinator, description) for description in SENSORS
-    )
 
-
-class NextDnsBinarySensor(
-    CoordinatorEntity[NextDnsUpdateCoordinator[ConnectionStatus]], BinarySensorEntity
-):
+class NextDnsBinarySensor(NextDnsEntity, BinarySensorEntity):
     """Define an NextDNS binary sensor."""
 
-    _attr_has_entity_name = True
     entity_description: NextDnsBinarySensorEntityDescription
 
-    def __init__(
-        self,
-        coordinator: NextDnsUpdateCoordinator[ConnectionStatus],
-        description: NextDnsBinarySensorEntityDescription,
-    ) -> None:
-        """Initialize."""
-        super().__init__(coordinator)
-        self._attr_device_info = coordinator.device_info
-        self._attr_unique_id = f"{coordinator.profile_id}_{description.key}"
-        self._attr_is_on = description.state(coordinator.data, coordinator.profile_id)
-        self.entity_description = description
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self._attr_is_on = self.entity_description.state(
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return True if the binary sensor is on."""
+        return self.entity_description.state(
             self.coordinator.data, self.coordinator.profile_id
         )
-        self.async_write_ha_state()

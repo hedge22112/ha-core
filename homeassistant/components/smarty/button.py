@@ -1,17 +1,15 @@
 """Platform to control a Salda Smarty XP/XV ventilation unit."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, override
 
 from pysmarty2 import Smarty
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import SmartyConfigEntry, SmartyCoordinator
 from .entity import SmartyEntity
@@ -38,7 +36,7 @@ ENTITIES: tuple[SmartyButtonDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SmartyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smarty Button Platform."""
 
@@ -66,6 +64,7 @@ class SmartyButton(SmartyEntity, ButtonEntity):
             f"{coordinator.config_entry.entry_id}_{entity_description.key}"
         )
 
+    @override
     async def async_press(self, **kwargs: Any) -> None:
         """Press the button."""
         await self.hass.async_add_executor_job(

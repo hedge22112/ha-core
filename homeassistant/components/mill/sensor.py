@@ -1,6 +1,6 @@
 """Support for mill wifi-enabled home heaters."""
 
-from __future__ import annotations
+from typing import override
 
 import mill
 
@@ -10,31 +10,24 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_BILLION,
-    CONCENTRATION_PARTS_PER_MILLION,
-    CONF_IP_ADDRESS,
-    CONF_USERNAME,
-    PERCENTAGE,
     EntityCategory,
     UnitOfEnergy,
     UnitOfPower,
+    UnitOfRatio,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     BATTERY,
-    CLOUD,
     CONNECTION_TYPE,
     CONSUMPTION_TODAY,
     CONSUMPTION_YEAR,
-    DOMAIN,
     ECO2,
     HUMIDITY,
     LOCAL,
@@ -42,7 +35,7 @@ from .const import (
     TEMPERATURE,
     TVOC,
 )
-from .coordinator import MillDataUpdateCoordinator
+from .coordinator import MillConfigEntry, MillDataUpdateCoordinator
 from .entity import MillBaseEntity
 
 HEATER_SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
@@ -70,7 +63,7 @@ HEATER_SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key="control_signal",
         translation_key="control_signal",
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
 )
@@ -85,26 +78,26 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key=HUMIDITY,
         device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
         key=BATTERY,
         device_class=SensorDeviceClass.BATTERY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=ECO2,
         device_class=SensorDeviceClass.CO2,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         translation_key="estimated_co2",
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
         key=TVOC,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_BILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_BILLION,
         translation_key="tvoc",
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -114,7 +107,7 @@ LOCAL_SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key="control_signal",
         translation_key="control_signal",
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
@@ -138,7 +131,7 @@ SOCKET_SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key=HUMIDITY,
         device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     *HEATER_SENSOR_TYPES,
@@ -146,12 +139,14 @@ SOCKET_SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: MillConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Mill sensor."""
-    if entry.data.get(CONNECTION_TYPE) == LOCAL:
-        mill_data_coordinator = hass.data[DOMAIN][LOCAL][entry.data[CONF_IP_ADDRESS]]
+    mill_data_coordinator = entry.runtime_data
 
+    if entry.data.get(CONNECTION_TYPE) == LOCAL:
         async_add_entities(
             LocalMillSensor(
                 mill_data_coordinator,
@@ -160,8 +155,6 @@ async def async_setup_entry(
             for entity_description in LOCAL_SENSOR_TYPES
         )
         return
-
-    mill_data_coordinator = hass.data[DOMAIN][CLOUD][entry.data[CONF_USERNAME]]
 
     entities = [
         MillSensor(
@@ -192,11 +185,12 @@ class MillSensor(MillBaseEntity, SensorEntity):
         mill_device: mill.Socket | mill.Heater,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator, mill_device)
         self.entity_description = entity_description
         self._attr_unique_id = f"{mill_device.device_id}_{entity_description.key}"
+        super().__init__(coordinator, mill_device)
 
     @callback
+    @override
     def _update_attr(self, device):
         self._available = device.available
         self._attr_native_value = getattr(device, self.entity_description.key)
@@ -228,6 +222,7 @@ class LocalMillSensor(CoordinatorEntity[MillDataUpdateCoordinator], SensorEntity
             )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the native value of the sensor."""
         return self.coordinator.data[self.entity_description.key]

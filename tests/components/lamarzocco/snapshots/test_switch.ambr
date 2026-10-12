@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_auto_on_off_switches[entry.auto_on_off_Os2OswX]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto on/off (Os2OswX)',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'Auto on/off (Os2OswX)',
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'auto_on_off',
     'unique_id': 'GS012345_auto_on_off_Os2OswX',
@@ -34,11 +38,13 @@
 # ---
 # name: test_auto_on_off_switches[entry.auto_on_off_aXFz5bJ]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -52,6 +58,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto on/off (aXFz5bJ)',
     'options': dict({
     }),
     'original_device_class': None,
@@ -59,6 +66,7 @@
     'original_name': 'Auto on/off (aXFz5bJ)',
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'auto_on_off',
     'unique_id': 'GS012345_auto_on_off_aXFz5bJ',
@@ -68,7 +76,7 @@
 # name: test_auto_on_off_switches[state.auto_on_off_Os2OswX]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345 Auto on/off (Os2OswX)',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345 Auto on/off (Os2OswX)',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345_auto_on_off_os2oswx',
@@ -81,7 +89,7 @@
 # name: test_auto_on_off_switches[state.auto_on_off_aXFz5bJ]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345 Auto on/off (aXFz5bJ)',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345 Auto on/off (aXFz5bJ)',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345_auto_on_off_axfz5bj',
@@ -93,11 +101,13 @@
 # ---
 # name: test_switches[switch.gs012345-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -111,6 +121,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -118,6 +129,7 @@
     'original_name': None,
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'main',
     'unique_id': 'GS012345_main',
@@ -127,7 +139,8 @@
 # name: test_switches[switch.gs012345-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345',
+      <EntityStateAttribute.ENTITY_PICTURE: 'entity_picture'>: 'https://lion.lamarzocco.io/img/thing-model/detail/gs3av/gs3av-1.png',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345',
@@ -139,11 +152,13 @@
 # ---
 # name: test_switches[switch.gs012345_auto_on_off_axfz5bj-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -157,6 +172,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto on/off (aXFz5bJ)',
     'options': dict({
     }),
     'original_device_class': None,
@@ -164,6 +180,7 @@
     'original_name': 'Auto on/off (aXFz5bJ)',
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'auto_on_off',
     'unique_id': 'GS012345_auto_on_off_aXFz5bJ',
@@ -173,7 +190,7 @@
 # name: test_switches[switch.gs012345_auto_on_off_axfz5bj-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345 Auto on/off (aXFz5bJ)',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345 Auto on/off (aXFz5bJ)',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345_auto_on_off_axfz5bj',
@@ -185,11 +202,13 @@
 # ---
 # name: test_switches[switch.gs012345_auto_on_off_os2oswx-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -203,6 +222,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto on/off (Os2OswX)',
     'options': dict({
     }),
     'original_device_class': None,
@@ -210,6 +230,7 @@
     'original_name': 'Auto on/off (Os2OswX)',
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'auto_on_off',
     'unique_id': 'GS012345_auto_on_off_Os2OswX',
@@ -219,7 +240,7 @@
 # name: test_switches[switch.gs012345_auto_on_off_os2oswx-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345 Auto on/off (Os2OswX)',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345 Auto on/off (Os2OswX)',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345_auto_on_off_os2oswx',
@@ -231,11 +252,13 @@
 # ---
 # name: test_switches[switch.gs012345_smart_standby_enabled-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -249,6 +272,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Smart standby enabled',
     'options': dict({
     }),
     'original_device_class': None,
@@ -256,6 +280,7 @@
     'original_name': 'Smart standby enabled',
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'smart_standby_enabled',
     'unique_id': 'GS012345_smart_standby_enabled',
@@ -265,7 +290,7 @@
 # name: test_switches[switch.gs012345_smart_standby_enabled-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345 Smart standby enabled',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345 Smart standby enabled',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345_smart_standby_enabled',
@@ -277,11 +302,13 @@
 # ---
 # name: test_switches[switch.gs012345_steam_boiler-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -295,6 +322,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Steam boiler',
     'options': dict({
     }),
     'original_device_class': None,
@@ -302,6 +330,7 @@
     'original_name': 'Steam boiler',
     'platform': 'lamarzocco',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'steam_boiler',
     'unique_id': 'GS012345_steam_boiler_enable',
@@ -311,7 +340,7 @@
 # name: test_switches[switch.gs012345_steam_boiler-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GS012345 Steam boiler',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GS012345 Steam boiler',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gs012345_steam_boiler',

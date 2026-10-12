@@ -3,8 +3,11 @@
 from collections.abc import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from pysmlight import Radio
+from pysmlight.exceptions import SmlightAuthError
+from pysmlight.models import BleFeatures
 from pysmlight.sse import sseClient
-from pysmlight.web import CmdWrapper, Firmware, Info, Sensors
+from pysmlight.web import ActionWrapper, CmdWrapper, Firmware, Info, Sensors
 import pytest
 
 from homeassistant.components.smlight import PLATFORMS
@@ -18,9 +21,34 @@ from tests.common import (
     load_json_object_fixture,
 )
 
-MOCK_HOST = "slzb-06.local"
+MOCK_DEVICE_NAME = "slzb-06"
+MOCK_HOST = "192.168.1.161"
+MOCK_HOSTNAME = "slzb-06p7.lan"
 MOCK_USERNAME = "test-user"
 MOCK_PASSWORD = "test-pass"
+
+
+@pytest.fixture(autouse=True)
+def mock_bluetooth_scanner() -> Generator[MagicMock]:
+    """Mock bluetooth scanner."""
+    with patch(
+        "homeassistant.components.smlight.bluetooth.async_register_scanner"
+    ) as mock_register:
+        yield mock_register
+
+
+@pytest.fixture(autouse=True)
+def mock_connect_scanner() -> Generator[MagicMock]:
+    """Mock bleak_smlight connect_scanner."""
+    with patch(
+        "homeassistant.components.smlight.bluetooth.connect_scanner"
+    ) as mock_connect:
+        client_data = MagicMock()
+        client_data.scanner = MagicMock()
+        client_data.client = MagicMock()
+        client_data.client.start = AsyncMock()
+        mock_connect.return_value = client_data
+        yield mock_connect
 
 
 @pytest.fixture
@@ -80,9 +108,16 @@ def mock_smlight_client(request: pytest.FixtureRequest) -> Generator[MagicMock]:
     ):
         api = smlight_mock.return_value
         api.host = MOCK_HOST
-        api.get_info.return_value = Info.from_dict(
-            load_json_object_fixture("info.json", DOMAIN)
-        )
+
+        def get_info_side_effect(*args, **kwargs) -> Info:
+            """Return the info."""
+            if api.check_auth_needed.return_value and not api.authenticate.called:
+                raise SmlightAuthError
+
+            return Info.from_dict(load_json_object_fixture("info.json", DOMAIN))
+
+        api.get_info.side_effect = get_info_side_effect
+
         api.get_sensors.return_value = Sensors.from_dict(
             load_json_object_fixture("sensors.json", DOMAIN)
         )
@@ -91,7 +126,10 @@ def mock_smlight_client(request: pytest.FixtureRequest) -> Generator[MagicMock]:
             """Return the firmware version."""
             fw_list = []
             if kwargs.get("mode") == "zigbee":
-                fw_list = load_json_array_fixture("zb_firmware.json", DOMAIN)
+                if kwargs.get("zb_type") == 0:
+                    fw_list = load_json_array_fixture("zb_firmware.json", DOMAIN)
+                else:
+                    fw_list = load_json_array_fixture("zb_firmware_router.json", DOMAIN)
             else:
                 fw_list = load_json_array_fixture("esp_firmware.json", DOMAIN)
 
@@ -102,11 +140,35 @@ def mock_smlight_client(request: pytest.FixtureRequest) -> Generator[MagicMock]:
         api.check_auth_needed.return_value = False
         api.authenticate.return_value = True
 
+        api.actions = AsyncMock(spec_set=ActionWrapper)
+        api.actions.ambilight = AsyncMock(return_value=True)
         api.cmds = AsyncMock(spec_set=CmdWrapper)
         api.set_toggle = AsyncMock()
+        api.set_ble_proxy = AsyncMock(return_value=True)
         api.sse = MagicMock(spec_set=sseClient)
 
         yield api
+
+
+MOCK_ULTIMA = Info(
+    MAC="AA:BB:CC:DD:EE:FF",
+    model="SLZB-Ultima3",
+    addons={"zwave": True},
+    ble=BleFeatures(ble_enabled=True, proxy_enabled=True),
+    u_device=True,
+    radios=[
+        Radio(zb_type=0, chip_index=0),
+        Radio(zb_type=1, chip_index=1),
+        Radio(zb_type=5, chip_index=2),
+    ],
+)
+
+
+@pytest.fixture
+def mock_ultima_client(mock_smlight_client: MagicMock) -> MagicMock:
+    """Configure api client to return an Ultima device."""
+    mock_smlight_client.get_info.side_effect = lambda *arg, **kwargs: MOCK_ULTIMA
+    return mock_smlight_client
 
 
 async def setup_integration(

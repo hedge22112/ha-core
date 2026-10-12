@@ -1,11 +1,13 @@
 """Support for Spa Client selects."""
 
+from typing import override
+
 from pybalboa import SpaControl
 from pybalboa.enums import LowHighRange
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BalboaConfigEntry
 from .entity import BalboaEntity
@@ -14,7 +16,7 @@ from .entity import BalboaEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BalboaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the spa select entity."""
     spa = entry.runtime_data
@@ -36,12 +38,14 @@ class BalboaTempRangeSelectEntity(BalboaEntity, SelectEntity):
         self._control = control
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return current select option."""
         if self._control.state == LowHighRange.HIGH:
             return LowHighRange.HIGH.name.lower()
         return LowHighRange.LOW.name.lower()
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Select temperature range high/low mode."""
         if option == LowHighRange.HIGH.name.lower():

@@ -1,9 +1,8 @@
 """Platform for binary sensor integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from devolo_plc_api.plcnet_api import LogicalNetwork
 
@@ -14,11 +13,10 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import DevoloHomeNetworkConfigEntry
 from .const import CONNECTED_PLC_DEVICES, CONNECTED_TO_ROUTER
-from .coordinator import DevoloDataUpdateCoordinator
+from .coordinator import DevoloDataUpdateCoordinator, DevoloHomeNetworkConfigEntry
 from .entity import DevoloCoordinatorEntity
 
 PARALLEL_UPDATES = 0
@@ -54,7 +52,7 @@ SENSOR_TYPES: dict[str, DevoloBinarySensorEntityDescription] = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DevoloHomeNetworkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Get all devices and sensors and setup them via config entry."""
     coordinators = entry.runtime_data.coordinators
@@ -86,6 +84,7 @@ class DevoloBinarySensorEntity(
         super().__init__(entry, coordinator)
 
     @property
+    @override
     def is_on(self) -> bool:
         """State of the binary sensor."""
         return self.entity_description.value_func(self)

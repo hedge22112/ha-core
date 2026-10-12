@@ -1,13 +1,11 @@
 """Sensors for Yale Alarm."""
 
-from __future__ import annotations
-
-from typing import cast
+from typing import cast, override
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from . import YaleConfigEntry
@@ -15,7 +13,9 @@ from .entity import YaleEntity
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: YaleConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: YaleConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Yale sensor entry."""
 
@@ -34,6 +34,7 @@ class YaleTemperatureSensor(YaleEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     @property
+    @override
     def native_value(self) -> StateType:
         "Return native value."
         return cast(float, self.coordinator.data["temp_map"][self._attr_unique_id])

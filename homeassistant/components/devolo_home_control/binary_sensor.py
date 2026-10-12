@@ -1,6 +1,6 @@
 """Platform for binary sensor integration."""
 
-from __future__ import annotations
+from typing import override
 
 from devolo_home_control_api.devices.zwave import Zwave
 from devolo_home_control_api.homecontrol import HomeControl
@@ -11,7 +11,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DevoloHomeControlConfigEntry
 from .entity import DevoloDeviceEntity
@@ -29,9 +29,9 @@ DEVICE_CLASS_MAPPING = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DevoloHomeControlConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Get all binary sensor and multi level sensor devices and setup them via config entry."""
+    """Get all binary sensor and multi level sensor devices."""
     entities: list[BinarySensorEntity] = []
 
     for gateway in entry.runtime_data:
@@ -95,6 +95,7 @@ class DevoloBinaryDeviceEntity(DevoloDeviceEntity, BinarySensorEntity):
             self._attr_entity_registry_enabled_default = False
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state."""
         return bool(self._value)
@@ -126,7 +127,8 @@ class DevoloRemoteControl(DevoloDeviceEntity, BinarySensorEntity):
         self._attr_translation_key = "button"
         self._attr_translation_placeholders = {"key": str(key)}
 
-    def _sync(self, message: tuple) -> None:
+    @override
+    def sync_callback(self, message: tuple) -> None:
         """Update the binary sensor state."""
         if (
             message[0] == self._remote_control_property.element_uid

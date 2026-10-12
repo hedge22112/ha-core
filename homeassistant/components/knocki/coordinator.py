@@ -1,28 +1,39 @@
 """Update coordinator for Knocki integration."""
 
+from typing import override
+
 from knocki import Event, KnockiClient, KnockiConnectionError, Trigger
 
 from homeassistant.components.event import DOMAIN as EVENT_DOMAIN
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, LOGGER
 
+type KnockiConfigEntry = ConfigEntry[KnockiCoordinator]
+
 
 class KnockiCoordinator(DataUpdateCoordinator[dict[int, Trigger]]):
     """The Knocki coordinator."""
 
-    def __init__(self, hass: HomeAssistant, client: KnockiClient) -> None:
+    config_entry: KnockiConfigEntry
+
+    def __init__(
+        self, hass: HomeAssistant, config_entry: KnockiConfigEntry, client: KnockiClient
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
             logger=LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
         )
         self.client = client
         self._known_triggers: set[tuple[str, int]] = set()
 
+    @override
     async def _async_update_data(self) -> dict[int, Trigger]:
         try:
             triggers = await self.client.get_triggers()

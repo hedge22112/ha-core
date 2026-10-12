@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from ipaddress import ip_address
+import logging
 from types import MappingProxyType
 from typing import Any
 from unittest import mock
@@ -9,10 +10,10 @@ from unittest.mock import ANY, Mock, call, patch
 
 import axis as axislib
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components import axis
-from homeassistant.components.axis.const import DOMAIN as AXIS_DOMAIN
+from homeassistant.components.axis.const import DOMAIN
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.config_entries import SOURCE_ZEROCONF, ConfigEntryState
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
@@ -42,8 +43,8 @@ async def test_device_registry_entry(
     snapshot: SnapshotAssertion,
 ) -> None:
     """Successful setup."""
-    device_entry = device_registry.async_get_device(
-        identifiers={(AXIS_DOMAIN, config_entry_setup.unique_id)}
+    device_entry = device_registry.async_get_device_by_identifier(
+        (DOMAIN, config_entry_setup.unique_id), config_entry_setup.entry_id
     )
     assert device_entry == snapshot
 
@@ -74,6 +75,33 @@ async def test_device_support_mqtt(
 
 
 @pytest.mark.parametrize("api_discovery_items", [API_DISCOVERY_MQTT])
+@pytest.mark.usefixtures("config_entry_setup")
+async def test_device_support_mqtt_without_required_event_keys(
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ignore non-event MQTT payloads without raising callback exceptions."""
+    caplog.set_level(logging.ERROR, logger="homeassistant.components.mqtt.client")
+
+    mqtt_call = call(f"axis/{MAC}/#", mock.ANY, 0, "utf-8", ANY)
+    assert mqtt_call in mqtt_mock.async_subscribe.call_args_list
+
+    topic = f"axis/{MAC}/device"
+    message = (
+        b'{"timestamp": 1775115420, "time": "2026-04-02T09:37:00+0200", '
+        b'"zone": "CEST", "ip": "1.2.3.4", "host": "hostname", '
+        b'"temperature": {"temp_main": 23.5, "temp_cpu": 24.0}, '
+        b'"power": {"pwr": 4.76, "pwr-avg": 3.88, "pwr-max": 9.13}}'
+    )
+
+    async_fire_mqtt_message(hass, topic, message)
+    await hass.async_block_till_done()
+
+    assert "Exception in _mqtt_message" not in caplog.text
+
+
+@pytest.mark.parametrize("api_discovery_items", [API_DISCOVERY_MQTT])
 @pytest.mark.parametrize("mqtt_status_code", [401])
 @pytest.mark.usefixtures("config_entry_setup")
 async def test_device_support_mqtt_low_privilege(mqtt_mock: MqttMockHAClient) -> None:
@@ -93,7 +121,7 @@ async def test_update_address(
 
     mock_requests("2.3.4.5")
     await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN,
+        DOMAIN,
         data=ZeroconfServiceInfo(
             ip_address=ip_address("2.3.4.5"),
             ip_addresses=[ip_address("2.3.4.5")],
@@ -121,7 +149,7 @@ async def test_device_unavailable(
     mock_rtsp_event(
         topic="tns1:AudioSource/tnsaxis:TriggerLevel",
         data_type="triggered",
-        data_value="10",
+        data_value="0",
         source_name="channel",
         source_idx="1",
     )
@@ -162,7 +190,7 @@ async def test_device_trigger_reauth_flow(
         await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
         mock_flow_init.assert_called_once()
-    assert config_entry.state == ConfigEntryState.SETUP_ERROR
+    assert config_entry.state is ConfigEntryState.SETUP_ERROR
 
 
 async def test_shutdown(config_entry_data: MappingProxyType[str, Any]) -> None:
@@ -207,4 +235,4 @@ async def test_get_axis_api_errors(
     ):
         await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
-    assert config_entry.state == state
+    assert config_entry.state is state

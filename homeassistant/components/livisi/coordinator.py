@@ -1,9 +1,7 @@
 """Code to manage fetching LIVISI data API."""
 
-from __future__ import annotations
-
 from datetime import timedelta
-from typing import Any
+from typing import Any, override
 
 from aiohttp import ClientConnectorError
 from livisi import LivisiEvent, Websocket
@@ -26,24 +24,25 @@ from .const import (
     LOGGER,
 )
 
+type LivisiConfigEntry = ConfigEntry[LivisiDataUpdateCoordinator]
+
 
 class LivisiDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     """Class to manage fetching LIVISI data API."""
 
-    config_entry: ConfigEntry
+    config_entry: LivisiConfigEntry
 
     def __init__(
-        self, hass: HomeAssistant, config_entry: ConfigEntry, aiolivisi: AioLivisi
+        self, hass: HomeAssistant, config_entry: LivisiConfigEntry, aiolivisi: AioLivisi
     ) -> None:
         """Initialize my coordinator."""
         super().__init__(
             hass,
             LOGGER,
+            config_entry=config_entry,
             name="Livisi devices",
             update_interval=timedelta(seconds=DEVICE_POLLING_DELAY),
         )
-        self.config_entry = config_entry
-        self.hass = hass
         self.aiolivisi = aiolivisi
         self.websocket = Websocket(aiolivisi)
         self.devices: set[str] = set()
@@ -53,6 +52,7 @@ class LivisiDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.is_avatar: bool = False
         self.port: int = 0
 
+    @override
     async def _async_update_data(self) -> list[dict[str, Any]]:
         """Get device configuration from LIVISI."""
         try:

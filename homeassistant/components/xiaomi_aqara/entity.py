@@ -2,7 +2,9 @@
 
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
+
+from xiaomi_gateway import XiaomiGateway
 
 from homeassistant.const import ATTR_BATTERY_LEVEL, ATTR_VOLTAGE, CONF_MAC
 from homeassistant.core import callback
@@ -12,6 +14,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util.dt import utcnow
 
+from . import XiaomiAqaraConfigEntry
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,9 +27,14 @@ class XiaomiDevice(Entity):
 
     _attr_should_poll = False
 
-    def __init__(self, device, device_type, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        device_type: str,
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the Xiaomi device."""
-        self._state = None
         self._is_available = True
         self._sid = device["sid"]
         self._model = device["model"]
@@ -36,7 +44,7 @@ class XiaomiDevice(Entity):
         self._type = device_type
         self._write_to_hub = xiaomi_hub.write_to_hub
         self._get_from_hub = xiaomi_hub.get_from_hub
-        self._extra_state_attributes = {}
+        self._attr_extra_state_attributes = {}
         self._remove_unavailability_tracker = None
         self._xiaomi_hub = xiaomi_hub
         self.parse_data(device["data"], device["raw_data"])
@@ -51,23 +59,38 @@ class XiaomiDevice(Entity):
         if config_entry.data[CONF_MAC] == format_mac(self._sid):
             # this entity belongs to the gateway itself
             self._is_gateway = True
+            if TYPE_CHECKING:
+                assert config_entry.unique_id
             self._device_id = config_entry.unique_id
         else:
             # this entity is connected through zigbee
             self._is_gateway = False
             self._device_id = self._sid
 
-    async def async_added_to_hass(self):
+    @override
+    async def async_added_to_hass(self) -> None:
         """Start unavailability tracking."""
         self._xiaomi_hub.callbacks[self._sid].append(self.push_data)
+        self.async_on_remove(
+            lambda: self._xiaomi_hub.callbacks[self._sid].remove(self.push_data)
+        )
         self._async_track_unavailable()
 
+    @override
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop unavailability tracking."""
+        if self._remove_unavailability_tracker:
+            self._remove_unavailability_tracker()
+            self._remove_unavailability_tracker = None
+
     @property
+    @override
     def name(self):
         """Return the name of the device."""
         return self._name
 
     @property
+    @override
     def unique_id(self) -> str:
         """Return a unique ID."""
         return self._unique_id
@@ -78,6 +101,7 @@ class XiaomiDevice(Entity):
         return self._device_id
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Return the device info of the Xiaomi Aqara device."""
         if self._is_gateway:
@@ -87,6 +111,9 @@ class XiaomiDevice(Entity):
                 model=self._model,
             )
         else:
+            if TYPE_CHECKING:
+                assert self._gateway_id is not None
+                assert self.platform.config_entry is not None
             device_info = DeviceInfo(
                 connections={(dr.CONNECTION_ZIGBEE, self._device_id)},
                 identifiers={(DOMAIN, self._device_id)},
@@ -94,20 +121,20 @@ class XiaomiDevice(Entity):
                 model=self._model,
                 name=self._device_name,
                 sw_version=self._protocol,
-                via_device=(DOMAIN, self._gateway_id),
+                via_device_id=dr.async_get_device_id_by_identifier(
+                    self.hass,
+                    (DOMAIN, self._gateway_id),
+                    config_entry_id=self.platform.config_entry.entry_id,
+                ),
             )
 
         return device_info
 
     @property
-    def available(self):
+    @override
+    def available(self) -> bool:
         """Return True if entity is available."""
         return self._is_available
-
-    @property
-    def extra_state_attributes(self):
-        """Return the state attributes."""
-        return self._extra_state_attributes
 
     @callback
     def _async_set_unavailable(self, now):
@@ -154,11 +181,11 @@ class XiaomiDevice(Entity):
         max_volt = 3300
         min_volt = 2800
         voltage = data[voltage_key]
-        self._extra_state_attributes[ATTR_VOLTAGE] = round(voltage / 1000.0, 2)
+        self._attr_extra_state_attributes[ATTR_VOLTAGE] = round(voltage / 1000.0, 2)
         voltage = min(voltage, max_volt)
         voltage = max(voltage, min_volt)
         percent = ((voltage - min_volt) / (max_volt - min_volt)) * 100
-        self._extra_state_attributes[ATTR_BATTERY_LEVEL] = round(percent, 1)
+        self._attr_extra_state_attributes[ATTR_BATTERY_LEVEL] = round(percent, 1)
         return True
 
     def parse_data(self, data, raw_data):

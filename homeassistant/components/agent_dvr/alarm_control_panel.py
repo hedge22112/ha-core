@@ -1,6 +1,6 @@
 """Support for Agent DVR Alarm Control Panels."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
@@ -9,10 +9,10 @@ from homeassistant.components.alarm_control_panel import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AgentDVRConfigEntry
-from .const import DOMAIN as AGENT_DOMAIN
+from .const import DOMAIN
 
 CONF_HOME_MODE_NAME = "home"
 CONF_AWAY_MODE_NAME = "away"
@@ -24,7 +24,7 @@ CONST_ALARM_CONTROL_PANEL_NAME = "Alarm Panel"
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AgentDVRConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Agent DVR Alarm Control Panels."""
     async_add_entities([AgentBaseStation(config_entry.runtime_data)])
@@ -47,7 +47,7 @@ class AgentBaseStation(AlarmControlPanelEntity):
         self._client = client
         self._attr_unique_id = f"{client.unique}_CP"
         self._attr_device_info = DeviceInfo(
-            identifiers={(AGENT_DOMAIN, client.unique)},
+            identifiers={(DOMAIN, client.unique)},
             name=f"{client.name} {CONST_ALARM_CONTROL_PANEL_NAME}",
             manufacturer="Agent",
             model=CONST_ALARM_CONTROL_PANEL_NAME,
@@ -72,23 +72,27 @@ class AgentBaseStation(AlarmControlPanelEntity):
         else:
             self._attr_alarm_state = AlarmControlPanelState.DISARMED
 
+    @override
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         """Send disarm command."""
         await self._client.disarm()
         self._attr_alarm_state = AlarmControlPanelState.DISARMED
 
+    @override
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         """Send arm away command. Uses custom mode."""
         await self._client.arm()
         await self._client.set_active_profile(CONF_AWAY_MODE_NAME)
         self._attr_alarm_state = AlarmControlPanelState.ARMED_AWAY
 
+    @override
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Send arm home command. Uses custom mode."""
         await self._client.arm()
         await self._client.set_active_profile(CONF_HOME_MODE_NAME)
         self._attr_alarm_state = AlarmControlPanelState.ARMED_HOME
 
+    @override
     async def async_alarm_arm_night(self, code: str | None = None) -> None:
         """Send arm night command. Uses custom mode."""
         await self._client.arm()

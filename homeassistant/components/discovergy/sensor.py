@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import override
 
 from pydiscovergy.models import Reading
 
@@ -21,12 +22,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import DiscovergyConfigEntry
 from .const import DOMAIN, MANUFACTURER
-from .coordinator import DiscovergyUpdateCoordinator
+from .coordinator import DiscovergyConfigEntry, DiscovergyUpdateCoordinator
 
 PARALLEL_UPDATES = 0
 
@@ -167,14 +167,15 @@ ADDITIONAL_SENSORS: tuple[DiscovergySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DiscovergyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Discovergy sensors."""
     entities: list[DiscovergySensor] = []
     for coordinator in entry.runtime_data:
         sensors: tuple[DiscovergySensorEntityDescription, ...] = ()
 
-        # select sensor descriptions based on meter type and combine with additional sensors
+        # select sensor descriptions based on meter type
+        # and combine with additional sensors
         if coordinator.meter.measurement_type == "ELECTRICITY":
             sensors = ELECTRICITY_SENSORS + ADDITIONAL_SENSORS
         elif coordinator.meter.measurement_type == "GAS":
@@ -214,13 +215,18 @@ class DiscovergySensor(CoordinatorEntity[DiscovergyUpdateCoordinator], SensorEnt
         self._attr_unique_id = f"{meter.full_serial_number}-{data_key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, meter.meter_id)},
-            name=f"{meter.measurement_type.capitalize()} {meter.location.street} {meter.location.street_number}",
+            name=(
+                f"{meter.measurement_type.capitalize()}"
+                f" {meter.location.street}"
+                f" {meter.location.street_number}"
+            ),
             model=meter.meter_type,
             manufacturer=MANUFACTURER,
             serial_number=meter.full_serial_number,
         )
 
     @property
+    @override
     def native_value(self) -> datetime | float | None:
         """Return the sensor state."""
         return self.entity_description.value_fn(

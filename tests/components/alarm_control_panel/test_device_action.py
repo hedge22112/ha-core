@@ -25,11 +25,6 @@ from tests.common import (
 )
 
 
-@pytest.fixture(autouse=True, name="stub_blueprint_populate")
-def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
-    """Stub copying the blueprints to the config folder."""
-
-
 @pytest.mark.parametrize(
     ("set_state", "features_reg", "features_state", "expected_action_types"),
     [
@@ -106,7 +101,9 @@ async def test_get_actions(
     )
     if set_state:
         hass.states.async_set(
-            f"{DOMAIN}.test_5678", "attributes", {"supported_features": features_state}
+            entity_entry.entity_id,
+            "attributes",
+            {"supported_features": features_state},
         )
     expected_actions = [
         {
@@ -189,7 +186,7 @@ async def test_get_actions_arm_night_only(
         DOMAIN, "test", "5678", device_id=device_entry.id
     )
     hass.states.async_set(
-        "alarm_control_panel.test_5678", "attributes", {"supported_features": 4}
+        entity_entry.entity_id, "attributes", {"supported_features": 4}
     )
     expected_actions = [
         {
@@ -245,7 +242,9 @@ async def test_get_action_capabilities(
         "arm_night": {"extra_fields": []},
         "arm_vacation": {"extra_fields": []},
         "disarm": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "trigger": {"extra_fields": []},
     }
@@ -293,7 +292,9 @@ async def test_get_action_capabilities_legacy(
         "arm_night": {"extra_fields": []},
         "arm_vacation": {"extra_fields": []},
         "disarm": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "trigger": {"extra_fields": []},
     }
@@ -338,19 +339,29 @@ async def test_get_action_capabilities_arm_code(
 
     expected_capabilities = {
         "arm_away": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "arm_home": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "arm_night": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "arm_vacation": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "disarm": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "trigger": {"extra_fields": []},
     }
@@ -394,19 +405,29 @@ async def test_get_action_capabilities_arm_code_legacy(
 
     expected_capabilities = {
         "arm_away": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "arm_home": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "arm_night": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "arm_vacation": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "disarm": {
-            "extra_fields": [{"name": "code", "optional": True, "type": "string"}]
+            "extra_fields": [
+                {"name": "code", "optional": True, "required": False, "type": "string"}
+            ]
         },
         "trigger": {"extra_fields": []},
     }

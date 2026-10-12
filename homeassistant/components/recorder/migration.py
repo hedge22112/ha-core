@@ -1,7 +1,5 @@
 """Schema migration helpers."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 import contextlib
@@ -9,11 +7,19 @@ from dataclasses import dataclass, replace as dataclass_replace
 from datetime import timedelta
 import logging
 from time import time
-from typing import TYPE_CHECKING, Any, cast, final
+from typing import TYPE_CHECKING, Any, TypedDict, cast, final, override
 from uuid import UUID
 
 import sqlalchemy
-from sqlalchemy import ForeignKeyConstraint, MetaData, Table, func, text, update
+from sqlalchemy import (
+    ForeignKeyConstraint,
+    MetaData,
+    Table,
+    cast as cast_,
+    func,
+    text,
+    update,
+)
 from sqlalchemy.engine import CursorResult, Engine
 from sqlalchemy.exc import (
     DatabaseError,
@@ -26,8 +32,9 @@ from sqlalchemy.exc import (
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm.session import Session
 from sqlalchemy.schema import AddConstraint, CreateTable, DropConstraint
-from sqlalchemy.sql.expression import true
+from sqlalchemy.sql.expression import and_, true
 from sqlalchemy.sql.lambdas import StatementLambdaElement
+from sqlalchemy.types import BINARY
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util.enum import try_parse_enum
@@ -52,6 +59,7 @@ from .auto_repairs.statistics.schema import (
 from .const import (
     CONTEXT_ID_AS_BINARY_SCHEMA_VERSION,
     EVENT_TYPE_IDS_SCHEMA_VERSION,
+    LEGACY_STATES_EVENT_FOREIGN_KEYS_FIXED_SCHEMA_VERSION,
     LEGACY_STATES_EVENT_ID_INDEX_SCHEMA_VERSION,
     STATES_META_SCHEMA_VERSION,
     SupportedDialect,
@@ -80,7 +88,7 @@ from .db_schema import (
     StatisticsRuns,
     StatisticsShortTerm,
 )
-from .models import process_timestamp
+from .models import StatisticMeanType, process_timestamp
 from .models.time import datetime_to_timestamp_or_none
 from .queries import (
     batch_cleanup_entity_ids,
@@ -102,7 +110,11 @@ from .queries import (
     migrate_single_short_term_statistics_row_to_timestamp,
     migrate_single_statistics_row_to_timestamp,
 )
-from .statistics import cleanup_statistics_timestamp_migration, get_start_time
+from .statistics import (
+    _PRIMARY_UNIT_CONVERTERS,
+    cleanup_statistics_timestamp_migration,
+    get_start_time,
+)
 from .tasks import RecorderTask
 from .util import (
     database_job_retry_wrapper,
@@ -116,10 +128,10 @@ from .util import (
 if TYPE_CHECKING:
     from . import Recorder
 
-# Live schema migration supported starting from schema version 42 or newer
-# Schema version 41 was introduced in HA Core 2023.4
-# Schema version 42 was introduced in HA Core 2023.11
-LIVE_MIGRATION_MIN_SCHEMA_VERSION = 42
+# Live schema migration supported starting from schema version 48 or newer
+# Schema version 47 was introduced in HA Core 2024.9
+# Schema version 48 was introduced in HA Core 2025.1
+LIVE_MIGRATION_MIN_SCHEMA_VERSION = 48
 
 MIGRATION_NOTE_OFFLINE = (
     "Note: this may take several hours on large databases and slow machines. "
@@ -143,24 +155,32 @@ class _ColumnTypesForDialect:
     big_int_type: str
     timestamp_type: str
     context_bin_type: str
+    small_int_type: str
+    double_type: str
 
 
 _MYSQL_COLUMN_TYPES = _ColumnTypesForDialect(
     big_int_type="INTEGER(20)",
     timestamp_type=DOUBLE_PRECISION_TYPE_SQL,
     context_bin_type=f"BLOB({CONTEXT_ID_BIN_MAX_LENGTH})",
+    small_int_type="SMALLINT",
+    double_type=DOUBLE_PRECISION_TYPE_SQL,
 )
 
 _POSTGRESQL_COLUMN_TYPES = _ColumnTypesForDialect(
     big_int_type="INTEGER",
     timestamp_type=DOUBLE_PRECISION_TYPE_SQL,
     context_bin_type="BYTEA",
+    small_int_type="SMALLINT",
+    double_type=DOUBLE_PRECISION_TYPE_SQL,
 )
 
 _SQLITE_COLUMN_TYPES = _ColumnTypesForDialect(
     big_int_type="INTEGER",
     timestamp_type="FLOAT",
     context_bin_type="BLOB",
+    small_int_type="INTEGER",
+    double_type="FLOAT",
 )
 
 _COLUMN_TYPES_FOR_DIALECT: dict[SupportedDialect | None, _ColumnTypesForDialect] = {
@@ -631,7 +651,7 @@ def _add_columns(
             connection.execute(
                 text(f"ALTER TABLE {table_name} {', '.join(columns_def)}")
             )
-        except (InternalError, OperationalError, ProgrammingError):
+        except InternalError, OperationalError, ProgrammingError:
             # Some engines support adding all columns at once,
             # this error is when they don't
             _LOGGER.info("Unable to use quick column add. Adding 1 by 1")
@@ -694,7 +714,7 @@ def _modify_columns(
             connection.execute(
                 text(f"ALTER TABLE {table_name} {', '.join(columns_def)}")
             )
-        except (InternalError, OperationalError):
+        except InternalError, OperationalError:
             _LOGGER.info("Unable to use quick column modify. Modifying 1 by 1")
         else:
             return
@@ -704,11 +724,16 @@ def _modify_columns(
             try:
                 connection = session.connection()
                 connection.execute(text(f"ALTER TABLE {table_name} {column_def}"))
-            except (InternalError, OperationalError):
+            except InternalError, OperationalError:
                 _LOGGER.exception(
                     "Could not modify column %s in table %s", column_def, table_name
                 )
                 raise
+
+
+class _FKAlterDict(TypedDict):
+    old_fk: ForeignKeyConstraint
+    columns: list[str]
 
 
 def _update_states_table_with_foreign_key_options(
@@ -728,7 +753,7 @@ def _update_states_table_with_foreign_key_options(
 
     inspector = sqlalchemy.inspect(engine)
     tmp_states_table = Table(TABLE_STATES, MetaData())
-    alters = [
+    alters: list[_FKAlterDict] = [
         {
             "old_fk": ForeignKeyConstraint(
                 (), (), name=foreign_key["name"], table=tmp_states_table
@@ -754,17 +779,17 @@ def _update_states_table_with_foreign_key_options(
         with session_scope(session=session_maker()) as session:
             try:
                 connection = session.connection()
-                connection.execute(DropConstraint(alter["old_fk"]))  # type: ignore[no-untyped-call]
+                connection.execute(DropConstraint(alter["old_fk"]))
                 for fkc in states_key_constraints:
                     if fkc.column_keys == alter["columns"]:
                         # AddConstraint mutates the constraint passed to it, we need to
                         # undo that to avoid changing the behavior of the table schema.
                         # https://github.com/sqlalchemy/sqlalchemy/blob/96f1172812f858fead45cdc7874abac76f45b339/lib/sqlalchemy/sql/ddl.py#L746-L748
                         create_rule = fkc._create_rule  # noqa: SLF001
-                        add_constraint = AddConstraint(fkc)  # type: ignore[no-untyped-call]
+                        add_constraint = AddConstraint(fkc)
                         fkc._create_rule = create_rule  # noqa: SLF001
                         connection.execute(add_constraint)
-            except (InternalError, OperationalError):
+            except InternalError, OperationalError:
                 _LOGGER.exception(
                     "Could not update foreign options in %s table", TABLE_STATES
                 )
@@ -799,8 +824,8 @@ def _drop_foreign_key_constraints(
         with session_scope(session=session_maker()) as session:
             try:
                 connection = session.connection()
-                connection.execute(DropConstraint(drop))  # type: ignore[no-untyped-call]
-            except (InternalError, OperationalError):
+                connection.execute(DropConstraint(drop))
+            except InternalError, OperationalError:
                 _LOGGER.exception(
                     "Could not drop foreign constraints in %s table on %s",
                     TABLE_STATES,
@@ -844,7 +869,7 @@ def _restore_foreign_key_constraints(
         # undo that to avoid changing the behavior of the table schema.
         # https://github.com/sqlalchemy/sqlalchemy/blob/96f1172812f858fead45cdc7874abac76f45b339/lib/sqlalchemy/sql/ddl.py#L746-L748
         create_rule = constraint._create_rule  # noqa: SLF001
-        add_constraint = AddConstraint(constraint)  # type: ignore[no-untyped-call]
+        add_constraint = AddConstraint(constraint)
         constraint._create_rule = create_rule  # noqa: SLF001
         try:
             _add_constraint(session_maker, add_constraint, table, column)
@@ -880,7 +905,7 @@ def _add_constraint(
         try:
             connection = session.connection()
             connection.execute(add_constraint)
-        except (InternalError, OperationalError):
+        except InternalError, OperationalError:
             _LOGGER.exception("Could not update foreign options in %s table", table)
             raise
 
@@ -930,7 +955,8 @@ def _delete_foreign_key_violations(
                             f"t1.{column} IS NOT NULL AND "
                             "NOT EXISTS "
                             "(SELECT 1 "
-                            f"FROM (SELECT {foreign_column} from {foreign_table}) AS t2 "
+                            f"FROM (SELECT {foreign_column} "
+                            f"from {foreign_table}) AS t2 "
                             f"WHERE t2.{foreign_column} = t1.{column})) "
                             "LIMIT 100000;"
                         )
@@ -1017,6 +1043,7 @@ class _SchemaVersionMigrator(ABC):
 
     __migrators: dict[int, type[_SchemaVersionMigrator]] = {}
 
+    @override
     def __init_subclass__(cls, target_version: int, **kwargs: Any) -> None:
         """Post initialisation processing."""
         super().__init_subclass__(**kwargs)
@@ -1063,12 +1090,14 @@ class _SchemaVersionMigrator(ABC):
 
 
 class _SchemaVersion1Migrator(_SchemaVersionMigrator, target_version=1):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This used to create ix_events_time_fired, but it was removed in version 32
 
 
 class _SchemaVersion2Migrator(_SchemaVersionMigrator, target_version=2):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Create compound start/end index for recorder_runs
@@ -1082,12 +1111,14 @@ class _SchemaVersion2Migrator(_SchemaVersionMigrator, target_version=2):
 
 
 class _SchemaVersion3Migrator(_SchemaVersionMigrator, target_version=3):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # There used to be a new index here, but it was removed in version 4.
 
 
 class _SchemaVersion4Migrator(_SchemaVersionMigrator, target_version=4):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Queries were rewritten in this schema release. Most indexes from
@@ -1109,6 +1140,7 @@ class _SchemaVersion4Migrator(_SchemaVersionMigrator, target_version=4):
 
 
 class _SchemaVersion5Migrator(_SchemaVersionMigrator, target_version=5):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Create supporting index for States.event_id foreign key
@@ -1118,6 +1150,7 @@ class _SchemaVersion5Migrator(_SchemaVersionMigrator, target_version=5):
 
 
 class _SchemaVersion6Migrator(_SchemaVersionMigrator, target_version=6):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(
@@ -1143,6 +1176,7 @@ class _SchemaVersion6Migrator(_SchemaVersionMigrator, target_version=6):
 
 
 class _SchemaVersion7Migrator(_SchemaVersionMigrator, target_version=7):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # There used to be a ix_states_entity_id index here,
@@ -1150,6 +1184,7 @@ class _SchemaVersion7Migrator(_SchemaVersionMigrator, target_version=7):
 
 
 class _SchemaVersion8Migrator(_SchemaVersionMigrator, target_version=8):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(self.session_maker, "events", ["context_parent_id CHARACTER(36)"])
@@ -1159,6 +1194,7 @@ class _SchemaVersion8Migrator(_SchemaVersionMigrator, target_version=8):
 
 
 class _SchemaVersion9Migrator(_SchemaVersionMigrator, target_version=9):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # We now get the context from events with a join
@@ -1183,12 +1219,14 @@ class _SchemaVersion9Migrator(_SchemaVersionMigrator, target_version=9):
 
 
 class _SchemaVersion10Migrator(_SchemaVersionMigrator, target_version=10):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Now done in step 11
 
 
 class _SchemaVersion11Migrator(_SchemaVersionMigrator, target_version=11):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _create_index(
@@ -1208,6 +1246,7 @@ class _SchemaVersion11Migrator(_SchemaVersionMigrator, target_version=11):
 
 
 class _SchemaVersion12Migrator(_SchemaVersionMigrator, target_version=12):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         if self.engine.dialect.name == SupportedDialect.MYSQL:
@@ -1220,6 +1259,7 @@ class _SchemaVersion12Migrator(_SchemaVersionMigrator, target_version=12):
 
 
 class _SchemaVersion13Migrator(_SchemaVersionMigrator, target_version=13):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         if self.engine.dialect.name == SupportedDialect.MYSQL:
@@ -1242,6 +1282,7 @@ class _SchemaVersion13Migrator(_SchemaVersionMigrator, target_version=13):
 
 
 class _SchemaVersion14Migrator(_SchemaVersionMigrator, target_version=14):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _modify_columns(
@@ -1250,12 +1291,14 @@ class _SchemaVersion14Migrator(_SchemaVersionMigrator, target_version=14):
 
 
 class _SchemaVersion15Migrator(_SchemaVersionMigrator, target_version=15):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This dropped the statistics table, done again in version 18.
 
 
 class _SchemaVersion16Migrator(_SchemaVersionMigrator, target_version=16):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Dropping foreign key constraints is not supported by SQLite
@@ -1273,12 +1316,14 @@ class _SchemaVersion16Migrator(_SchemaVersionMigrator, target_version=16):
 
 
 class _SchemaVersion17Migrator(_SchemaVersionMigrator, target_version=17):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This dropped the statistics table, done again in version 18.
 
 
 class _SchemaVersion18Migrator(_SchemaVersionMigrator, target_version=18):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Recreate the statistics and statistics meta tables.
@@ -1304,6 +1349,7 @@ class _SchemaVersion18Migrator(_SchemaVersionMigrator, target_version=18):
 
 
 class _SchemaVersion19Migrator(_SchemaVersionMigrator, target_version=19):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This adds the statistic runs table, insert a fake run to prevent duplicating
@@ -1313,6 +1359,7 @@ class _SchemaVersion19Migrator(_SchemaVersionMigrator, target_version=19):
 
 
 class _SchemaVersion20Migrator(_SchemaVersionMigrator, target_version=20):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This changed the precision of statistics from float to double
@@ -1332,15 +1379,17 @@ class _SchemaVersion20Migrator(_SchemaVersionMigrator, target_version=20):
 
 
 class _SchemaVersion21Migrator(_SchemaVersionMigrator, target_version=21):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
-        # Try to change the character set of the statistic_meta table
+        # Try to change the character set of events, states and statistics_meta tables
         if self.engine.dialect.name == SupportedDialect.MYSQL:
             for table in ("events", "states", "statistics_meta"):
                 _correct_table_character_set_and_collation(table, self.session_maker)
 
 
 class _SchemaVersion22Migrator(_SchemaVersionMigrator, target_version=22):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Recreate the all statistics tables for Oracle DB with Identity columns
@@ -1413,6 +1462,7 @@ class _SchemaVersion22Migrator(_SchemaVersionMigrator, target_version=22):
 
 
 class _SchemaVersion23Migrator(_SchemaVersionMigrator, target_version=23):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Add name column to StatisticsMeta
@@ -1420,6 +1470,7 @@ class _SchemaVersion23Migrator(_SchemaVersionMigrator, target_version=23):
 
 
 class _SchemaVersion24Migrator(_SchemaVersionMigrator, target_version=24):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This used to create the unique indices for start and statistic_id
@@ -1428,6 +1479,7 @@ class _SchemaVersion24Migrator(_SchemaVersionMigrator, target_version=24):
 
 
 class _SchemaVersion25Migrator(_SchemaVersionMigrator, target_version=25):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(
@@ -1441,6 +1493,7 @@ class _SchemaVersion25Migrator(_SchemaVersionMigrator, target_version=25):
 
 
 class _SchemaVersion26Migrator(_SchemaVersionMigrator, target_version=26):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _create_index(
@@ -1452,6 +1505,7 @@ class _SchemaVersion26Migrator(_SchemaVersionMigrator, target_version=26):
 
 
 class _SchemaVersion27Migrator(_SchemaVersionMigrator, target_version=27):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(
@@ -1461,6 +1515,7 @@ class _SchemaVersion27Migrator(_SchemaVersionMigrator, target_version=27):
 
 
 class _SchemaVersion28Migrator(_SchemaVersionMigrator, target_version=28):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(self.session_maker, "events", ["origin_idx INTEGER"])
@@ -1485,6 +1540,7 @@ class _SchemaVersion28Migrator(_SchemaVersionMigrator, target_version=28):
 
 
 class _SchemaVersion29Migrator(_SchemaVersionMigrator, target_version=29):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Recreate statistics_meta index to block duplicated statistic_id
@@ -1525,6 +1581,7 @@ class _SchemaVersion29Migrator(_SchemaVersionMigrator, target_version=29):
 
 
 class _SchemaVersion30Migrator(_SchemaVersionMigrator, target_version=30):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This added a column to the statistics_meta table, removed again before
@@ -1535,6 +1592,7 @@ class _SchemaVersion30Migrator(_SchemaVersionMigrator, target_version=30):
 
 
 class _SchemaVersion31Migrator(_SchemaVersionMigrator, target_version=31):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Once we require SQLite >= 3.35.5, we should drop the column:
@@ -1576,6 +1634,7 @@ class _SchemaVersion31Migrator(_SchemaVersionMigrator, target_version=31):
 
 
 class _SchemaVersion32Migrator(_SchemaVersionMigrator, target_version=32):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Migration is done in two steps to ensure we can start using
@@ -1585,7 +1644,8 @@ class _SchemaVersion32Migrator(_SchemaVersionMigrator, target_version=32):
         _drop_index(self.session_maker, "states", "ix_states_last_updated")
         _drop_index(self.session_maker, "events", "ix_events_time_fired")
         with session_scope(session=self.session_maker()) as session:
-            # In version 31 we migrated all the time_fired, last_updated, and last_changed
+            # In version 31 we migrated all the time_fired,
+            # last_updated, and last_changed
             # columns to be timestamps. In version 32 we need to wipe the old columns
             # since they are no longer used and take up a significant amount of space.
             assert self.instance.engine is not None, "engine should never be None"
@@ -1593,6 +1653,7 @@ class _SchemaVersion32Migrator(_SchemaVersionMigrator, target_version=32):
 
 
 class _SchemaVersion33Migrator(_SchemaVersionMigrator, target_version=33):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # This index is no longer used and can cause MySQL to use the wrong index
@@ -1602,6 +1663,7 @@ class _SchemaVersion33Migrator(_SchemaVersionMigrator, target_version=33):
 
 
 class _SchemaVersion34Migrator(_SchemaVersionMigrator, target_version=34):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Once we require SQLite >= 3.35.5, we should drop the columns:
@@ -1656,6 +1718,7 @@ class _SchemaVersion34Migrator(_SchemaVersionMigrator, target_version=34):
 
 
 class _SchemaVersion35Migrator(_SchemaVersionMigrator, target_version=35):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Migration is done in two steps to ensure we can start using
@@ -1683,6 +1746,7 @@ class _SchemaVersion35Migrator(_SchemaVersionMigrator, target_version=35):
 
 
 class _SchemaVersion36Migrator(_SchemaVersionMigrator, target_version=36):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         for table in ("states", "events"):
@@ -1704,6 +1768,7 @@ class _SchemaVersion36Migrator(_SchemaVersionMigrator, target_version=36):
 
 
 class _SchemaVersion37Migrator(_SchemaVersionMigrator, target_version=37):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(
@@ -1724,6 +1789,7 @@ class _SchemaVersion37Migrator(_SchemaVersionMigrator, target_version=37):
 
 
 class _SchemaVersion38Migrator(_SchemaVersionMigrator, target_version=38):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(
@@ -1743,6 +1809,7 @@ class _SchemaVersion38Migrator(_SchemaVersionMigrator, target_version=38):
 
 
 class _SchemaVersion39Migrator(_SchemaVersionMigrator, target_version=39):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # Dropping indexes with PostgreSQL never worked correctly if there was a prefix
@@ -1803,15 +1870,20 @@ class _SchemaVersion39Migrator(_SchemaVersionMigrator, target_version=39):
 
 
 class _SchemaVersion40Migrator(_SchemaVersionMigrator, target_version=40):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
-        # ix_events_event_type_id is a left-prefix of ix_events_event_type_id_time_fired_ts
+        # ix_events_event_type_id is a left-prefix of
+        # ix_events_event_type_id_time_fired_ts
         _drop_index(self.session_maker, "events", "ix_events_event_type_id")
-        # ix_states_metadata_id is a left-prefix of ix_states_metadata_id_last_updated_ts
+        # ix_states_metadata_id is a left-prefix of
+        # ix_states_metadata_id_last_updated_ts
         _drop_index(self.session_maker, "states", "ix_states_metadata_id")
-        # ix_statistics_metadata_id is a left-prefix of ix_statistics_statistic_id_start_ts
+        # ix_statistics_metadata_id is a left-prefix of
+        # ix_statistics_statistic_id_start_ts
         _drop_index(self.session_maker, "statistics", "ix_statistics_metadata_id")
-        # ix_statistics_short_term_metadata_id is a left-prefix of ix_statistics_short_term_statistic_id_start_ts
+        # ix_statistics_short_term_metadata_id is a left-prefix
+        # of ix_statistics_short_term_statistic_id_start_ts
         _drop_index(
             self.session_maker,
             "statistics_short_term",
@@ -1820,6 +1892,7 @@ class _SchemaVersion40Migrator(_SchemaVersionMigrator, target_version=40):
 
 
 class _SchemaVersion41Migrator(_SchemaVersionMigrator, target_version=41):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _create_index(
@@ -1834,6 +1907,7 @@ class _SchemaVersion41Migrator(_SchemaVersionMigrator, target_version=41):
 
 
 class _SchemaVersion42Migrator(_SchemaVersionMigrator, target_version=42):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # If the user had a previously failed migration, or they
@@ -1847,6 +1921,7 @@ class _SchemaVersion42Migrator(_SchemaVersionMigrator, target_version=42):
 
 
 class _SchemaVersion43Migrator(_SchemaVersionMigrator, target_version=43):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         _add_columns(
@@ -1857,6 +1932,7 @@ class _SchemaVersion43Migrator(_SchemaVersionMigrator, target_version=43):
 
 
 class _SchemaVersion44Migrator(_SchemaVersionMigrator, target_version=44):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # The changes in this version are identical to the changes in version
@@ -1866,6 +1942,7 @@ class _SchemaVersion44Migrator(_SchemaVersionMigrator, target_version=44):
 
 
 class _SchemaVersion45Migrator(_SchemaVersionMigrator, target_version=45):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # The changes in this version are identical to the changes in version
@@ -1907,6 +1984,7 @@ FOREIGN_COLUMNS = (
 
 
 class _SchemaVersion46Migrator(_SchemaVersionMigrator, target_version=46):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # We skip this step for SQLITE, it doesn't have differently sized integers
@@ -1958,6 +2036,7 @@ class _SchemaVersion46Migrator(_SchemaVersionMigrator, target_version=46):
 
 
 class _SchemaVersion47Migrator(_SchemaVersionMigrator, target_version=47):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # We skip this step for SQLITE, it doesn't have differently sized integers
@@ -1977,6 +2056,7 @@ class _SchemaVersion47Migrator(_SchemaVersionMigrator, target_version=47):
 
 
 class _SchemaVersion48Migrator(_SchemaVersionMigrator, target_version=48):
+    @override
     def _apply_update(self) -> None:
         """Version specific update method."""
         # https://github.com/home-assistant/core/issues/134002
@@ -1985,6 +2065,141 @@ class _SchemaVersion48Migrator(_SchemaVersionMigrator, target_version=48):
         # queries can be used. For most systems, this should
         # be very fast and nothing will be migrated.
         _migrate_columns_to_timestamp(self.instance, self.session_maker, self.engine)
+
+
+class _SchemaVersion49Migrator(_SchemaVersionMigrator, target_version=49):
+    @override
+    def _apply_update(self) -> None:
+        """Version specific update method."""
+        _add_columns(
+            self.session_maker,
+            "statistics_meta",
+            [
+                f"mean_type {self.column_types.small_int_type}"
+                f" NOT NULL DEFAULT {StatisticMeanType.NONE.value}"
+            ],
+        )
+
+        for table in ("statistics", "statistics_short_term"):
+            _add_columns(
+                self.session_maker,
+                table,
+                [f"mean_weight {self.column_types.double_type}"],
+            )
+
+        with session_scope(session=self.session_maker()) as session:
+            connection = session.connection()
+            connection.execute(
+                text(
+                    "UPDATE statistics_meta SET mean_type=:mean_type"
+                    " WHERE has_mean=true"
+                ),
+                {"mean_type": StatisticMeanType.ARITHMETIC.value},
+            )
+
+
+class _SchemaVersion50Migrator(_SchemaVersionMigrator, target_version=50):
+    @override
+    def _apply_update(self) -> None:
+        """Version specific update method."""
+        with session_scope(session=self.session_maker()) as session:
+            connection = session.connection()
+            connection.execute(text("UPDATE statistics_meta SET has_mean=NULL"))
+
+
+class _SchemaVersion51Migrator(_SchemaVersionMigrator, target_version=51):
+    @override
+    def _apply_update(self) -> None:
+        """Version specific update method."""
+        # Replaced with version 52 which corrects issues with MySQL string comparisons.
+
+
+class _SchemaVersion52Migrator(_SchemaVersionMigrator, target_version=52):
+    @override
+    def _apply_update(self) -> None:
+        """Version specific update method."""
+        if self.engine.dialect.name == SupportedDialect.MYSQL:
+            self._apply_update_mysql()
+        else:
+            self._apply_update_postgresql_sqlite()
+
+    def _apply_update_mysql(self) -> None:
+        """Version specific update method for mysql."""
+        _add_columns(self.session_maker, "statistics_meta", ["unit_class VARCHAR(255)"])
+        with session_scope(session=self.session_maker()) as session:
+            connection = session.connection()
+            for conv in _PRIMARY_UNIT_CONVERTERS:
+                case_sensitive_units = {
+                    u.encode("utf-8") if u else u for u in conv.VALID_UNITS
+                }
+                # Reset unit_class to None for entries that do not match
+                # the valid units (case sensitive) but matched before due to
+                # case insensitive comparisons.
+                connection.execute(
+                    update(StatisticsMeta)
+                    .where(
+                        and_(
+                            StatisticsMeta.unit_of_measurement.in_(conv.VALID_UNITS),
+                            cast_(StatisticsMeta.unit_of_measurement, BINARY).not_in(
+                                case_sensitive_units
+                            ),
+                        )
+                    )
+                    .values(unit_class=None)
+                )
+                # Do an explicitly case sensitive match (actually binary) to set the
+                # correct unit_class. This is needed because we use the case sensitive
+                # utf8mb4_unicode_ci collation.
+                connection.execute(
+                    update(StatisticsMeta)
+                    .where(
+                        and_(
+                            cast_(StatisticsMeta.unit_of_measurement, BINARY).in_(
+                                case_sensitive_units
+                            ),
+                            StatisticsMeta.unit_class.is_(None),
+                        )
+                    )
+                    .values(unit_class=conv.UNIT_CLASS)
+                )
+
+    def _apply_update_postgresql_sqlite(self) -> None:
+        """Version specific update method for postgresql and sqlite."""
+        _add_columns(self.session_maker, "statistics_meta", ["unit_class VARCHAR(255)"])
+        with session_scope(session=self.session_maker()) as session:
+            connection = session.connection()
+            for conv in _PRIMARY_UNIT_CONVERTERS:
+                # Set the correct unit_class. Unlike MySQL, Postgres and SQLite
+                # have case sensitive string comparisons by default, so we
+                # can directly match on the valid units.
+                connection.execute(
+                    update(StatisticsMeta)
+                    .where(
+                        and_(
+                            StatisticsMeta.unit_of_measurement.in_(conv.VALID_UNITS),
+                            StatisticsMeta.unit_class.is_(None),
+                        )
+                    )
+                    .values(unit_class=conv.UNIT_CLASS)
+                )
+
+
+class _SchemaVersion53Migrator(_SchemaVersionMigrator, target_version=53):
+    @override
+    def _apply_update(self) -> None:
+        """Version specific update method."""
+        # Try to change the character set of events, states and statistics_meta tables
+        if self.engine.dialect.name == SupportedDialect.MYSQL:
+            for table in (
+                "events",
+                "event_data",
+                "states",
+                "state_attributes",
+                "statistics",
+                "statistics_meta",
+                "statistics_short_term",
+            ):
+                _correct_table_character_set_and_collation(table, self.session_maker)
 
 
 def _migrate_statistics_columns_to_timestamp_removing_duplicates(
@@ -2018,7 +2233,8 @@ def _migrate_statistics_columns_to_timestamp_removing_duplicates(
         # Log at error level to ensure the user sees this message in the log
         # since we logged the error above.
         _LOGGER.error(
-            "Statistics migration successfully recovered after statistics table duplicate cleanup"
+            "Statistics migration successfully recovered after"
+            " statistics table duplicate cleanup"
         )
 
 
@@ -2029,8 +2245,10 @@ def _correct_table_character_set_and_collation(
     """Correct issues detected by validate_db_schema."""
     # Attempt to convert the table to utf8mb4
     _LOGGER.warning(
-        "Updating character set and collation of table %s to utf8mb4. %s",
+        "Updating table %s to character set %s and collation %s. %s",
         table,
+        MYSQL_DEFAULT_CHARSET,
+        MYSQL_COLLATE,
         MIGRATION_NOTE_MINUTES,
     )
     with (
@@ -2087,7 +2305,8 @@ def _wipe_old_string_time_columns(
             text(
                 "UPDATE events set time_fired=NULL "
                 "where event_id in "
-                "(select event_id from events where time_fired_ts is NOT NULL LIMIT 100000);"
+                "(select event_id from events"
+                " where time_fired_ts is NOT NULL LIMIT 100000);"
             )
         )
         session.commit()
@@ -2095,7 +2314,9 @@ def _wipe_old_string_time_columns(
             text(
                 "UPDATE states set last_updated=NULL, last_changed=NULL "
                 "where state_id in "
-                "(select state_id from states where last_updated_ts is NOT NULL LIMIT 100000);"
+                "(select state_id from states"
+                " where last_updated_ts is NOT NULL"
+                " LIMIT 100000);"
             )
         )
         session.commit()
@@ -2131,15 +2352,19 @@ def _migrate_columns_to_timestamp(
                 )
             )
     elif engine.dialect.name == SupportedDialect.MYSQL:
-        # With MySQL we do this in chunks to avoid hitting the `innodb_buffer_pool_size` limit
-        # We also need to do this in a loop since we can't be sure that we have
-        # updated all rows in the table until the rowcount is 0
+        # With MySQL we do this in chunks to avoid hitting
+        # the `innodb_buffer_pool_size` limit.
+        # We also need to do this in a loop since we can't
+        # be sure that we have updated all rows in the table
+        # until the rowcount is 0
         while result is None or result.rowcount > 0:
             with session_scope(session=session_maker()) as session:
                 result = session.connection().execute(
                     text(
                         "UPDATE events set time_fired_ts="
-                        "IF(time_fired is NULL or UNIX_TIMESTAMP(time_fired) is NULL,0,"
+                        "IF(time_fired is NULL"
+                        " or UNIX_TIMESTAMP(time_fired)"
+                        " is NULL,0,"
                         "UNIX_TIMESTAMP(time_fired)"
                         ") "
                         "where time_fired_ts is NULL "
@@ -2152,7 +2377,9 @@ def _migrate_columns_to_timestamp(
                 result = session.connection().execute(
                     text(
                         "UPDATE states set last_updated_ts="
-                        "IF(last_updated is NULL or UNIX_TIMESTAMP(last_updated) is NULL,0,"
+                        "IF(last_updated is NULL"
+                        " or UNIX_TIMESTAMP(last_updated)"
+                        " is NULL,0,"
                         "UNIX_TIMESTAMP(last_updated) "
                         "), "
                         "last_changed_ts="
@@ -2171,9 +2398,13 @@ def _migrate_columns_to_timestamp(
                     text(
                         "UPDATE events SET "
                         "time_fired_ts= "
-                        "(case when time_fired is NULL then 0 else EXTRACT(EPOCH FROM time_fired::timestamptz) end) "
+                        "(case when time_fired is NULL then 0"
+                        " else EXTRACT(EPOCH FROM"
+                        " time_fired::timestamptz) end) "
                         "WHERE event_id IN ( "
-                        "SELECT event_id FROM events where time_fired_ts is NULL LIMIT 100000 "
+                        "SELECT event_id FROM events"
+                        " where time_fired_ts is NULL"
+                        " LIMIT 100000 "
                         " );"
                     )
                 )
@@ -2183,10 +2414,15 @@ def _migrate_columns_to_timestamp(
                 result = session.connection().execute(
                     text(
                         "UPDATE states set last_updated_ts="
-                        "(case when last_updated is NULL then 0 else EXTRACT(EPOCH FROM last_updated::timestamptz) end), "
-                        "last_changed_ts=EXTRACT(EPOCH FROM last_changed::timestamptz) "
+                        "(case when last_updated is NULL then 0"
+                        " else EXTRACT(EPOCH FROM"
+                        " last_updated::timestamptz) end), "
+                        "last_changed_ts=EXTRACT(EPOCH FROM"
+                        " last_changed::timestamptz) "
                         "where state_id IN ( "
-                        "SELECT state_id FROM states where last_updated_ts is NULL LIMIT 100000 "
+                        "SELECT state_id FROM states"
+                        " where last_updated_ts is NULL"
+                        " LIMIT 100000 "
                         " );"
                     )
                 )
@@ -2253,9 +2489,12 @@ def _migrate_statistics_columns_to_timestamp(
     # Migrate all data in statistics.start to statistics.start_ts
     # Migrate all data in statistics.created to statistics.created_ts
     # Migrate all data in statistics.last_reset to statistics.last_reset_ts
-    # Migrate all data in statistics_short_term.start to statistics_short_term.start_ts
-    # Migrate all data in statistics_short_term.created to statistics_short_term.created_ts
-    # Migrate all data in statistics_short_term.last_reset to statistics_short_term.last_reset_ts
+    # Migrate all data in statistics_short_term.start
+    # to statistics_short_term.start_ts
+    # Migrate all data in statistics_short_term.created
+    # to statistics_short_term.created_ts
+    # Migrate all data in statistics_short_term.last_reset
+    # to statistics_short_term.last_reset_ts
     result: CursorResult | None = None
     if engine.dialect.name == SupportedDialect.SQLITE:
         # With SQLite we do this in one go since it is faster
@@ -2272,9 +2511,11 @@ def _migrate_statistics_columns_to_timestamp(
                     )
                 )
     elif engine.dialect.name == SupportedDialect.MYSQL:
-        # With MySQL we do this in chunks to avoid hitting the `innodb_buffer_pool_size` limit
-        # We also need to do this in a loop since we can't be sure that we have
-        # updated all rows in the table until the rowcount is 0
+        # With MySQL we do this in chunks to avoid hitting
+        # the `innodb_buffer_pool_size` limit.
+        # We also need to do this in a loop since we can't
+        # be sure that we have updated all rows in the table
+        # until the rowcount is 0
         for table in STATISTICS_TABLES:
             result = None
             while result is None or result.rowcount > 0:
@@ -2304,11 +2545,17 @@ def _migrate_statistics_columns_to_timestamp(
                     result = session.connection().execute(
                         text(
                             f"UPDATE {table} set start_ts="  # noqa: S608
-                            "(case when start is NULL then 0 else EXTRACT(EPOCH FROM start::timestamptz) end), "
-                            "created_ts=EXTRACT(EPOCH FROM created::timestamptz), "
-                            "last_reset_ts=EXTRACT(EPOCH FROM last_reset::timestamptz) "
+                            "(case when start is NULL then 0"
+                            " else EXTRACT(EPOCH FROM"
+                            " start::timestamptz) end), "
+                            "created_ts=EXTRACT(EPOCH FROM"
+                            " created::timestamptz), "
+                            "last_reset_ts=EXTRACT(EPOCH FROM"
+                            " last_reset::timestamptz) "
                             "where id IN ("
-                            f"SELECT id FROM {table} where start_ts is NULL LIMIT 100000"
+                            "SELECT id FROM "
+                            f"{table} where start_ts is NULL"
+                            " LIMIT 100000"
                             ");"
                         )
                     )
@@ -2402,6 +2649,7 @@ class MigrationTask(RecorderTask):
     migrator: BaseRunTimeMigration
     commit_before = False
 
+    @override
     def run(self, instance: Recorder) -> None:
         """Run migration task."""
         if not self.migrator.migrate_data(instance):
@@ -2440,7 +2688,7 @@ class BaseMigration(ABC):
         start_schema_version: int,
         migration_changes: dict[str, int],
     ) -> None:
-        """Initialize a new BaseRunTimeMigration.
+        """Initialize a new BaseMigration.
 
         :param initial_schema_version: The schema version the database was created with.
         :param start_schema_version: The schema version when starting the migration.
@@ -2469,7 +2717,7 @@ class BaseMigration(ABC):
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Migrate some data, return if the migration needs to run and if it is done."""
 
-    def migration_done(self, instance: Recorder, session: Session) -> None:
+    def migration_done(self, instance: Recorder, session: Session) -> None:  # noqa: B027
         """Will be called after migrate returns True or if migration is not needed."""
 
     @abstractmethod
@@ -2490,9 +2738,10 @@ class BaseMigration(ABC):
         if self.initial_schema_version > self.max_initial_schema_version:
             _LOGGER.debug(
                 "Data migration '%s' not needed, database created with version %s "
-                "after migrator was added",
+                "after migrator was added in version %s",
                 self.migration_id,
                 self.initial_schema_version,
+                self.max_initial_schema_version,
             )
             return False
         if self.start_schema_version < self.required_schema_version:
@@ -2567,6 +2816,7 @@ class BaseOffLineMigration(BaseMigration):
         _LOGGER.warning("Data migration step '%s' completed", self.migration_id)
 
     @database_job_retry_wrapper_method("migrate data", 10)
+    @override
     def migrate_data(self, instance: Recorder) -> bool:
         """Migrate some data, returns True if migration is completed."""
         return self._migrate_data(instance)
@@ -2604,6 +2854,7 @@ class BaseRunTimeMigration(BaseMigration):
             self.migration_done(instance, session)
 
     @retryable_database_job_method("migrate data")
+    @override
     def migrate_data(self, instance: Recorder) -> bool:
         """Migrate some data, returns True if migration is completed."""
         return self._migrate_data(instance)
@@ -2616,6 +2867,7 @@ class BaseMigrationWithQuery(BaseMigration):
     def needs_migrate_query(self) -> StatementLambdaElement:
         """Return the query to check if the migration needs to run."""
 
+    @override
     def needs_migrate_impl(
         self, instance: Recorder, session: Session
     ) -> DataMigrationStatus:
@@ -2635,6 +2887,7 @@ class StatesContextIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
     migration_version = 2
     index_to_drop = ("states", "ix_states_context_id", LegacyBase)
 
+    @override
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Migrate states context_ids to use binary format, return True if completed."""
         _to_bytes = _context_id_to_bytes
@@ -2657,7 +2910,13 @@ class StatesContextIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
                             "context_parent_id": None,
                             "context_parent_id_bin": _to_bytes(context_parent_id),
                         }
-                        for state_id, last_updated_ts, context_id, context_user_id, context_parent_id in states
+                        for (
+                            state_id,
+                            last_updated_ts,
+                            context_id,
+                            context_user_id,
+                            context_parent_id,
+                        ) in states
                     ],
                 )
             is_done = not states
@@ -2665,6 +2924,7 @@ class StatesContextIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
         _LOGGER.debug("Migrating states context_ids to binary format: done=%s", is_done)
         return DataMigrationStatus(needs_migrate=not is_done, migration_done=is_done)
 
+    @override
     def needs_migrate_query(self) -> StatementLambdaElement:
         """Return the query to check if the migration needs to run."""
         return has_states_context_ids_to_migrate()
@@ -2679,6 +2939,7 @@ class EventsContextIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
     migration_version = 2
     index_to_drop = ("events", "ix_events_context_id", LegacyBase)
 
+    @override
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Migrate events context_ids to use binary format, return True if completed."""
         _to_bytes = _context_id_to_bytes
@@ -2701,7 +2962,13 @@ class EventsContextIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
                             "context_parent_id": None,
                             "context_parent_id_bin": _to_bytes(context_parent_id),
                         }
-                        for event_id, time_fired_ts, context_id, context_user_id, context_parent_id in events
+                        for (
+                            event_id,
+                            time_fired_ts,
+                            context_id,
+                            context_user_id,
+                            context_parent_id,
+                        ) in events
                     ],
                 )
             is_done = not events
@@ -2709,6 +2976,7 @@ class EventsContextIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
         _LOGGER.debug("Migrating events context_ids to binary format: done=%s", is_done)
         return DataMigrationStatus(needs_migrate=not is_done, migration_done=is_done)
 
+    @override
     def needs_migrate_query(self) -> StatementLambdaElement:
         """Return the query to check if the migration needs to run."""
         return has_events_context_ids_to_migrate()
@@ -2721,6 +2989,7 @@ class EventTypeIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
     max_initial_schema_version = EVENT_TYPE_IDS_SCHEMA_VERSION - 1
     migration_id = "event_type_id_migration"
 
+    @override
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Migrate event_type to event_type_ids, return True if completed."""
         session_maker = instance.get_session
@@ -2779,6 +3048,7 @@ class EventTypeIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
         _LOGGER.debug("Migrating event_types done=%s", is_done)
         return DataMigrationStatus(needs_migrate=not is_done, migration_done=is_done)
 
+    @override
     def needs_migrate_query(self) -> StatementLambdaElement:
         """Check if the data is migrated."""
         return has_event_type_to_migrate()
@@ -2791,6 +3061,7 @@ class EntityIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
     max_initial_schema_version = STATES_META_SCHEMA_VERSION - 1
     migration_id = "entity_id_migration"
 
+    @override
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Migrate entity_ids to states_meta, return True if completed.
 
@@ -2798,7 +3069,8 @@ class EntityIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
         while we are migrating.
 
         1. Link the states to the states_meta table
-        2. Remove the entity_id column from the states table (in post_migrate_entity_ids)
+        2. Remove the entity_id column from the states table
+           (in post_migrate_entity_ids)
         """
         _LOGGER.debug("Migrating entity_ids")
         states_meta_manager = instance.states_meta_manager
@@ -2859,6 +3131,7 @@ class EntityIDMigration(BaseMigrationWithQuery, BaseOffLineMigration):
         _LOGGER.debug("Migrating entity_ids done=%s", is_done)
         return DataMigrationStatus(needs_migrate=not is_done, migration_done=is_done)
 
+    @override
     def needs_migrate_query(self) -> StatementLambdaElement:
         """Check if the data is migrated."""
         return has_entity_ids_to_migrate()
@@ -2868,10 +3141,18 @@ class EventIDPostMigration(BaseRunTimeMigration):
     """Migration to remove old event_id index from states."""
 
     migration_id = "event_id_post_migration"
-    max_initial_schema_version = LEGACY_STATES_EVENT_ID_INDEX_SCHEMA_VERSION - 1
+    # Note we don't subtract 1 from the max_initial_schema_version
+    # in this case because we need to run this migration on databases
+    # version >= 43 because the schema was not bumped when the table
+    # rebuild was added in
+    # https://github.com/home-assistant/core/pull/120779
+    # which means its only safe to assume version 44 and later
+    # do not need the table rebuild
+    max_initial_schema_version = LEGACY_STATES_EVENT_FOREIGN_KEYS_FIXED_SCHEMA_VERSION
     task = MigrationTask
     migration_version = 2
 
+    @override
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Remove old event_id index from states, returns True if completed.
 
@@ -2906,7 +3187,12 @@ class EventIDPostMigration(BaseRunTimeMigration):
                     _drop_foreign_key_constraints(
                         session_maker, instance.engine, TABLE_STATES, "event_id"
                     )
-                except (InternalError, OperationalError):
+                except (InternalError, OperationalError) as err:
+                    _LOGGER.debug(
+                        "Could not drop foreign key constraint on states.event_id, "
+                        "will try again later",
+                        exc_info=err,
+                    )
                     fk_remove_ok = False
                 else:
                     fk_remove_ok = True
@@ -2933,6 +3219,7 @@ class EventIDPostMigration(BaseRunTimeMigration):
             )
         )
 
+    @override
     def needs_migrate_impl(
         self, instance: Recorder, session: Session
     ) -> DataMigrationStatus:
@@ -2961,11 +3248,13 @@ class EntityIDPostMigration(BaseMigrationWithQuery, BaseOffLineMigration):
         LegacyBase,
     )
 
+    @override
     def migrate_data_impl(self, instance: Recorder) -> DataMigrationStatus:
         """Migrate some data, returns True if migration is completed."""
         is_done = post_migrate_entity_ids(instance)
         return DataMigrationStatus(needs_migrate=not is_done, migration_done=is_done)
 
+    @override
     def needs_migrate_query(self) -> StatementLambdaElement:
         """Check if the data is migrated."""
         return has_used_states_entity_ids()
@@ -3018,7 +3307,8 @@ def rebuild_sqlite_table(
             session.connection().execute(text("PRAGMA foreign_keys=OFF"))
         # Step 2 - create a transaction
         with session_scope(session=session_maker()) as session:
-            # Step 3 - we know all the indexes, triggers, and views associated with table X
+            # Step 3 - we know all the indexes, triggers, and
+            # views associated with table X
             new_sql = str(CreateTable(table_table).compile(engine)).strip("\n") + ";"
             source_sql = f"CREATE TABLE {orig_name}"
             replacement_sql = f"CREATE TABLE {temp_name}"

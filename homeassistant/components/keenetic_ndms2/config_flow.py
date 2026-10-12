@@ -1,26 +1,18 @@
 """Config flow for Keenetic NDMS2."""
 
-from __future__ import annotations
-
-from typing import Any, cast
+from typing import Any, cast, override
 from urllib.parse import urlparse
 
 from ndms2_client import Client, ConnectionException, InterfaceInfo, TelnetConnection
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import (
-    ConfigEntry,
+    SOURCE_RECONFIGURE,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
-from homeassistant.const import (
-    CONF_HOST,
-    CONF_PASSWORD,
-    CONF_PORT,
-    CONF_SCAN_INTERVAL,
-    CONF_USERNAME,
-)
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service_info.ssdp import (
@@ -38,12 +30,10 @@ from .const import (
     CONF_TRY_HOTSPOT,
     DEFAULT_CONSIDER_HOME,
     DEFAULT_INTERFACE,
-    DEFAULT_SCAN_INTERVAL,
     DEFAULT_TELNET_PORT,
     DOMAIN,
-    ROUTER,
 )
-from .router import KeeneticRouter
+from .router import KeeneticConfigEntry
 
 
 class KeeneticFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -51,24 +41,27 @@ class KeeneticFlowHandler(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    host: str | bytes | None = None
+    _host: str | bytes | None = None
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
-        config_entry: ConfigEntry,
+        config_entry: KeeneticConfigEntry,
     ) -> KeeneticOptionsFlowHandler:
         """Get the options flow for this handler."""
         return KeeneticOptionsFlowHandler()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         errors = {}
         if user_input is not None:
-            host = self.host or user_input[CONF_HOST]
-            self._async_abort_entries_match({CONF_HOST: host})
+            host = self._host or user_input[CONF_HOST]
+            if self.source != SOURCE_RECONFIGURE:
+                self._async_abort_entries_match({CONF_HOST: host})
 
             _client = Client(
                 TelnetConnection(
@@ -87,27 +80,42 @@ class KeeneticFlowHandler(ConfigFlow, domain=DOMAIN):
             except ConnectionException:
                 errors["base"] = "cannot_connect"
             else:
+                if self.source == SOURCE_RECONFIGURE:
+                    return self.async_update_reload_and_abort(
+                        self._get_reconfigure_entry(),
+                        data={CONF_HOST: host, **user_input},
+                    )
                 return self.async_create_entry(
                     title=router_info.name, data={CONF_HOST: host, **user_input}
                 )
 
         host_schema: VolDictType = (
-            {vol.Required(CONF_HOST): str} if not self.host else {}
+            {probatio.Required(CONF_HOST): str} if not self._host else {}
         )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
                     **host_schema,
-                    vol.Required(CONF_USERNAME): str,
-                    vol.Required(CONF_PASSWORD): str,
-                    vol.Optional(CONF_PORT, default=DEFAULT_TELNET_PORT): int,
+                    probatio.Required(CONF_USERNAME): str,
+                    probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
+                    probatio.Optional(CONF_PORT, default=DEFAULT_TELNET_PORT): int,
                 }
             ),
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration."""
+        existing_entry_data = dict(self._get_reconfigure_entry().data)
+        self._host = existing_entry_data[CONF_HOST]
+
+        return await self.async_step_user(user_input)
+
+    @override
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
@@ -130,7 +138,7 @@ class KeeneticFlowHandler(ConfigFlow, domain=DOMAIN):
 
         self._async_abort_entries_match({CONF_HOST: host})
 
-        self.host = host
+        self._host = host
         self.context["title_placeholders"] = {
             "name": friendly_name,
             "host": host,
@@ -139,8 +147,10 @@ class KeeneticFlowHandler(ConfigFlow, domain=DOMAIN):
         return await self.async_step_user()
 
 
-class KeeneticOptionsFlowHandler(OptionsFlow):
+class KeeneticOptionsFlowHandler(OptionsFlowWithReload):
     """Handle options."""
+
+    config_entry: KeeneticConfigEntry
 
     def __init__(self) -> None:
         """Initialize options flow."""
@@ -150,19 +160,27 @@ class KeeneticOptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
-        router: KeeneticRouter = self.hass.data[DOMAIN][self.config_entry.entry_id][
-            ROUTER
-        ]
+        if (
+            not hasattr(self.config_entry, "runtime_data")
+            or not self.config_entry.runtime_data
+        ):
+            return self.async_abort(reason="not_initialized")
 
-        interfaces: list[InterfaceInfo] = await self.hass.async_add_executor_job(
-            router.client.get_interfaces
-        )
+        router = self.config_entry.runtime_data
+
+        try:
+            interfaces: list[InterfaceInfo] = await self.hass.async_add_executor_job(
+                router.client.get_interfaces
+            )
+        except ConnectionException:
+            return self.async_abort(reason="cannot_connect")
 
         self._interface_options = {
             interface.name: (interface.description or interface.name)
             for interface in interfaces
             if interface.type.lower() == "bridge"
         }
+
         return await self.async_step_user()
 
     async def async_step_user(
@@ -172,35 +190,33 @@ class KeeneticOptionsFlowHandler(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        options = vol.Schema(
+        options = probatio.Schema(
             {
-                vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=self.config_entry.options.get(
-                        CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-                    ),
-                ): int,
-                vol.Required(
+                probatio.Required(
                     CONF_CONSIDER_HOME,
                     default=self.config_entry.options.get(
                         CONF_CONSIDER_HOME, DEFAULT_CONSIDER_HOME
                     ),
                 ): int,
-                vol.Required(
+                probatio.Required(
                     CONF_INTERFACES,
-                    default=self.config_entry.options.get(
-                        CONF_INTERFACES, [DEFAULT_INTERFACE]
-                    ),
+                    default=[
+                        item
+                        for item in self.config_entry.options.get(
+                            CONF_INTERFACES, [DEFAULT_INTERFACE]
+                        )
+                        if item in self._interface_options
+                    ],
                 ): cv.multi_select(self._interface_options),
-                vol.Optional(
+                probatio.Optional(
                     CONF_TRY_HOTSPOT,
                     default=self.config_entry.options.get(CONF_TRY_HOTSPOT, True),
                 ): bool,
-                vol.Optional(
+                probatio.Optional(
                     CONF_INCLUDE_ARP,
                     default=self.config_entry.options.get(CONF_INCLUDE_ARP, True),
                 ): bool,
-                vol.Optional(
+                probatio.Optional(
                     CONF_INCLUDE_ASSOCIATED,
                     default=self.config_entry.options.get(
                         CONF_INCLUDE_ASSOCIATED, True

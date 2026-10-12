@@ -1,6 +1,7 @@
 """Data update coordinator for the Dremel 3D Printer integration."""
 
 from datetime import timedelta
+from typing import override
 
 from dremel3dpy import Dremel3DPrinter
 
@@ -18,16 +19,20 @@ class Dremel3DPrinterDataUpdateCoordinator(DataUpdateCoordinator[None]):
 
     config_entry: DremelConfigEntry
 
-    def __init__(self, hass: HomeAssistant, api: Dremel3DPrinter) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: DremelConfigEntry, api: Dremel3DPrinter
+    ) -> None:
         """Initialize Dremel 3D Printer data update coordinator."""
         super().__init__(
             hass=hass,
             logger=LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=timedelta(seconds=10),
         )
         self.api = api
 
+    @override
     async def _async_update_data(self) -> None:
         """Update data via APIs."""
         try:

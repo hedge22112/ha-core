@@ -3,14 +3,14 @@
 import asyncio
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
-from pylamarzocco.exceptions import RequestNotSuccessful
+from pylamarzocco.exceptions import LaMarzoccoError
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import LaMarzoccoConfigEntry, LaMarzoccoUpdateCoordinator
@@ -53,7 +53,7 @@ ENTITIES: tuple[LaMarzoccoButtonEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: LaMarzoccoConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up button entities."""
 
@@ -70,11 +70,12 @@ class LaMarzoccoButtonEntity(LaMarzoccoEntity, ButtonEntity):
 
     entity_description: LaMarzoccoButtonEntityDescription
 
+    @override
     async def async_press(self) -> None:
         """Press button."""
         try:
             await self.entity_description.press_fn(self.coordinator)
-        except RequestNotSuccessful as exc:
+        except (LaMarzoccoError, TimeoutError) as exc:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="button_error",

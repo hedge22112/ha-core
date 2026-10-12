@@ -9,10 +9,12 @@
   "integration_type": "hub",
   "iot_class": "local_push",
   "loggers": ["xknx", "xknxproject"],
+  "quality_scale": "platinum",
   "requirements": [
-    "xknx==3.4.0",
-    "xknxproject==3.8.1",
-    "knx-frontend==2025.1.18.164225"
+    "xknx==3.20.0",
+    "xknxproject==3.10.0",
+    "knx-frontend==2026.10.5.160528",
+    "knx-telegram-store[sqlite,postgres]==0.14.0"
   ],
   "single_config_entry": true
 }

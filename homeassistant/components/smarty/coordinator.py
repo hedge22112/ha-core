@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 import logging
+from typing import override
 
 from pysmarty2 import Smarty
 
@@ -22,23 +23,29 @@ class SmartyCoordinator(DataUpdateCoordinator[None]):
     software_version: str
     configuration_version: str
 
-    def __init__(self, hass: HomeAssistant) -> None:
+    def __init__(self, hass: HomeAssistant, config_entry: SmartyConfigEntry) -> None:
         """Initialize."""
         super().__init__(
             hass,
             logger=_LOGGER,
+            config_entry=config_entry,
             name="Smarty",
             update_interval=timedelta(seconds=30),
         )
-        self.client = Smarty(host=self.config_entry.data[CONF_HOST])
+        self.client = Smarty(host=config_entry.data[CONF_HOST])
 
+    @override
     async def _async_setup(self) -> None:
         if not await self.hass.async_add_executor_job(self.client.update):
             raise UpdateFailed("Failed to update Smarty data")
-        self.software_version = self.client.get_software_version()
-        self.configuration_version = self.client.get_configuration_version()
+        self.software_version = str(self.client.get_software_version())
+        self.configuration_version = str(self.client.get_configuration_version())
 
+    @override
     async def _async_update_data(self) -> None:
         """Fetch data from Smarty."""
         if not await self.hass.async_add_executor_job(self.client.update):
-            raise UpdateFailed("Failed to update Smarty data")
+            raise UpdateFailed(
+                "Failed to update Smarty data",
+                retry_after=2 if self.last_update_success else None,
+            )

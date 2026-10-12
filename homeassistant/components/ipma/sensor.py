@@ -1,7 +1,5 @@
 """Support for IPMA sensors."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict, dataclass
@@ -14,12 +12,12 @@ from pyipma.rcm import RCM
 from pyipma.uv import UV
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import Throttle
 
-from .const import DATA_API, DATA_LOCATION, DOMAIN, MIN_TIME_BETWEEN_UPDATES
+from . import IpmaConfigEntry
+from .const import MIN_TIME_BETWEEN_UPDATES
 from .entity import IPMADevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,11 +84,13 @@ SENSOR_TYPES: tuple[IPMASensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: IpmaConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the IPMA sensor platform."""
-    api = hass.data[DOMAIN][entry.entry_id][DATA_API]
-    location = hass.data[DOMAIN][entry.entry_id][DATA_LOCATION]
+    location = entry.runtime_data.location
+    api = entry.runtime_data.api
 
     entities = [IPMASensor(api, location, description) for description in SENSOR_TYPES]
 
@@ -112,7 +112,11 @@ class IPMASensor(SensorEntity, IPMADevice):
         """Initialize the IPMA Sensor."""
         IPMADevice.__init__(self, api, location)
         self.entity_description = description
-        self._attr_unique_id = f"{self._location.station_latitude}, {self._location.station_longitude}, {self.entity_description.key}"
+        self._attr_unique_id = (
+            f"{self._location.station_latitude},"
+            f" {self._location.station_longitude},"
+            f" {self.entity_description.key}"
+        )
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self) -> None:

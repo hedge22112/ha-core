@@ -1,9 +1,7 @@
 """Config flow for Plugwise integration."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any, Self
+from typing import Any, Self, override
 
 from plugwise import Smile
 from plugwise.exceptions import (
@@ -14,7 +12,7 @@ from plugwise.exceptions import (
     ResponseError,
     UnsupportedDeviceError,
 )
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import SOURCE_USER, ConfigFlow, ConfigFlowResult
 from homeassistant.const import (
@@ -31,37 +29,39 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
+    ANNA_WITH_ADAM,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
     DOMAIN,
     FLOW_SMILE,
     FLOW_STRETCH,
     SMILE,
+    SMILE_OPEN_THERM,
+    SMILE_THERMO,
     STRETCH,
     STRETCH_USERNAME,
+    UNKNOWN_SMILE,
     ZEROCONF_MAP,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-SMILE_RECONF_SCHEMA = vol.Schema(
+SMILE_RECONF_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_HOST): str,
+        probatio.Required(CONF_HOST): str,
     }
 )
 
 
-def smile_user_schema(discovery_info: ZeroconfServiceInfo | None) -> vol.Schema:
+def smile_user_schema(discovery_info: ZeroconfServiceInfo | None) -> probatio.Schema:
     """Generate base schema for gateways."""
-    schema = vol.Schema({vol.Required(CONF_PASSWORD): str})
+    schema = probatio.Schema({probatio.Required(probatio.Secret(CONF_PASSWORD)): str})
 
     if not discovery_info:
         schema = schema.extend(
             {
-                vol.Required(CONF_HOST): str,
-                # Port under investigation for removal (hence not added in #132878)
-                vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
-                vol.Required(CONF_USERNAME, default=SMILE): vol.In(
+                probatio.Required(CONF_HOST): str,
+                probatio.Required(CONF_USERNAME, default=SMILE): probatio.In(
                     {SMILE: FLOW_SMILE, STRETCH: FLOW_STRETCH}
                 ),
             }
@@ -101,7 +101,7 @@ async def verify_connection(
         errors[CONF_BASE] = "invalid_auth"
     except InvalidSetupError:
         errors[CONF_BASE] = "invalid_setup"
-    except (InvalidXMLError, ResponseError):
+    except InvalidXMLError, ResponseError:
         errors[CONF_BASE] = "response_error"
     except UnsupportedDeviceError:
         errors[CONF_BASE] = "unsupported"
@@ -119,9 +119,10 @@ class PlugwiseConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     discovery_info: ZeroconfServiceInfo | None = None
-    product: str = "Unknown Smile"
+    product: str = UNKNOWN_SMILE
     _username: str = DEFAULT_USERNAME
 
+    @override
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -153,20 +154,20 @@ class PlugwiseConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if DEFAULT_USERNAME not in unique_id:
             self._username = STRETCH_USERNAME
-        self.product = _product = _properties.get("product", "Unknown Smile")
+        self.product = _product = _properties.get("product", UNKNOWN_SMILE)
         _version = _properties.get("version", "n/a")
         _name = f"{ZEROCONF_MAP.get(_product, _product)} v{_version}"
 
         # This is an Anna, but we already have config entries.
         # Assuming that the user has already configured Adam, aborting discovery.
-        if self._async_current_entries() and _product == "smile_thermo":
-            return self.async_abort(reason="anna_with_adam")
+        if self._async_current_entries() and _product == SMILE_THERMO:
+            return self.async_abort(reason=ANNA_WITH_ADAM)
 
         # If we have discovered an Adam or Anna, both might be on the network.
         # In that case, we need to cancel the Anna flow, as the Adam should
         # be added.
         if self.hass.config_entries.flow.async_has_matching_flow(self):
-            return self.async_abort(reason="anna_with_adam")
+            return self.async_abort(reason=ANNA_WITH_ADAM)
 
         self.context.update(
             {
@@ -178,18 +179,20 @@ class PlugwiseConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return await self.async_step_user()
 
+    @override
     def is_matching(self, other_flow: Self) -> bool:
         """Return True if other_flow is matching this flow."""
         # This is an Anna, and there is already an Adam flow in progress
-        if self.product == "smile_thermo" and other_flow.product == "smile_open_therm":
+        if self.product == SMILE_THERMO and other_flow.product == SMILE_OPEN_THERM:
             return True
 
         # This is an Adam, and there is already an Anna flow in progress
-        if self.product == "smile_open_therm" and other_flow.product == "smile_thermo":
+        if self.product == SMILE_OPEN_THERM and other_flow.product == SMILE_THERMO:
             self.hass.config_entries.flow.async_abort(other_flow.flow_id)
 
         return False
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -197,6 +200,7 @@ class PlugwiseConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input[CONF_PORT] = DEFAULT_PORT
             if self.discovery_info:
                 user_input[CONF_HOST] = self.discovery_info.host
                 user_input[CONF_PORT] = self.discovery_info.port
@@ -205,11 +209,11 @@ class PlugwiseConfigFlow(ConfigFlow, domain=DOMAIN):
             api, errors = await verify_connection(self.hass, user_input)
             if api:
                 await self.async_set_unique_id(
-                    api.smile_hostname or api.gateway_id,
+                    api.smile.hostname or api.gateway_id,
                     raise_on_progress=False,
                 )
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=api.smile_name, data=user_input)
+                return self.async_create_entry(title=api.smile.name, data=user_input)
 
         return self.async_show_form(
             step_id=SOURCE_USER,
@@ -237,7 +241,7 @@ class PlugwiseConfigFlow(ConfigFlow, domain=DOMAIN):
             api, errors = await verify_connection(self.hass, full_input)
             if api:
                 await self.async_set_unique_id(
-                    api.smile_hostname or api.gateway_id,
+                    api.smile.hostname or api.gateway_id,
                     raise_on_progress=False,
                 )
                 self._abort_if_unique_id_mismatch(reason="not_the_same_smile")

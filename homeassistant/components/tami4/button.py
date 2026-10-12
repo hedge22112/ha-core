@@ -3,17 +3,17 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
+from typing import override
 
 from Tami4EdgeAPI import Tami4EdgeAPI
 from Tami4EdgeAPI.drink import Drink
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityDescription
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import API, DOMAIN
+from .coordinator import Tami4ConfigEntry
 from .entity import Tami4EdgeBaseEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,11 +41,13 @@ BOIL_WATER_BUTTON = Tami4EdgeButtonEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: Tami4ConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Perform the setup for Tami4Edge."""
 
-    api: Tami4EdgeAPI = hass.data[DOMAIN][entry.entry_id][API]
+    api = entry.runtime_data.api
     buttons: list[Tami4EdgeBaseEntity] = [Tami4EdgeButton(api, BOIL_WATER_BUTTON)]
 
     device = await hass.async_add_executor_job(api.get_device)
@@ -73,6 +75,7 @@ class Tami4EdgeButton(Tami4EdgeBaseEntity, ButtonEntity):
 
     entity_description: Tami4EdgeButtonEntityDescription
 
+    @override
     def press(self) -> None:
         """Handle the button press."""
         self.entity_description.press_fn(self._api)
@@ -90,6 +93,7 @@ class Tami4EdgeDrinkButton(Tami4EdgeBaseEntity, ButtonEntity):
         super().__init__(api=api, entity_description=entity_description)
         self.drink = drink
 
+    @override
     def press(self) -> None:
         """Handle the button press."""
         self.entity_description.press_fn(self._api, self.drink)

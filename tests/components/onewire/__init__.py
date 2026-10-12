@@ -1,11 +1,9 @@
 """Tests for 1-Wire integration."""
 
-from __future__ import annotations
-
 from typing import Any
 from unittest.mock import MagicMock
 
-from pyownet.protocol import ProtocolError
+from aio_ownet.exceptions import OWServerProtocolError
 
 from .const import ATTR_INJECT_READS, MOCK_OWPROXY_DEVICES
 
@@ -13,7 +11,9 @@ from .const import ATTR_INJECT_READS, MOCK_OWPROXY_DEVICES
 def setup_owproxy_mock_devices(owproxy: MagicMock, device_ids: list[str]) -> None:
     """Set up mock for owproxy."""
     dir_side_effect: dict[str, list] = {}
-    read_side_effect: dict[str, list] = {}
+    read_side_effect: dict[str, list] = {
+        "/system/configuration/version": [b"3.2"],
+    }
 
     # Setup directory listing
     dir_side_effect["/"] = [[f"/{device_id}/" for device_id in device_ids]]
@@ -21,7 +21,7 @@ def setup_owproxy_mock_devices(owproxy: MagicMock, device_ids: list[str]) -> Non
     for device_id in device_ids:
         _setup_owproxy_mock_device(dir_side_effect, read_side_effect, device_id)
 
-    def _dir(path: str) -> Any:
+    async def _dir(path: str) -> Any:
         if (side_effect := dir_side_effect.get(path)) is None:
             raise NotImplementedError(f"Unexpected _dir call: {path}")
         result = side_effect.pop(0)
@@ -31,11 +31,11 @@ def setup_owproxy_mock_devices(owproxy: MagicMock, device_ids: list[str]) -> Non
             raise result
         return result
 
-    def _read(path: str) -> Any:
+    async def _read(path: str) -> Any:
         if (side_effect := read_side_effect.get(path)) is None:
             raise NotImplementedError(f"Unexpected _read call: {path}")
         if len(side_effect) == 0:
-            raise ProtocolError(f"Missing injected value for: {path}")
+            raise OWServerProtocolError(f"Missing injected value for: {path}")
         result = side_effect.pop(0)
         if isinstance(result, Exception) or (
             isinstance(result, type) and issubclass(result, Exception)

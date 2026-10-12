@@ -1,8 +1,6 @@
 """Support for Velbus covers."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from velbusaio.channels import Blind as VelbusBlind
 
@@ -12,7 +10,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import VelbusConfigEntry
 from .entity import VelbusEntity, api_call
@@ -23,7 +21,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: VelbusConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Velbus switch based on config_entry."""
     await entry.runtime_data.scan_task
@@ -60,6 +58,7 @@ class VelbusCover(VelbusEntity, CoverEntity):
             self._assumed_closed = False
 
     @property
+    @override
     def is_closed(self) -> bool | None:
         """Return if the cover is closed."""
         if self._channel.support_position():
@@ -67,6 +66,7 @@ class VelbusCover(VelbusEntity, CoverEntity):
         return self._assumed_closed
 
     @property
+    @override
     def is_opening(self) -> bool:
         """Return if the cover is opening."""
         if opening := self._channel.is_opening():
@@ -74,6 +74,7 @@ class VelbusCover(VelbusEntity, CoverEntity):
         return opening
 
     @property
+    @override
     def is_closing(self) -> bool:
         """Return if the cover is closing."""
         if closing := self._channel.is_closing():
@@ -81,6 +82,7 @@ class VelbusCover(VelbusEntity, CoverEntity):
         return closing
 
     @property
+    @override
     def current_cover_position(self) -> int | None:
         """Return current position of cover.
 
@@ -93,21 +95,25 @@ class VelbusCover(VelbusEntity, CoverEntity):
         return None
 
     @api_call
+    @override
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
         await self._channel.open()
 
     @api_call
+    @override
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover."""
         await self._channel.close()
 
     @api_call
+    @override
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the cover."""
         await self._channel.stop()
 
     @api_call
+    @override
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position."""
         await self._channel.set_position(100 - kwargs[ATTR_POSITION])

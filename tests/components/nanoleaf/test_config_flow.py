@@ -1,15 +1,14 @@
 """Test the Nanoleaf config flow."""
 
-from __future__ import annotations
-
 from ipaddress import ip_address
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from aionanoleaf import InvalidToken, Unauthorized, Unavailable
+from aionanoleaf2 import InvalidToken, Unauthorized, Unavailable
 import pytest
 
 from homeassistant import config_entries
 from homeassistant.components.nanoleaf.const import DOMAIN
+from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -62,6 +61,7 @@ async def test_user_unavailable_user_step_link_step(hass: HomeAssistant) -> None
         )
     assert result2["type"] is FlowResultType.FORM
     assert result2["step_id"] == "user"
+    # pylint: disable-next=home-assistant-tests-config-flow-error-recovery
     assert result2["errors"] == {"base": "cannot_connect"}
     assert not result2["last_step"]
 
@@ -219,6 +219,7 @@ async def test_user_exception_user_step(hass: HomeAssistant) -> None:
         result4 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
         assert result4["type"] is FlowResultType.FORM
         assert result4["step_id"] == "link"
+        # pylint: disable-next=home-assistant-tests-config-flow-error-recovery
         assert result4["errors"] == {"base": "unknown"}
 
         mock_nanoleaf.return_value.authorize.side_effect = None
@@ -359,7 +360,8 @@ async def test_import_discovery_integration(
     """Test discovery integration import.
 
     Test with different discovery flow sources and corresponding types.
-    Test with different .nanoleaf_conf files with device_id (>= 2021.4), host (< 2021.4) and combination.
+    Test with different .nanoleaf_conf files with device_id
+    (>= 2021.4), host (< 2021.4) and combination.
     Test removing the .nanoleaf_conf file if it was the only device in the file.
     Test updating the .nanoleaf_conf file if it was not the only device in the file.
     """
@@ -406,6 +408,7 @@ async def test_import_discovery_integration(
         CONF_HOST: TEST_HOST,
         CONF_TOKEN: TEST_TOKEN,
     }
+    assert result["result"].unique_id == TEST_NAME
 
     if remove_config:
         mock_save_json.assert_not_called()
@@ -461,5 +464,63 @@ async def test_ssdp_discovery(hass: HomeAssistant) -> None:
         CONF_HOST: TEST_HOST,
         CONF_TOKEN: TEST_TOKEN,
     }
+    assert result2["result"].unique_id == TEST_NAME
 
     assert len(mock_setup_entry.mock_calls) == 1
+
+
+async def test_abort_discovery_flow_with_user_flow(hass: HomeAssistant) -> None:
+    """Test abort discovery flow if user flow is already in progress."""
+    with (
+        patch(
+            "homeassistant.components.nanoleaf.config_flow.load_json_object",
+            return_value={},
+        ),
+        patch(
+            "homeassistant.components.nanoleaf.config_flow.Nanoleaf",
+            return_value=_mock_nanoleaf(TEST_HOST, TEST_TOKEN),
+        ),
+        patch(
+            "homeassistant.components.nanoleaf.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_SSDP},
+            data=SsdpServiceInfo(
+                ssdp_usn="mock_usn",
+                ssdp_st="mock_st",
+                upnp={},
+                ssdp_headers={
+                    "_host": TEST_HOST,
+                    "nl-devicename": TEST_NAME,
+                    "nl-deviceid": TEST_DEVICE_ID,
+                },
+            ),
+        )
+
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"] is None
+        assert result["step_id"] == "link"
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_USER},
+        )
+        assert len(hass.config_entries.flow.async_progress(DOMAIN)) == 2
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "user"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_HOST: TEST_HOST}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "link"
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert result["result"].unique_id == TEST_NAME
+
+        # Verify the discovery flow was aborted
+        assert not hass.config_entries.flow.async_progress(DOMAIN)

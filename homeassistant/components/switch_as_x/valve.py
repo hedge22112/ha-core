@@ -1,8 +1,6 @@
 """Valve support for switch entities."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.components.valve import (
@@ -20,7 +18,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_INVERT
 from .entity import BaseInvertableEntity
@@ -29,7 +27,7 @@ from .entity import BaseInvertableEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize Valve Switch config entry."""
     registry = er.async_get(hass)
@@ -57,6 +55,7 @@ class ValveSwitch(BaseInvertableEntity, ValveEntity):
     _attr_supported_features = ValveEntityFeature.OPEN | ValveEntityFeature.CLOSE
     _attr_reports_position = False
 
+    @override
     async def async_open_valve(self, **kwargs: Any) -> None:
         """Open the valve."""
         await self.hass.services.async_call(
@@ -67,6 +66,7 @@ class ValveSwitch(BaseInvertableEntity, ValveEntity):
             context=self._context,
         )
 
+    @override
     async def async_close_valve(self, **kwargs: Any) -> None:
         """Close valve."""
         await self.hass.services.async_call(
@@ -78,6 +78,7 @@ class ValveSwitch(BaseInvertableEntity, ValveEntity):
         )
 
     @callback
+    @override
     def async_state_changed_listener(
         self, event: Event[EventStateChangedData] | None = None
     ) -> None:

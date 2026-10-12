@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from freezegun.api import FrozenDateTimeFactory
 from pysabnzbd import SabnzbdApiException
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import (
@@ -76,7 +76,8 @@ async def test_buttons_exception(
 
     with pytest.raises(
         HomeAssistantError,
-        match="Unable to send command to SABnzbd due to a connection error, try again later",
+        match="Unable to send command to SABnzbd due to a connection"
+        " error, try again later",
     ):
         await hass.services.async_call(
             BUTTON_DOMAIN,

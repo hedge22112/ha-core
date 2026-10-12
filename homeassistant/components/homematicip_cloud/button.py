@@ -1,32 +1,41 @@
 """Support for HomematicIP Cloud button devices."""
 
-from __future__ import annotations
+from typing import override
 
-from homematicip.aio.device import AsyncWallMountedGarageDoorController
+from homematicip.base.functionalChannels import AccessAuthorizationChannel
+from homematicip.device import WallMountedGarageDoorController
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
 from .entity import HomematicipGenericEntity
-from .hap import HomematicipHAP
+from .hap import HomematicIPConfigEntry, HomematicipHAP
+from .helpers import get_door_opener_authorization_channel, handle_errors
+
+DOOR_OPENER_MODELS = {"HmIP-FLC", "HmIP-FDC"}
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: HomematicIPConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the HomematicIP button from a config entry."""
-    hap = hass.data[DOMAIN][config_entry.unique_id]
+    hap = config_entry.runtime_data
 
-    async_add_entities(
+    entities: list[ButtonEntity] = [
         HomematicipGarageDoorControllerButton(hap, device)
         for device in hap.home.devices
-        if isinstance(device, AsyncWallMountedGarageDoorController)
+        if isinstance(device, WallMountedGarageDoorController)
+    ]
+    entities.extend(
+        HomematicipDoorOpenerButton(hap, device, auth_channel)
+        for device in hap.home.devices
+        if getattr(device, "modelType", None) in DOOR_OPENER_MODELS
+        and (auth_channel := get_door_opener_authorization_channel(device)) is not None
     )
+    async_add_entities(entities)
 
 
 class HomematicipGarageDoorControllerButton(HomematicipGenericEntity, ButtonEntity):
@@ -34,9 +43,37 @@ class HomematicipGarageDoorControllerButton(HomematicipGenericEntity, ButtonEnti
 
     def __init__(self, hap: HomematicipHAP, device) -> None:
         """Initialize a wall mounted garage door controller."""
-        super().__init__(hap, device)
+        super().__init__(hap, device, feature_id="garage_button")
         self._attr_icon = "mdi:arrow-up-down"
 
+    @override
     async def async_press(self) -> None:
         """Handle the button press."""
-        await self._device.send_start_impulse()
+        await self._device.send_start_impulse_async()
+
+
+class HomematicipDoorOpenerButton(HomematicipGenericEntity, ButtonEntity):
+    """Representation of a HomematicIP door opener (HmIP-FLC, HmIP-FDC)."""
+
+    def __init__(
+        self,
+        hap: HomematicipHAP,
+        device,
+        auth_channel: AccessAuthorizationChannel,
+    ) -> None:
+        """Initialize the door opener button."""
+        super().__init__(
+            hap, device, post="Door opener", feature_id="lock_opener_button"
+        )
+        self._attr_icon = "mdi:door-open"
+        self._auth_channel = auth_channel
+
+    @handle_errors
+    @override
+    async def async_press(self) -> None:
+        """Pull the latch via the access-authorization channel.
+
+        This is the only path non-admin clients may use; the door-switch
+        channel rejects them with CLIENT_ACCESS_DENIED.
+        """
+        return await self._auth_channel.async_pull_latch()

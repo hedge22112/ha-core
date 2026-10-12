@@ -1,11 +1,9 @@
 """Component providing HA sensor support for Ring Door Bell/Chimes."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Generic
+from typing import Any, Generic, override
 
 from ring_doorbell import RingCapability, RingEvent
 from ring_doorbell.const import KIND_DING, KIND_MOTION
@@ -17,7 +15,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import Platform
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_at
 
 from . import RingConfigEntry
@@ -30,10 +28,15 @@ from .entity import (
     async_check_create_deprecated,
 )
 
+# Coordinator is used to centralize the data updates
+PARALLEL_UPDATES = 0
+
 
 @dataclass(frozen=True, kw_only=True)
 class RingBinarySensorEntityDescription(
-    BinarySensorEntityDescription, RingEntityDescription, Generic[RingDeviceT]
+    BinarySensorEntityDescription,
+    RingEntityDescription,
+    Generic[RingDeviceT],  # noqa: UP046
 ):
     """Describes Ring binary sensor entity."""
 
@@ -52,7 +55,6 @@ BINARY_SENSOR_TYPES: tuple[RingBinarySensorEntityDescription, ...] = (
     ),
     RingBinarySensorEntityDescription(
         key=KIND_MOTION,
-        translation_key=KIND_MOTION,
         device_class=BinarySensorDeviceClass.MOTION,
         capability=RingCapability.MOTION_DETECTION,
         deprecated_info=DeprecatedInfo(
@@ -65,7 +67,7 @@ BINARY_SENSOR_TYPES: tuple[RingBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RingConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Ring binary sensors from a config entry."""
     ring_data = entry.runtime_data
@@ -135,20 +137,24 @@ class RingBinarySensor(
         )
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         if alert := self._get_coordinator_alert():
             self._async_handle_event(alert)
         super()._handle_coordinator_update()
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available."""
         return self.coordinator.event_listener.started
 
+    @override
     async def async_update(self) -> None:
         """All updates are passive."""
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes."""
         attrs = super().extra_state_attributes

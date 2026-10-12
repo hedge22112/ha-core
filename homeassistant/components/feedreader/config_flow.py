@@ -1,38 +1,40 @@
 """Config flow for RSS/Atom feeds."""
 
-from __future__ import annotations
-
 import html
 import logging
-from typing import Any
+from typing import Any, override
 import urllib.error
 
 import feedparser
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 
-from .const import CONF_MAX_ENTRIES, DEFAULT_MAX_ENTRIES, DOMAIN
+from .const import CONF_MAX_ENTRIES, DEFAULT_MAX_ENTRIES, DOMAIN, USER_AGENT
 
 LOGGER = logging.getLogger(__name__)
 
 
 async def async_fetch_feed(hass: HomeAssistant, url: str) -> feedparser.FeedParserDict:
     """Fetch the feed."""
-    return await hass.async_add_executor_job(feedparser.parse, url)
+
+    def _parse_feed() -> feedparser.FeedParserDict:
+        return feedparser.parse(url, agent=USER_AGENT)
+
+    return await hass.async_add_executor_job(_parse_feed)
 
 
 class FeedReaderConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -42,9 +44,10 @@ class FeedReaderConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: ConfigEntry,
-    ) -> OptionsFlow:
+    ) -> FeedReaderOptionsFlowHandler:
         """Get the options flow for this handler."""
         return FeedReaderOptionsFlowHandler()
 
@@ -60,9 +63,9 @@ class FeedReaderConfigFlow(ConfigFlow, domain=DOMAIN):
             user_input = {}
         return self.async_show_form(
             step_id=step_id,
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(
+                    probatio.Required(
                         CONF_URL, default=user_input.get(CONF_URL, "")
                     ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL))
                 }
@@ -71,6 +74,7 @@ class FeedReaderConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -119,11 +123,10 @@ class FeedReaderConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors={"base": "url_error"},
                 )
 
-        self.hass.config_entries.async_update_entry(reconfigure_entry, data=user_input)
-        return self.async_abort(reason="reconfigure_successful")
+        return self.async_update_reload_and_abort(reconfigure_entry, data=user_input)
 
 
-class FeedReaderOptionsFlowHandler(OptionsFlow):
+class FeedReaderOptionsFlowHandler(OptionsFlowWithReload):
     """Handle an options flow."""
 
     async def async_step_init(
@@ -134,9 +137,9 @@ class FeedReaderOptionsFlowHandler(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        data_schema = vol.Schema(
+        data_schema = probatio.Schema(
             {
-                vol.Optional(
+                probatio.Optional(
                     CONF_MAX_ENTRIES,
                     default=self.config_entry.options.get(
                         CONF_MAX_ENTRIES, DEFAULT_MAX_ENTRIES

@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import RegistryEntryHider
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 from homeassistant.util.json import load_json
 
 from .common import UNITS_OF_MEASUREMENT, MockSensor
@@ -33,11 +33,6 @@ from tests.common import (
     async_get_device_automations,
     setup_test_component_platform,
 )
-
-
-@pytest.fixture(autouse=True, name="stub_blueprint_populate")
-def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
-    """Stub copying the blueprints to the config folder."""
 
 
 @pytest.mark.parametrize(
@@ -104,6 +99,12 @@ async def test_get_triggers(
             device_id=device_entry.id,
         )
 
+    DEVICE_CLASSES_WITHOUT_TRIGGER = {
+        SensorDeviceClass.DATE,
+        SensorDeviceClass.ENUM,
+        SensorDeviceClass.TIMESTAMP,
+        SensorDeviceClass.UPTIME,
+    }
     expected_triggers = [
         {
             "platform": "device",
@@ -115,13 +116,13 @@ async def test_get_triggers(
         }
         for device_class in SensorDeviceClass
         if device_class in UNITS_OF_MEASUREMENT
+        and device_class not in DEVICE_CLASSES_WITHOUT_TRIGGER
         for trigger in ENTITY_TRIGGERS[device_class]
-        if device_class != "none"
     ]
     triggers = await async_get_device_automations(
         hass, DeviceAutomationType.TRIGGER, device_entry.id
     )
-    assert len(triggers) == 27
+    assert len(triggers) == 58
     assert triggers == unordered(expected_triggers)
 
 
@@ -272,15 +273,22 @@ async def test_get_trigger_capabilities(
                 "description": {"suffix": PERCENTAGE},
                 "name": "above",
                 "optional": True,
+                "required": False,
                 "type": "float",
             },
             {
                 "description": {"suffix": PERCENTAGE},
                 "name": "below",
                 "optional": True,
+                "required": False,
                 "type": "float",
             },
-            {"name": "for", "optional": True, "type": "positive_time_period_dict"},
+            {
+                "name": "for",
+                "optional": True,
+                "required": False,
+                "type": "positive_time_period_dict",
+            },
         ]
     }
     triggers = await async_get_device_automations(
@@ -342,15 +350,22 @@ async def test_get_trigger_capabilities_legacy(
                 "description": {"suffix": PERCENTAGE},
                 "name": "above",
                 "optional": True,
+                "required": False,
                 "type": "float",
             },
             {
                 "description": {"suffix": PERCENTAGE},
                 "name": "below",
                 "optional": True,
+                "required": False,
                 "type": "float",
             },
-            {"name": "for", "optional": True, "type": "positive_time_period_dict"},
+            {
+                "name": "for",
+                "optional": True,
+                "required": False,
+                "type": "positive_time_period_dict",
+            },
         ]
     }
     triggers = await async_get_device_automations(
@@ -449,7 +464,7 @@ async def test_if_fires_not_on_above_below(
             ]
         },
     )
-    assert "must contain at least one of below, above" in caplog.text
+    assert "at least one of ['below', 'above'] is required" in caplog.text
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

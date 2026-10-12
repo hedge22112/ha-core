@@ -1,13 +1,12 @@
 """Support for Ezviz alarm."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
+from typing import override
 
-from pyezviz import PyEzvizError
-from pyezviz.constants import DefenseModeType
+from pyezvizapi import PyEzvizError
+from pyezvizapi.constants import DefenseModeType
 
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
@@ -15,14 +14,13 @@ from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntityFeature,
     AlarmControlPanelState,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN, MANUFACTURER
-from .coordinator import EzvizDataUpdateCoordinator
+from .const import DOMAIN, MANUFACTURER
+from .coordinator import EzvizConfigEntry, EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,12 +47,12 @@ ALARM_TYPE = EzvizAlarmControlPanelEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Ezviz alarm control panel."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator = entry.runtime_data
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.unique_id)},  # type: ignore[arg-type]
@@ -94,10 +92,12 @@ class EzvizAlarm(AlarmControlPanelEntity):
         self.coordinator = coordinator
         self._attr_alarm_state = None
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Entity added to hass."""
         self.async_schedule_update_ha_state(True)
 
+    @override
     def alarm_disarm(self, code: str | None = None) -> None:
         """Send disarm command."""
         try:
@@ -109,6 +109,7 @@ class EzvizAlarm(AlarmControlPanelEntity):
         except PyEzvizError as err:
             raise HomeAssistantError("Cannot disarm EZVIZ alarm") from err
 
+    @override
     def alarm_arm_away(self, code: str | None = None) -> None:
         """Send arm away command."""
         try:
@@ -120,6 +121,7 @@ class EzvizAlarm(AlarmControlPanelEntity):
         except PyEzvizError as err:
             raise HomeAssistantError("Cannot arm EZVIZ alarm") from err
 
+    @override
     def alarm_arm_home(self, code: str | None = None) -> None:
         """Send arm home command."""
         try:

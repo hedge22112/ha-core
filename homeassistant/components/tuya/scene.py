@@ -1,27 +1,27 @@
 """Support for Tuya scenes."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from tuya_sharing import Manager, SharingScene
 
 from homeassistant.components.scene import Scene
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import TuyaConfigEntry
 from .const import DOMAIN
+from .coordinator import TuyaConfigEntry
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: TuyaConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: TuyaConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tuya scenes."""
-    hass_data = entry.runtime_data
-    scenes = await hass.async_add_executor_job(hass_data.manager.query_scenes)
-    async_add_entities(TuyaSceneEntity(hass_data.manager, scene) for scene in scenes)
+    manager = entry.runtime_data.manager
+    scenes = await hass.async_add_executor_job(manager.query_scenes)
+    async_add_entities(TuyaSceneEntity(manager, scene) for scene in scenes)
 
 
 class TuyaSceneEntity(Scene):
@@ -39,6 +39,7 @@ class TuyaSceneEntity(Scene):
         self.scene = scene
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Return a device description for device registry."""
         return DeviceInfo(
@@ -50,10 +51,12 @@ class TuyaSceneEntity(Scene):
         )
 
     @property
+    @override
     def available(self) -> bool:
         """Return if the scene is enabled."""
         return self.scene.enabled
 
+    @override
     def activate(self, **kwargs: Any) -> None:
         """Activate the scene."""
         self.home_manager.trigger_scene(self.scene.home_id, self.scene.scene_id)

@@ -1,60 +1,38 @@
 """Support for monitoring emoncms feeds."""
 
-from __future__ import annotations
-
-from typing import Any
-
-import voluptuous as vol
+from typing import Any, override
 
 from homeassistant.components.sensor import (
-    PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
-    CONF_API_KEY,
-    CONF_ID,
-    CONF_UNIT_OF_MEASUREMENT,
     CONF_URL,
-    CONF_VALUE_TEMPLATE,
-    PERCENTAGE,
     UnitOfApparentPower,
+    UnitOfDensity,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
     UnitOfPressure,
+    UnitOfRatio,
     UnitOfSoundPressure,
     UnitOfSpeed,
     UnitOfTemperature,
     UnitOfVolume,
     UnitOfVolumeFlowRate,
 )
-from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import template
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .config_flow import sensor_name
-from .const import (
-    CONF_EXCLUDE_FEEDID,
-    CONF_ONLY_INCLUDE_FEEDID,
-    DOMAIN,
-    FEED_ID,
-    FEED_NAME,
-    FEED_TAG,
-)
-from .coordinator import EmoncmsCoordinator
+from .const import CONF_ONLY_INCLUDE_FEEDID, FEED_ID, FEED_NAME, FEED_TAG
+from .coordinator import EmonCMSConfigEntry, EmoncmsCoordinator
 
 SENSORS: dict[str | None, SensorEntityDescription] = {
     "kWh": SensorEntityDescription(
@@ -176,22 +154,22 @@ SENSORS: dict[str | None, SensorEntityDescription] = {
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
         state_class=SensorStateClass.MEASUREMENT,
     ),
-    "µg/m³": SensorEntityDescription(
+    "μg/m³": SensorEntityDescription(
         key="concentration|microgram_per_cubic_meter",
         translation_key="concentration",
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     "ppm": SensorEntityDescription(
         key="concentration|microgram_parts_per_million",
         translation_key="concentration",
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     "%": SensorEntityDescription(
         key="percent",
         translation_key="percent",
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
 }
@@ -203,108 +181,26 @@ ATTR_LASTUPDATETIMESTR = "LastUpdatedStr"
 ATTR_SIZE = "Size"
 ATTR_TAG = "Tag"
 ATTR_USERID = "UserId"
-CONF_SENSOR_NAMES = "sensor_names"
 DECIMALS = 2
-DEFAULT_UNIT = UnitOfPower.WATT
-
-ONLY_INCL_EXCL_NONE = "only_include_exclude_or_none"
-
-PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_API_KEY): cv.string,
-        vol.Required(CONF_URL): cv.string,
-        vol.Required(CONF_ID): cv.positive_int,
-        vol.Exclusive(CONF_ONLY_INCLUDE_FEEDID, ONLY_INCL_EXCL_NONE): vol.All(
-            cv.ensure_list, [cv.positive_int]
-        ),
-        vol.Exclusive(CONF_EXCLUDE_FEEDID, ONLY_INCL_EXCL_NONE): vol.All(
-            cv.ensure_list, [cv.positive_int]
-        ),
-        vol.Optional(CONF_SENSOR_NAMES): vol.All(
-            {cv.positive_int: vol.All(cv.string, vol.Length(min=1))}
-        ),
-        vol.Optional(CONF_VALUE_TEMPLATE): cv.template,
-        vol.Optional(CONF_UNIT_OF_MEASUREMENT, default=DEFAULT_UNIT): cv.string,
-    }
-)
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Import config from yaml."""
-    if CONF_VALUE_TEMPLATE in config:
-        async_create_issue(
-            hass,
-            DOMAIN,
-            f"remove_{CONF_VALUE_TEMPLATE}_{DOMAIN}",
-            is_fixable=False,
-            issue_domain=DOMAIN,
-            severity=IssueSeverity.ERROR,
-            translation_key=f"remove_{CONF_VALUE_TEMPLATE}",
-            translation_placeholders={
-                "domain": DOMAIN,
-                "parameter": CONF_VALUE_TEMPLATE,
-            },
-        )
-        return
-    if CONF_ONLY_INCLUDE_FEEDID not in config:
-        async_create_issue(
-            hass,
-            DOMAIN,
-            f"missing_{CONF_ONLY_INCLUDE_FEEDID}_{DOMAIN}",
-            is_fixable=False,
-            issue_domain=DOMAIN,
-            severity=IssueSeverity.WARNING,
-            translation_key=f"missing_{CONF_ONLY_INCLUDE_FEEDID}",
-            translation_placeholders={
-                "domain": DOMAIN,
-            },
-        )
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": SOURCE_IMPORT}, data=config
-    )
-    if (
-        result.get("type") == FlowResultType.CREATE_ENTRY
-        or result.get("reason") == "already_configured"
-    ):
-        async_create_issue(
-            hass,
-            HOMEASSISTANT_DOMAIN,
-            f"deprecated_yaml_{DOMAIN}",
-            is_fixable=False,
-            issue_domain=DOMAIN,
-            breaks_in_ha_version="2025.3.0",
-            severity=IssueSeverity.WARNING,
-            translation_key="deprecated_yaml",
-            translation_placeholders={
-                "domain": DOMAIN,
-                "integration_title": "emoncms",
-            },
-        )
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: EmonCMSConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the emoncms sensors."""
     name = sensor_name(entry.data[CONF_URL])
-    exclude_feeds = entry.data.get(CONF_EXCLUDE_FEEDID)
     include_only_feeds = entry.options.get(
         CONF_ONLY_INCLUDE_FEEDID, entry.data.get(CONF_ONLY_INCLUDE_FEEDID)
     )
 
-    if exclude_feeds is None and include_only_feeds is None:
+    if include_only_feeds is None:
         return
 
     coordinator = entry.runtime_data
     # uuid was added in emoncms database 11.5.7
-    unique_id = entry.unique_id if entry.unique_id else entry.entry_id
+    unique_id = entry.unique_id or entry.entry_id
     elems = coordinator.data
     if not elems:
         return
@@ -368,7 +264,9 @@ class EmonCmsSensor(CoordinatorEntity[EmoncmsCoordinator], SensorEntity):
             self._attr_extra_state_attributes[ATTR_USERID] = elem["userid"]
             self._attr_extra_state_attributes[ATTR_LASTUPDATETIME] = elem["time"]
             self._attr_extra_state_attributes[ATTR_LASTUPDATETIMESTR] = (
-                template.timestamp_local(float(elem["time"]))
+                dt_util.as_local(
+                    dt_util.utc_from_timestamp(float(elem["time"]))
+                ).isoformat()
             )
 
         self._attr_native_value = None
@@ -376,6 +274,7 @@ class EmonCmsSensor(CoordinatorEntity[EmoncmsCoordinator], SensorEntity):
             self._attr_native_value = round(float(elem["value"]), DECIMALS)
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         data = self.coordinator.data

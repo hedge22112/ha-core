@@ -1,15 +1,13 @@
 """Support for Balboa Spa lights."""
 
-from __future__ import annotations
-
-from typing import Any, cast
+from typing import Any, cast, override
 
 from pybalboa import SpaControl
 from pybalboa.enums import OffOnState, UnknownState
 
 from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BalboaConfigEntry
 from .entity import BalboaEntity
@@ -18,7 +16,7 @@ from .entity import BalboaEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BalboaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the spa's lights."""
     spa = entry.runtime_data
@@ -42,15 +40,18 @@ class BalboaLightEntity(BalboaEntity, LightEntity):
             "index": f"{cast(int, control.index) + 1}"
         }
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         await self._control.set_state(OffOnState.OFF)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
         await self._control.set_state(OffOnState.ON)
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if the light is on."""
         if self._control.state == UnknownState.UNKNOWN:

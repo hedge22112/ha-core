@@ -1,18 +1,18 @@
 """Control which entities are exposed to voice assistants."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 import dataclasses
 from itertools import chain
 from typing import Any, TypedDict
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import CLOUD_NEVER_EXPOSED_ENTITIES
+from homeassistant.components.binary_sensor import (
+    DOMAIN as BINARY_SENSOR_DOMAIN,
+    BinarySensorDeviceClass,
+)
+from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN, SensorDeviceClass
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback, split_entity_id
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -248,9 +248,6 @@ class ExposedEntities:
         """Return True if an entity should be exposed to an assistant."""
         should_expose: bool
 
-        if entity_id in CLOUD_NEVER_EXPOSED_ENTITIES:
-            return False
-
         entity_registry = er.async_get(self._hass)
         if not (registry_entry := entity_registry.async_get(entity_id)):
             return self._async_should_expose_legacy_entity(assistant, entity_id)
@@ -324,12 +321,15 @@ class ExposedEntities:
             # The entity no longer exists
             return False
         if (
-            domain == "binary_sensor"
+            domain == BINARY_SENSOR_DOMAIN
             and device_class in DEFAULT_EXPOSED_BINARY_SENSOR_DEVICE_CLASSES
         ):
             return True
 
-        if domain == "sensor" and device_class in DEFAULT_EXPOSED_SENSOR_DEVICE_CLASSES:
+        if (
+            domain == SENSOR_DOMAIN
+            and device_class in DEFAULT_EXPOSED_SENSOR_DEVICE_CLASSES
+        ):
             return True
 
         return False
@@ -396,30 +396,17 @@ class ExposedEntities:
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeassistant/expose_entity",
-        vol.Required("assistants"): [vol.In(KNOWN_ASSISTANTS)],
-        vol.Required("entity_ids"): [str],
-        vol.Required("should_expose"): bool,
+        probatio.Required("type"): "homeassistant/expose_entity",
+        probatio.Required("assistants"): [probatio.In(KNOWN_ASSISTANTS)],
+        probatio.Required("entity_ids"): [str],
+        probatio.Required("should_expose"): bool,
     }
 )
 def ws_expose_entity(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Expose an entity to an assistant."""
-    entity_ids: str = msg["entity_ids"]
-
-    if blocked := next(
-        (
-            entity_id
-            for entity_id in entity_ids
-            if entity_id in CLOUD_NEVER_EXPOSED_ENTITIES
-        ),
-        None,
-    ):
-        connection.send_error(
-            msg["id"], websocket_api.ERR_NOT_ALLOWED, f"can't expose '{blocked}'"
-        )
-        return
+    entity_ids: list[str] = msg["entity_ids"]
 
     for entity_id in entity_ids:
         for assistant in msg["assistants"]:
@@ -431,24 +418,27 @@ def ws_expose_entity(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeassistant/expose_entity/list",
+        probatio.Required("type"): "homeassistant/expose_entity/list",
     }
 )
 def ws_list_exposed_entities(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Expose an entity to an assistant."""
+    """List entities which are exposed to assistants."""
     result: dict[str, Any] = {}
 
     exposed_entities = hass.data[DATA_EXPOSED_ENTITIES]
     entity_registry = er.async_get(hass)
     for entity_id in chain(exposed_entities.entities, entity_registry.entities):
-        result[entity_id] = {}
+        exposed_to = {}
         entity_settings = async_get_entity_settings(hass, entity_id)
         for assistant, settings in entity_settings.items():
-            if "should_expose" not in settings:
+            if "should_expose" not in settings or not settings["should_expose"]:
                 continue
-            result[entity_id][assistant] = settings["should_expose"]
+            exposed_to[assistant] = True
+        if not exposed_to:
+            continue
+        result[entity_id] = exposed_to
     connection.send_result(msg["id"], {"exposed_entities": result})
 
 
@@ -456,8 +446,8 @@ def ws_list_exposed_entities(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeassistant/expose_new_entities/get",
-        vol.Required("assistant"): vol.In(KNOWN_ASSISTANTS),
+        probatio.Required("type"): "homeassistant/expose_new_entities/get",
+        probatio.Required("assistant"): probatio.In(KNOWN_ASSISTANTS),
     }
 )
 def ws_expose_new_entities_get(
@@ -473,9 +463,9 @@ def ws_expose_new_entities_get(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeassistant/expose_new_entities/set",
-        vol.Required("assistant"): vol.In(KNOWN_ASSISTANTS),
-        vol.Required("expose_new"): bool,
+        probatio.Required("type"): "homeassistant/expose_new_entities/set",
+        probatio.Required("assistant"): probatio.In(KNOWN_ASSISTANTS),
+        probatio.Required("expose_new"): bool,
     }
 )
 def ws_expose_new_entities_set(

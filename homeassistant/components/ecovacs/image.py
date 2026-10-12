@@ -1,13 +1,16 @@
 """Ecovacs image entities."""
 
+from typing import cast, override
+
 from deebot_client.capabilities import CapabilityMap
 from deebot_client.device import Device
 from deebot_client.events.map import CachedMapInfoEvent, MapChangedEvent
+from deebot_client.map import Map
 
 from homeassistant.components.image import ImageEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityDescription
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EcovacsConfigEntry
 from .entity import EcovacsEntity
@@ -16,7 +19,7 @@ from .entity import EcovacsEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EcovacsConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add entities for passed config_entry in HA."""
     controller = config_entry.runtime_data
@@ -47,25 +50,30 @@ class EcovacsMap(
         """Initialize entity."""
         super().__init__(device, capability, hass=hass)
         self._attr_extra_state_attributes = {}
+        self._map = cast(Map, self._device.map)
 
     entity_description = EntityDescription(
         key="map",
         translation_key="map",
     )
 
+    @override
     def image(self) -> bytes | None:
         """Return bytes of image or None."""
-        if svg := self._device.map.get_svg_map():
+        if svg := self._map.get_svg_map():
             return svg.encode()
 
         return None
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Set up the event listeners now that hass is ready."""
         await super().async_added_to_hass()
 
         async def on_info(event: CachedMapInfoEvent) -> None:
-            self._attr_extra_state_attributes["map_name"] = event.name
+            for map_obj in event.maps:
+                if map_obj.using:
+                    self._attr_extra_state_attributes["map_name"] = map_obj.name
 
         async def on_changed(event: MapChangedEvent) -> None:
             self._attr_image_last_updated = event.when
@@ -74,10 +82,11 @@ class EcovacsMap(
         self._subscribe(self._capability.cached_info.event, on_info)
         self._subscribe(self._capability.changed.event, on_changed)
 
+    @override
     async def async_update(self) -> None:
         """Update the entity.
 
         Only used by the generic entity update service.
         """
         await super().async_update()
-        self._device.map.refresh()
+        self._map.refresh()

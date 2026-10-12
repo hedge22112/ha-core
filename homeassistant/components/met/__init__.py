@@ -1,13 +1,8 @@
 """The met component."""
 
-from __future__ import annotations
-
-import logging
-
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.exceptions import ConfigEntryError
 
 from .const import (
     CONF_TRACK_HOME,
@@ -15,13 +10,9 @@ from .const import (
     DEFAULT_HOME_LONGITUDE,
     DOMAIN,
 )
-from .coordinator import MetDataUpdateCoordinator
+from .coordinator import MetDataUpdateCoordinator, MetWeatherConfigEntry
 
 PLATFORMS = [Platform.WEATHER]
-
-_LOGGER = logging.getLogger(__name__)
-
-type MetWeatherConfigEntry = ConfigEntry[MetDataUpdateCoordinator]
 
 
 async def async_setup_entry(
@@ -37,10 +28,10 @@ async def async_setup_entry(
             and hass.config.longitude == DEFAULT_HOME_LONGITUDE
         )
     ):
-        _LOGGER.warning(
-            "Skip setting up met.no integration; No Home location has been set"
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="no_home_location",
         )
-        return False
 
     coordinator = MetDataUpdateCoordinator(hass, config_entry)
     await coordinator.async_config_entry_first_refresh()
@@ -50,12 +41,9 @@ async def async_setup_entry(
 
     config_entry.runtime_data = coordinator
 
-    config_entry.async_on_unload(config_entry.add_update_listener(async_update_entry))
     config_entry.async_on_unload(coordinator.untrack_home)
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
-
-    await cleanup_old_device(hass)
 
     return True
 
@@ -65,17 +53,3 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
-
-
-async def async_update_entry(hass: HomeAssistant, config_entry: MetWeatherConfigEntry):
-    """Reload Met component when options changed."""
-    await hass.config_entries.async_reload(config_entry.entry_id)
-
-
-async def cleanup_old_device(hass: HomeAssistant) -> None:
-    """Cleanup device without proper device identifier."""
-    device_reg = dr.async_get(hass)
-    device = device_reg.async_get_device(identifiers={(DOMAIN,)})  # type: ignore[arg-type]
-    if device:
-        _LOGGER.debug("Removing improper device %s", device.name)
-        device_reg.async_remove_device(device.id)

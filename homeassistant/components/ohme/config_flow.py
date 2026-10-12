@@ -1,10 +1,10 @@
 """Config flow for ohme integration."""
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, override
 
 from ohme import ApiException, AuthException, OhmeApiClient
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
@@ -16,15 +16,15 @@ from homeassistant.helpers.selector import (
 
 from .const import DOMAIN
 
-USER_SCHEMA = vol.Schema(
+USER_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_EMAIL): TextSelector(
+        probatio.Required(CONF_EMAIL): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.EMAIL,
                 autocomplete="email",
             ),
         ),
-        vol.Required(CONF_PASSWORD): TextSelector(
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.PASSWORD,
                 autocomplete="current-password",
@@ -33,9 +33,9 @@ USER_SCHEMA = vol.Schema(
     }
 )
 
-REAUTH_SCHEMA = vol.Schema(
+REAUTH_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_PASSWORD): TextSelector(
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.PASSWORD,
                 autocomplete="current-password",
@@ -48,6 +48,7 @@ REAUTH_SCHEMA = vol.Schema(
 class OhmeConfigFlow(ConfigFlow, domain=DOMAIN):
     """Config flow."""
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -96,6 +97,29 @@ class OhmeConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=REAUTH_SCHEMA,
             description_placeholders={"email": reauth_entry.data[CONF_EMAIL]},
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle re-configuration."""
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+        if user_input:
+            errors = await self._validate_account(
+                reconfigure_entry.data[CONF_EMAIL],
+                user_input[CONF_PASSWORD],
+            )
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates=user_input,
+                )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=REAUTH_SCHEMA,
+            description_placeholders={"email": reconfigure_entry.data[CONF_EMAIL]},
             errors=errors,
         )
 

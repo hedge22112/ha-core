@@ -1,20 +1,20 @@
 """Test the Blink init."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 from aiohttp import ClientError
 from blinkpy.auth import LoginError
+from freezegun.api import FrozenDateTimeFactory
 import pytest
 
-from homeassistant.components.blink.const import (
-    DOMAIN,
-    SERVICE_SAVE_VIDEO,
-    SERVICE_SEND_PIN,
-)
+from homeassistant.components.blink.const import DOMAIN
+from homeassistant.components.blink.coordinator import SCAN_INTERVAL
+from homeassistant.components.blink.services import SERVICE_SAVE_VIDEO
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
-from tests.common import MockConfigEntry
+from tests.common import MockConfigEntry, async_fire_time_changed
 
 CAMERA_NAME = "Camera 1"
 FILENAME = "blah"
@@ -52,16 +52,12 @@ async def test_setup_not_ready_authkey_required(
 ) -> None:
     """Test setup failed because 2FA is needed to connect to the Blink system."""
 
-    mock_blink_auth_api.check_key_required = MagicMock(return_value=True)
-    mock_blink_auth_api.send_auth_key = AsyncMock(return_value=False)
+    mock_blink_api.start = AsyncMock(side_effect=LoginError)
 
     mock_config_entry.add_to_hass(hass)
-    with patch(
-        "homeassistant.components.blink.config_flow.Auth.startup",
-        side_effect=LoginError,
-    ):
-        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
+
+    assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
 
@@ -81,7 +77,30 @@ async def test_unload_entry(
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     assert mock_config_entry.state is ConfigEntryState.NOT_LOADED
     assert hass.services.has_service(DOMAIN, SERVICE_SAVE_VIDEO)
-    assert hass.services.has_service(DOMAIN, SERVICE_SEND_PIN)
+
+
+async def test_scheduled_refresh_is_not_forced(
+    hass: HomeAssistant,
+    mock_blink_api: MagicMock,
+    mock_blink_auth_api: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a scheduled poll does not force a cache refresh.
+
+    BlinkPy propagates a forced refresh as ``force_cache=True`` to the sync
+    modules, which re-downloads media that is already cached. See #182552.
+    """
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_blink_api.refresh.reset_mock()
+    freezer.tick(timedelta(seconds=SCAN_INTERVAL))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_blink_api.refresh.assert_awaited_once_with()
 
 
 async def test_migrate_V0(
@@ -122,3 +141,36 @@ async def test_migrate(
     await hass.async_block_till_done()
     entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
     assert entry.state is ConfigEntryState.MIGRATION_ERROR
+    assert entry.reason == (
+        f"Cannot migrate configuration entry from version {version},"
+        " re-authentication is required"
+    )
+
+
+async def test_migrate_v3_to_v4(
+    hass: HomeAssistant,
+    mock_blink_api: MagicMock,
+    mock_blink_auth_api: MagicMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test migration from version 3 to 4 (device_id to hardware_id)."""
+    mock_config_entry.add_to_hass(hass)
+
+    # Set up v3 config entry with device_id
+    data = {**mock_config_entry.data}
+    data.pop("hardware_id", None)
+    data["device_id"] = "Home Assistant"
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        version=3,
+        data=data,
+    )
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.version == 4
+    assert "hardware_id" in entry.data
+    assert "device_id" not in entry.data
+    assert entry.data["hardware_id"] == "Home Assistant"

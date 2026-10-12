@@ -1,9 +1,8 @@
 """Binary sensor entity platform for Tailwind."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from gotailwind import TailwindDoor
 
@@ -14,10 +13,12 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import TailwindConfigEntry
 from .entity import TailwindDoorEntity
+
+PARALLEL_UPDATES = 0
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -41,7 +42,7 @@ DESCRIPTIONS: tuple[TailwindDoorBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TailwindConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tailwind binary sensor based on a config entry."""
     async_add_entities(
@@ -57,6 +58,7 @@ class TailwindDoorBinarySensorEntity(TailwindDoorEntity, BinarySensorEntity):
     entity_description: TailwindDoorBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return the state of the binary sensor."""
         return self.entity_description.is_on_fn(

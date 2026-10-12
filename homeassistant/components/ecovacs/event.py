@@ -1,5 +1,7 @@
 """Event module."""
 
+from typing import override
+
 from deebot_client.capabilities import CapabilityEvent
 from deebot_client.device import Device
 from deebot_client.events import CleanJobStatus, ReportStatsEvent
@@ -7,7 +9,7 @@ from deebot_client.events import CleanJobStatus, ReportStatsEvent
 from homeassistant.components.event import EventEntity, EventEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EcovacsConfigEntry
 from .entity import EcovacsEntity
@@ -17,7 +19,7 @@ from .util import get_name_key
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EcovacsConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add entities for passed config_entry in HA."""
     controller = config_entry.runtime_data
@@ -43,6 +45,7 @@ class EcovacsLastJobEventEntity(
         """Initialize entity."""
         super().__init__(device, device.capabilities.stats.report)
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Set up the event listeners now that hass is ready."""
         await super().async_added_to_hass()

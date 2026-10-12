@@ -1,19 +1,25 @@
 """Config flow to configure the Bravia TV integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, cast, override
 from urllib.parse import urlparse
 
 from aiohttp import CookieJar
+import probatio
 from pybravia import BraviaAuthError, BraviaClient, BraviaError, BraviaNotSupported
-import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_CLIENT_ID, CONF_HOST, CONF_MAC, CONF_NAME, CONF_PIN
+from homeassistant.const import (
+    ATTR_MODEL,
+    CONF_CLIENT_ID,
+    CONF_HOST,
+    CONF_MAC,
+    CONF_NAME,
+    CONF_PIN,
+)
 from homeassistant.helpers import instance_id
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.service_info.ssdp import (
     ATTR_UPNP_FRIENDLY_NAME,
     ATTR_UPNP_MODEL_NAME,
@@ -25,9 +31,9 @@ from homeassistant.util.network import is_host_valid
 from .const import (
     ATTR_CID,
     ATTR_MAC,
-    ATTR_MODEL,
     CONF_NICKNAME,
     CONF_USE_PSK,
+    CONF_USE_SSL,
     DOMAIN,
     NICKNAME_PREFIX,
 )
@@ -37,6 +43,7 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Bravia TV integration."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Initialize config flow."""
@@ -46,11 +53,12 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
     def create_client(self) -> None:
         """Create Bravia TV client from config."""
         host = self.device_config[CONF_HOST]
+        ssl = self.device_config[CONF_USE_SSL]
         session = async_create_clientsession(
             self.hass,
             cookie_jar=CookieJar(unsafe=True, quote_cookie=False),
         )
-        self.client = BraviaClient(host=host, session=session)
+        self.client = BraviaClient(host=host, session=session, ssl=ssl)
 
     async def gen_instance_ids(self) -> tuple[str, str]:
         """Generate client_id and nickname."""
@@ -78,15 +86,28 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_connect_device()
 
         system_info = await self.client.get_system_info()
-        cid = system_info[ATTR_CID].lower()
-        title = system_info[ATTR_MODEL]
+        mac = system_info[ATTR_MAC]
+        formatted_mac = format_mac(mac)
 
-        self.device_config[CONF_MAC] = system_info[ATTR_MAC]
+        # Some TVs return an empty CID
+        unique_id = system_info[ATTR_CID].lower() or formatted_mac
 
-        await self.async_set_unique_id(cid)
+        self.device_config[CONF_MAC] = mac
+
+        await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
 
-        return self.async_create_entry(title=title, data=self.device_config)
+        # Disabled entries are not migrated, so they still have an empty unique ID
+        if any(
+            not entry.unique_id and format_mac(entry.data[CONF_MAC]) == formatted_mac
+            for entry in self._async_current_entries(include_ignore=False)
+        ):
+            return self.async_abort(reason="already_configured")
+
+        return self.async_create_entry(
+            title=f"{system_info['name']} {system_info[ATTR_MODEL]}",
+            data=self.device_config,
+        )
 
     async def async_reauth_device(self) -> ConfigFlowResult:
         """Reauthorize Bravia TV device from config."""
@@ -97,6 +118,7 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
             self._get_reauth_entry(), data=self.device_config
         )
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -113,7 +135,7 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_HOST): str}),
+            data_schema=probatio.Schema({probatio.Required(CONF_HOST): str}),
             errors=errors,
         )
 
@@ -121,19 +143,20 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle authorize step."""
-        self.create_client()
-
         if user_input is not None:
             self.device_config[CONF_USE_PSK] = user_input[CONF_USE_PSK]
+            self.device_config[CONF_USE_SSL] = user_input[CONF_USE_SSL]
+            self.create_client()
             if user_input[CONF_USE_PSK]:
                 return await self.async_step_psk()
             return await self.async_step_pin()
 
         return self.async_show_form(
             step_id="authorize",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_USE_PSK, default=False): bool,
+                    probatio.Required(CONF_USE_PSK, default=False): bool,
+                    probatio.Required(CONF_USE_SSL, default=False): bool,
                 }
             ),
         )
@@ -169,9 +192,9 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="pin",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_PIN): str,
+                    probatio.Required(probatio.Secret(CONF_PIN)): str,
                 }
             ),
             errors=errors,
@@ -198,14 +221,15 @@ class BraviaTVConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="psk",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_PIN): str,
+                    probatio.Required(probatio.Secret(CONF_PIN)): str,
                 }
             ),
             errors=errors,
         )
 
+    @override
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:

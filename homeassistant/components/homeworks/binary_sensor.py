@@ -1,21 +1,18 @@
 """Support for Lutron Homeworks binary sensors."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
 from pyhomeworks.pyhomeworks import HW_KEYPAD_LED_CHANGED, Homeworks
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import HomeworksData, HomeworksKeypad
+from . import HomeworksConfigEntry, HomeworksKeypad
 from .const import (
     CONF_ADDR,
     CONF_BUTTONS,
@@ -31,10 +28,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: HomeworksConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Homeworks binary sensors."""
-    data: HomeworksData = hass.data[DOMAIN][entry.entry_id]
+    data = entry.runtime_data
     controller = data.controller
     controller_id = entry.options[CONF_CONTROLLER_ID]
     entities = []
@@ -77,6 +76,7 @@ class HomeworksBinarySensor(HomeworksEntity, BinarySensorEntity):
         )
         self._keypad = keypad
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Call when entity is added to hass."""
         signal = f"homeworks_entity_{self._controller_id}_{self._addr}"

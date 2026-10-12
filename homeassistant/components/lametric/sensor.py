@@ -1,9 +1,8 @@
 """Support for LaMetric sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from demetriek import Device
 
@@ -12,14 +11,15 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import LaMetricDataUpdateCoordinator
+from .coordinator import LaMetricConfigEntry, LaMetricDataUpdateCoordinator
 from .entity import LaMetricEntity
+
+# Coordinator is used to centralize the data updates
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -44,11 +44,11 @@ SENSORS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: LaMetricConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up LaMetric sensor based on a config entry."""
-    coordinator: LaMetricDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     async_add_entities(
         LaMetricSensorEntity(
             coordinator=coordinator,
@@ -74,6 +74,7 @@ class LaMetricSensorEntity(LaMetricEntity, SensorEntity):
         self._attr_unique_id = f"{coordinator.data.serial_number}-{description.key}"
 
     @property
+    @override
     def native_value(self) -> int | None:
         """Return the sensor value."""
         return self.entity_description.value_fn(self.coordinator.data)

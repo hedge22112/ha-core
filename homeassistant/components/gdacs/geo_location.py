@@ -1,26 +1,23 @@
 """Geolocation support for GDACS Feed."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import datetime
 import logging
-from typing import Any
+from typing import Any, override
 
 from aio_georss_gdacs.feed_entry import GdacsFeedEntry
 
 from homeassistant.components.geo_location import GeolocationEvent
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfLength
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.unit_conversion import DistanceConverter
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from . import GdacsFeedEntityManager
-from .const import DEFAULT_ICON, DOMAIN, FEED
+from . import GdacsConfigEntry, GdacsFeedEntityManager
+from .const import DEFAULT_ICON
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,10 +49,12 @@ SOURCE = "gdacs"
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: GdacsConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the GDACS Feed platform."""
-    manager: GdacsFeedEntityManager = hass.data[DOMAIN][FEED][entry.entry_id]
+    manager = entry.runtime_data
 
     @callback
     def async_add_geolocation(
@@ -109,6 +108,7 @@ class GdacsEvent(GeolocationEvent):
         self._remove_signal_delete: Callable[[], None]
         self._remove_signal_update: Callable[[], None]
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Call when entity is added to hass."""
         if self.hass.config.units is US_CUSTOMARY_SYSTEM:
@@ -120,6 +120,7 @@ class GdacsEvent(GeolocationEvent):
             self.hass, f"gdacs_update_{self._external_id}", self._update_callback
         )
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Call when entity will be removed from hass."""
         self._remove_signal_delete()
@@ -179,6 +180,7 @@ class GdacsEvent(GeolocationEvent):
         self._version = feed_entry.version
 
     @property
+    @override
     def icon(self) -> str:
         """Return the icon to use in the frontend, if any."""
         if self._event_type_short and self._event_type_short in ICONS:
@@ -186,6 +188,7 @@ class GdacsEvent(GeolocationEvent):
         return DEFAULT_ICON
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the device state attributes."""
         return {

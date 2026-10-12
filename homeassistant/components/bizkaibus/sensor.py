@@ -1,11 +1,9 @@
 """Support for Bizkaibus, Biscay (Basque Country, Spain) Bus service."""
 
-from __future__ import annotations
-
 from contextlib import suppress
 
 from bizkaibus.bizkaibus import BizkaibusData
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
@@ -13,7 +11,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import CONF_NAME, UnitOfTime
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
@@ -26,9 +24,9 @@ DEFAULT_NAME = "Next bus"
 
 PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_STOP_ID): cv.string,
-        vol.Required(CONF_ROUTE): cv.string,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        probatio.Required(CONF_STOP_ID): cv.string,
+        probatio.Required(CONF_ROUTE): cv.string,
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
     }
 )
 

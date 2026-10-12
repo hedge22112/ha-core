@@ -1,7 +1,5 @@
 """Test the sonos config flow."""
 
-from __future__ import annotations
-
 from ipaddress import ip_address
 from unittest.mock import MagicMock, patch
 
@@ -63,6 +61,7 @@ async def test_user_form(
     assert result2["type"] is FlowResultType.CREATE_ENTRY
     assert result2["title"] == "Sonos"
     assert result2["data"] == {}
+    assert result2["result"].unique_id == DOMAIN
     assert len(mock_setup.mock_calls) == 1
     assert len(mock_setup_entry.mock_calls) == 1
 
@@ -117,10 +116,27 @@ async def test_zeroconf_form(
     assert result2["type"] is FlowResultType.CREATE_ENTRY
     assert result2["title"] == "Sonos"
     assert result2["data"] == {}
+    assert result2["result"].unique_id == DOMAIN
 
     assert len(mock_setup.mock_calls) == 1
     assert len(mock_setup_entry.mock_calls) == 1
     assert len(mock_manager.mock_calls) == 2
+
+
+async def test_zeroconf_form_not_ipv4(
+    hass: HomeAssistant, zeroconf_payload: ZeroconfServiceInfo
+) -> None:
+    """Test we pass Zeroconf discoveries to the manager."""
+    mock_manager = hass.data[DATA_SONOS_DISCOVERY_MANAGER] = MagicMock()
+    zeroconf_payload.ip_address = ip_address("2001:db8:3333:4444:5555:6666:7777:8888")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_ZEROCONF},
+        data=zeroconf_payload,
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "not_ipv4_address"
+    assert mock_manager.call_count == 0
 
 
 async def test_ssdp_discovery(hass: HomeAssistant, soco) -> None:
@@ -162,6 +178,7 @@ async def test_ssdp_discovery(hass: HomeAssistant, soco) -> None:
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Sonos"
     assert result["data"] == {}
+    assert result["result"].unique_id == DOMAIN
 
     assert len(mock_setup.mock_calls) == 1
     assert len(mock_setup_entry.mock_calls) == 1
@@ -215,6 +232,7 @@ async def test_zeroconf_sonos_v1(hass: HomeAssistant) -> None:
     assert result2["type"] is FlowResultType.CREATE_ENTRY
     assert result2["title"] == "Sonos"
     assert result2["data"] == {}
+    assert result2["result"].unique_id == DOMAIN
 
     assert len(mock_setup.mock_calls) == 1
     assert len(mock_setup_entry.mock_calls) == 1

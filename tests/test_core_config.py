@@ -5,13 +5,12 @@ from collections import OrderedDict
 import copy
 import os
 from pathlib import Path
-import re
 from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import Mock, PropertyMock, patch
 
+from probatio import Invalid, MultipleInvalid
 import pytest
-from voluptuous import Invalid, MultipleInvalid
 from webrtc_models import RTCConfiguration, RTCIceServer
 
 from homeassistant.const import (
@@ -35,11 +34,11 @@ from homeassistant.core_config import (
     DATA_CUSTOMIZE,
     Config,
     ConfigSource,
-    _validate_stun_or_turn_url,
     async_process_ha_core_config,
+    validate_stun_or_turn_url,
 )
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity import Entity, EntityPlatformState
 from homeassistant.util.unit_system import (
     METRIC_SYSTEM,
     US_CUSTOMARY_SYSTEM,
@@ -176,8 +175,8 @@ def test_webrtc_schema() -> None:
         assert validated["webrtc"] == validated_webrtc
 
 
-def test_validate_stun_or_turn_url() -> None:
-    """Test _validate_stun_or_turn_url."""
+def testvalidate_stun_or_turn_url() -> None:
+    """Test validate_stun_or_turn_url."""
     invalid_urls = (
         "custom_stun_server",
         "custom_stun_server:3478",
@@ -204,16 +203,25 @@ def test_validate_stun_or_turn_url() -> None:
 
     for url in invalid_urls:
         with pytest.raises(Invalid):
-            _validate_stun_or_turn_url(url)
+            validate_stun_or_turn_url(url)
 
     for url in valid_urls:
-        assert _validate_stun_or_turn_url(url) == url
+        assert validate_stun_or_turn_url(url) == url
 
 
 def test_customize_glob_is_ordered() -> None:
     """Test that customize_glob preserves order."""
-    conf = CORE_CONFIG_SCHEMA({"customize_glob": OrderedDict()})
-    assert isinstance(conf["customize_glob"], OrderedDict)
+    customize_glob = OrderedDict(
+        [
+            ("cover.*", {"friendly_name": "Cover"}),
+            ("light.*", {"friendly_name": "Light"}),
+            ("sensor.*", {"friendly_name": "Sensor"}),
+        ]
+    )
+    conf = CORE_CONFIG_SCHEMA({"customize_glob": customize_glob})
+    # The schema returns a plain dict, which preserves insertion order.
+    assert isinstance(conf["customize_glob"], dict)
+    assert list(conf["customize_glob"]) == ["cover.*", "light.*", "sensor.*"]
 
 
 async def _compute_state(hass: HomeAssistant, config: dict[str, Any]) -> State | None:
@@ -223,6 +231,7 @@ async def _compute_state(hass: HomeAssistant, config: dict[str, Any]) -> State |
     entity.entity_id = "test.test"
     entity.hass = hass
     entity.platform = MockEntityPlatform(hass)
+    entity._platform_state = EntityPlatformState.ADDED
     entity.schedule_update_ha_state()
 
     await hass.async_block_till_done()
@@ -833,7 +842,7 @@ async def test_configuration_legacy_template_is_removed(hass: HomeAssistant) -> 
         },
     )
 
-    assert not getattr(hass.config, "legacy_templates")
+    assert not hass.config.legacy_templates
 
 
 async def test_config_defaults() -> None:
@@ -882,6 +891,25 @@ async def test_config_path_with_dir_and_file() -> None:
     assert config.path("dir", "test.conf") == "/test/ha-config/dir/test.conf"
 
 
+async def test_config_cache_path_with_file() -> None:
+    """Test cache_path method with file."""
+    hass = Mock()
+    hass.data = {}
+    config = Config(hass, "/test/ha-config")
+    assert config.cache_path("test.cache") == "/test/ha-config/.cache/test.cache"
+
+
+async def test_config_cache_path_with_dir_and_file() -> None:
+    """Test cache_path method with dir and file."""
+    hass = Mock()
+    hass.data = {}
+    config = Config(hass, "/test/ha-config")
+    assert (
+        config.cache_path("dir", "test.cache")
+        == "/test/ha-config/.cache/dir/test.cache"
+    )
+
+
 async def test_config_as_dict() -> None:
     """Test as dict."""
     hass = Mock()
@@ -909,6 +937,9 @@ async def test_config_as_dict() -> None:
         "currency": "EUR",
         "country": None,
         "language": "en",
+        "logging": {
+            "log_file_disabled_reason": None,
+        },
         "safe_mode": False,
         "debug": False,
         "radius": 100,
@@ -1070,18 +1101,6 @@ async def test_top_level_components(hass: HomeAssistant) -> None:
 async def test_debug_mode_defaults_to_off(hass: HomeAssistant) -> None:
     """Test debug mode defaults to off."""
     assert not hass.config.debug
-
-
-async def test_set_time_zone_deprecated(hass: HomeAssistant) -> None:
-    """Test set_time_zone is deprecated."""
-    with pytest.raises(
-        RuntimeError,
-        match=re.escape(
-            "Detected code that sets the time zone using set_time_zone instead of "
-            "async_set_time_zone. Please report this issue"
-        ),
-    ):
-        await hass.config.set_time_zone("America/New_York")
 
 
 async def test_core_config_schema_imperial_unit(

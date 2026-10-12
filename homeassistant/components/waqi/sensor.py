@@ -1,10 +1,8 @@
 """Support for the World Air Quality Index service."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-import logging
+from typing import override
 
 from aiowaqi import WAQIAirQuality
 from aiowaqi.models import Pollutant
@@ -15,27 +13,15 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfPressure, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import WAQIDataUpdateCoordinator
-
-_LOGGER = logging.getLogger(__name__)
-
-ATTR_DOMINENTPOL = "dominentpol"
-ATTR_HUMIDITY = "humidity"
-ATTR_NITROGEN_DIOXIDE = "nitrogen_dioxide"
-ATTR_OZONE = "ozone"
-ATTR_PM10 = "pm_10"
-ATTR_PM2_5 = "pm_2_5"
-ATTR_PRESSURE = "pressure"
-ATTR_SULFUR_DIOXIDE = "sulfur_dioxide"
+from .coordinator import WAQIConfigEntry, WAQIDataUpdateCoordinator
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -138,15 +124,20 @@ SENSORS: list[WAQISensorEntityDescription] = [
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: WAQIConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the WAQI sensor."""
-    coordinator: WAQIDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        WaqiSensor(coordinator, sensor)
-        for sensor in SENSORS
-        if sensor.available_fn(coordinator.data)
-    )
+    for subentry_id, coordinator in entry.runtime_data.items():
+        async_add_entities(
+            (
+                WaqiSensor(coordinator, sensor)
+                for sensor in SENSORS
+                if sensor.available_fn(coordinator.data)
+            ),
+            config_subentry_id=subentry_id,
+        )
 
 
 class WaqiSensor(CoordinatorEntity[WAQIDataUpdateCoordinator], SensorEntity):
@@ -174,6 +165,7 @@ class WaqiSensor(CoordinatorEntity[WAQIDataUpdateCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the device."""
         return self.entity_description.value_fn(self.coordinator.data)

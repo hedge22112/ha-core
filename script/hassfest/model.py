@@ -1,9 +1,7 @@
 """Models for manifest validator."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 import json
 import pathlib
 from typing import Any, Literal
@@ -72,7 +70,7 @@ class Brand:
     @property
     def domain(self) -> str:
         """Integration domain."""
-        return self.path.stem
+        return self.brand["domain"]
 
     @property
     def name(self) -> str | None:
@@ -157,8 +155,10 @@ class Integration:
     @property
     def core(self) -> bool:
         """Core integration."""
-        return self.path.as_posix().startswith(
-            self._config.core_integrations_path.as_posix()
+        return (
+            self.path.absolute()
+            .as_posix()
+            .startswith(self._config.core_integrations_path.as_posix())
         )
 
     @property
@@ -198,9 +198,15 @@ class Integration:
         return self.manifest.get("supported_by", {})
 
     @property
-    def integration_type(self) -> str:
+    def integration_type(self) -> IntegrationType:
         """Get integration_type."""
-        return self.manifest.get("integration_type", "hub")
+        integration_type = self.manifest.get("integration_type", "hub")
+        try:
+            return IntegrationType(integration_type)
+        except ValueError:
+            # The manifest validation will catch this as an error, so we can default to
+            # a valid value here to avoid ValueErrors in other plugins
+            return IntegrationType.HUB
 
     @property
     def iot_class(self) -> str | None:
@@ -220,6 +226,15 @@ class Integration:
         """Add a warning."""
         self.warnings.append(Error(*args, **kwargs))
 
+    def add_warning_or_error(
+        self, warning_only: bool, *args: Any, **kwargs: Any
+    ) -> None:
+        """Add an error or a warning."""
+        if warning_only:
+            self.add_warning(*args, **kwargs)
+        else:
+            self.add_error(*args, **kwargs)
+
     def load_manifest(self) -> None:
         """Load manifest."""
         manifest_path = self.path / "manifest.json"
@@ -235,6 +250,19 @@ class Integration:
 
         self._manifest = manifest
         self.manifest_path = manifest_path
+
+
+class IntegrationType(StrEnum):
+    """Supported integration types."""
+
+    DEVICE = "device"
+    ENTITY = "entity"
+    HARDWARE = "hardware"
+    HELPER = "helper"
+    HUB = "hub"
+    SERVICE = "service"
+    SYSTEM = "system"
+    VIRTUAL = "virtual"
 
 
 class ScaledQualityScaleTiers(IntEnum):

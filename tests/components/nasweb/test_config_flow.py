@@ -34,7 +34,7 @@ async def _add_test_config_entry(hass: HomeAssistant) -> ConfigFlowResult:
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert result.get("type") == FlowResultType.FORM
+    assert result.get("type") is FlowResultType.FORM
     assert not result.get("errors")
 
     result2 = await hass.config_entries.flow.async_configure(
@@ -52,7 +52,7 @@ async def test_form(
     """Test the form."""
     result = await _add_test_config_entry(hass)
 
-    assert result.get("type") == FlowResultType.CREATE_ENTRY
+    assert result.get("type") is FlowResultType.CREATE_ENTRY
     assert result.get("title") == "1.1.1.1"
     assert result.get("data") == TEST_USER_INPUT
 
@@ -62,10 +62,8 @@ async def test_form(
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_form_cannot_connect(
-    hass: HomeAssistant,
-    validate_input_all_ok: dict[str, AsyncMock | MagicMock],
-) -> None:
+@pytest.mark.usefixtures("validate_input_all_ok")
+async def test_form_cannot_connect(hass: HomeAssistant) -> None:
     """Test cannot connect error."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -76,14 +74,18 @@ async def test_form_cannot_connect(
             result["flow_id"], TEST_USER_INPUT
         )
 
-    assert result2.get("type") == FlowResultType.FORM
+    assert result2.get("type") is FlowResultType.FORM
     assert result2.get("errors") == {"base": "cannot_connect"}
 
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TEST_USER_INPUT
+    )
 
-async def test_form_invalid_auth(
-    hass: HomeAssistant,
-    validate_input_all_ok: dict[str, AsyncMock | MagicMock],
-) -> None:
+    assert result2.get("type") is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("validate_input_all_ok")
+async def test_form_invalid_auth(hass: HomeAssistant) -> None:
     """Test invalid auth."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -97,14 +99,18 @@ async def test_form_invalid_auth(
             result["flow_id"], TEST_USER_INPUT
         )
 
-    assert result2.get("type") == FlowResultType.FORM
+    assert result2.get("type") is FlowResultType.FORM
     assert result2.get("errors") == {"base": "invalid_auth"}
 
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TEST_USER_INPUT
+    )
 
-async def test_form_missing_internal_url(
-    hass: HomeAssistant,
-    validate_input_all_ok: dict[str, AsyncMock | MagicMock],
-) -> None:
+    assert result2.get("type") is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("validate_input_all_ok")
+async def test_form_missing_internal_url(hass: HomeAssistant) -> None:
     """Test missing internal url."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -116,14 +122,18 @@ async def test_form_missing_internal_url(
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"], TEST_USER_INPUT
         )
-        assert result2.get("type") == FlowResultType.FORM
+        assert result2.get("type") is FlowResultType.FORM
         assert result2.get("errors") == {"base": "missing_internal_url"}
 
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TEST_USER_INPUT
+    )
 
-async def test_form_missing_nasweb_data(
-    hass: HomeAssistant,
-    validate_input_all_ok: dict[str, AsyncMock | MagicMock],
-) -> None:
+    assert result2.get("type") is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("validate_input_all_ok")
+async def test_form_missing_nasweb_data(hass: HomeAssistant) -> None:
     """Test invalid auth."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -136,20 +146,24 @@ async def test_form_missing_nasweb_data(
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"], TEST_USER_INPUT
         )
-        assert result2.get("type") == FlowResultType.FORM
+        assert result2.get("type") is FlowResultType.FORM
         assert result2.get("errors") == {"base": "missing_nasweb_data"}
     with patch(BASE_CONFIG_FLOW + "WebioAPI.status_subscription", return_value=False):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"], TEST_USER_INPUT
         )
-        assert result2.get("type") == FlowResultType.FORM
+        assert result2.get("type") is FlowResultType.FORM
         assert result2.get("errors") == {"base": "missing_nasweb_data"}
 
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TEST_USER_INPUT
+    )
 
-async def test_missing_status(
-    hass: HomeAssistant,
-    validate_input_all_ok: dict[str, AsyncMock | MagicMock],
-) -> None:
+    assert result2.get("type") is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("validate_input_all_ok")
+async def test_missing_status(hass: HomeAssistant) -> None:
     """Test missing status update."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -162,14 +176,18 @@ async def test_missing_status(
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"], TEST_USER_INPUT
         )
-        assert result2.get("type") == FlowResultType.FORM
+        assert result2.get("type") is FlowResultType.FORM
         assert result2.get("errors") == {"base": "missing_status"}
 
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TEST_USER_INPUT
+    )
 
-async def test_form_exception(
-    hass: HomeAssistant,
-    validate_input_all_ok: dict[str, AsyncMock | MagicMock],
-) -> None:
+    assert result2.get("type") is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("validate_input_all_ok")
+async def test_form_exception(hass: HomeAssistant) -> None:
     """Test other exceptions."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -182,8 +200,14 @@ async def test_form_exception(
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"], TEST_USER_INPUT
         )
-        assert result2.get("type") == FlowResultType.FORM
+        assert result2.get("type") is FlowResultType.FORM
         assert result2.get("errors") == {"base": "unknown"}
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TEST_USER_INPUT
+    )
+
+    assert result2.get("type") is FlowResultType.CREATE_ENTRY
 
 
 async def test_form_already_configured(
@@ -204,5 +228,5 @@ async def test_form_already_configured(
     )
     await hass.async_block_till_done()
 
-    assert result2_2.get("type") == FlowResultType.ABORT
+    assert result2_2.get("type") is FlowResultType.ABORT
     assert result2_2.get("reason") == "already_configured"

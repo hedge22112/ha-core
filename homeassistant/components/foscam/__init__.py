@@ -1,8 +1,7 @@
 """The foscam component."""
 
-from libpyfoscam import FoscamCamera
+from libpyfoscamcgi import FoscamCamera
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -11,16 +10,28 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_registry import RegistryEntry, async_migrate_entries
+from homeassistant.helpers.typing import ConfigType
 
 from .config_flow import DEFAULT_RTSP_PORT
-from .const import CONF_RTSP_PORT, DOMAIN, LOGGER, SERVICE_PTZ, SERVICE_PTZ_PRESET
-from .coordinator import FoscamCoordinator
+from .const import CONF_RTSP_PORT, DOMAIN, LOGGER
+from .coordinator import FoscamConfigEntry, FoscamCoordinator
+from .services import async_setup_services
 
-PLATFORMS = [Platform.CAMERA, Platform.SWITCH]
+PLATFORMS = [Platform.CAMERA, Platform.NUMBER, Platform.SWITCH]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Foscam integration."""
+    async_setup_services(hass)
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: FoscamConfigEntry) -> bool:
     """Set up foscam from a config entry."""
 
     session = FoscamCamera(
@@ -30,11 +41,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_PASSWORD],
         verbose=False,
     )
-    coordinator = FoscamCoordinator(hass, session)
 
+    coordinator = FoscamCoordinator(hass, entry, session)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.runtime_data = coordinator
 
     # Migrate to correct unique IDs for switches
     await async_migrate_entities(hass, entry)
@@ -44,20 +55,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: FoscamConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-        if not hass.data[DOMAIN]:
-            hass.services.async_remove(domain=DOMAIN, service=SERVICE_PTZ)
-            hass.services.async_remove(domain=DOMAIN, service=SERVICE_PTZ_PRESET)
-
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, entry: FoscamConfigEntry) -> bool:
     """Migrate old entry."""
     LOGGER.debug("Migrating from version %s", entry.version)
 
@@ -97,8 +100,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_migrate_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Migrate old entry."""
+async def async_migrate_entities(hass: HomeAssistant, entry: FoscamConfigEntry) -> None:
+    """Migrate old entries to support config_entry_id-based unique IDs."""
 
     @callback
     def _update_unique_id(

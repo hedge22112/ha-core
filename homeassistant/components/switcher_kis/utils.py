@@ -1,12 +1,11 @@
 """Switcher integration helpers functions."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 
 from aioswitcher.api.remotes import SwitcherBreezeRemoteManager
-from aioswitcher.bridge import SwitcherBase, SwitcherBridge
+from aioswitcher.bridge import SwitcherBridge
+from aioswitcher.device import SwitcherBase
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import singleton

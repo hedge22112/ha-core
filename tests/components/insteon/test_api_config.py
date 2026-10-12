@@ -1,7 +1,5 @@
 """Test the Insteon APIs for configuring the integration."""
 
-import asyncio
-import json
 from unittest.mock import patch
 
 from homeassistant.components import insteon
@@ -10,6 +8,7 @@ from homeassistant.components.insteon.const import (
     CONF_HUB_VERSION,
     CONF_OVERRIDE,
     CONF_X10,
+    DOMAIN,
 )
 from homeassistant.core import HomeAssistant
 
@@ -24,7 +23,7 @@ from .mock_connection import mock_failed_connection, mock_successful_connection
 from .mock_devices import MockDevices
 from .mock_setup import async_mock_setup
 
-from tests.common import load_fixture
+from tests.common import async_load_json_object_fixture
 from tests.typing import WebSocketGenerator
 
 
@@ -67,7 +66,7 @@ async def test_get_modem_schema_hub(
 ) -> None:
     """Test getting the Insteon PLM modem configuration schema."""
 
-    ws_client, devices, _, _ = await async_mock_setup(
+    ws_client, _devices, _, _ = await async_mock_setup(
         hass,
         hass_ws_client,
         config_data={**MOCK_USER_INPUT_HUB_V2, CONF_HUB_VERSION: 2},
@@ -206,7 +205,7 @@ async def test_update_modem_config_bad(
 async def test_update_modem_config_bad_reconnect(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Test updating the Insteon modem configuration with bad connection information so reconnect to old."""
+    """Test bad connection info on modem update reconnects to old."""
 
     ws_client, mock_devices, _, _ = await async_mock_setup(
         hass,
@@ -404,9 +403,8 @@ async def test_get_broken_links(
     ws_client, _, _, _ = await async_mock_setup(hass, hass_ws_client)
     devices = MockDevices()
     await devices.async_load()
-    aldb_data = json.loads(load_fixture("insteon/aldb_data.json"))
+    aldb_data = await async_load_json_object_fixture(hass, "aldb_data.json", DOMAIN)
     devices.fill_aldb("33.33.33", aldb_data)
-    await asyncio.sleep(1)
     with patch.object(insteon.api.config, "devices", devices):
         await ws_client.send_json({ID: 2, TYPE: "insteon/config/get_broken_links"})
         msg = await ws_client.receive_json()
@@ -445,4 +443,3 @@ async def test_get_unknown_devices(
         assert msg["success"]
 
         assert len(msg["result"]) == 1
-        await asyncio.sleep(0.1)

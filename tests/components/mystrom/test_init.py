@@ -4,16 +4,20 @@ from unittest.mock import AsyncMock, PropertyMock, patch
 
 from pymystrom.exceptions import MyStromConnectionError
 import pytest
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.mystrom.const import DOMAIN
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from . import (
     MyStromBulbMock,
+    MyStromPirMock,
     MyStromSwitchMock,
     get_default_bulb_state,
     get_default_device_response,
+    get_default_pir_state,
     get_default_switch_state,
 )
 from .conftest import DEVICE_MAC
@@ -39,12 +43,46 @@ async def init_integration(
             return_value=MyStromBulbMock("6001940376EB", get_default_bulb_state()),
         ),
         patch(
+            "homeassistant.components.mystrom._get_mystrom_pir",
+            return_value=MyStromPirMock(get_default_pir_state()),
+        ),
+        patch(
             "homeassistant.components.mystrom._get_mystrom_switch",
             return_value=MyStromSwitchMock(get_default_switch_state()),
         ),
     ):
         await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_init_pir_and_unload(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """Test the initialization of a myStrom pir motion sensor."""
+    await init_integration(hass, config_entry, 110)
+    for sensor in ("illuminance", "temperature"):
+        state = hass.states.get(f"sensor.mystrom_device_{sensor}")
+        assert state is not None
+    assert config_entry.state is ConfigEntryState.LOADED
+
+    await hass.config_entries.async_unload(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_device_registry_bulb(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
+    snapshot: SnapshotAssertion,
+) -> None:
+    """Test the bulb device registry entry, including the network MAC connection."""
+    await init_integration(hass, config_entry, 102)
+
+    device_entry = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_MAC), config_entry.entry_id
+    )
+    assert device_entry == snapshot
 
 
 async def test_init_switch_and_unload(
@@ -72,7 +110,7 @@ async def test_init_switch_and_unload(
         (105, "light", ConfigEntryState.LOADED, False),
         (106, "switch", ConfigEntryState.LOADED, False),
         (107, "switch", ConfigEntryState.LOADED, False),
-        (110, "sensor", ConfigEntryState.SETUP_ERROR, True),
+        (110, "sensor", ConfigEntryState.LOADED, True),
         (113, "switch", ConfigEntryState.SETUP_ERROR, True),
         (118, "button", ConfigEntryState.SETUP_ERROR, True),
         (120, "switch", ConfigEntryState.LOADED, False),
@@ -100,7 +138,9 @@ async def test_init_of_unknown_bulb(
     with (
         patch(
             "pymystrom.get_device_info",
-            side_effect=AsyncMock(return_value={"type": 102, "mac": DEVICE_MAC}),
+            side_effect=AsyncMock(
+                return_value={"type": 102, "mac": DEVICE_MAC, "ip": "1.1.1.1"}
+            ),
         ),
         patch("pymystrom.bulb.MyStromBulb.get_state", return_value={}),
         patch("pymystrom.bulb.MyStromBulb.bulb_type", "new_type"),
@@ -114,6 +154,9 @@ async def test_init_of_unknown_bulb(
         await hass.async_block_till_done()
 
     assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert config_entry.reason == (
+        "Device 1.1.1.1 (6001940376EB) is not a myStrom bulb nor myStrom LED Strip"
+    )
 
 
 async def test_init_of_unknown_device(
@@ -128,6 +171,7 @@ async def test_init_of_unknown_device(
         await hass.async_block_till_done()
 
     assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert config_entry.reason == "Unsupported myStrom device type: 103"
 
 
 async def test_init_cannot_connect_because_of_device_info(

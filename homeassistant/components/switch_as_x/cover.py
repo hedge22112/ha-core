@@ -1,8 +1,6 @@
 """Cover support for switch entities."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.cover import (
     DOMAIN as COVER_DOMAIN,
@@ -20,7 +18,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_INVERT
 from .entity import BaseInvertableEntity
@@ -29,7 +27,7 @@ from .entity import BaseInvertableEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize Cover Switch config entry."""
     registry = er.async_get(hass)
@@ -56,6 +54,7 @@ class CoverSwitch(BaseInvertableEntity, CoverEntity):
 
     _attr_supported_features = CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE
 
+    @override
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
         await self.hass.services.async_call(
@@ -66,6 +65,7 @@ class CoverSwitch(BaseInvertableEntity, CoverEntity):
             context=self._context,
         )
 
+    @override
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close cover."""
         await self.hass.services.async_call(
@@ -77,6 +77,7 @@ class CoverSwitch(BaseInvertableEntity, CoverEntity):
         )
 
     @callback
+    @override
     def async_state_changed_listener(
         self, event: Event[EventStateChangedData] | None = None
     ) -> None:

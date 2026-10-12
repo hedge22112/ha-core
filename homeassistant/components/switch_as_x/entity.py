@@ -1,8 +1,6 @@
 """Base entity for the Switch as X integration."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.homeassistant import exposed_entities
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
@@ -15,11 +13,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity, ToggleEntity
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN as SWITCH_AS_X_DOMAIN
+from .const import DOMAIN
 
 
 class BaseEntity(Entity):
@@ -48,12 +45,8 @@ class BaseEntity(Entity):
         if wrapped_switch:
             name = wrapped_switch.original_name
 
-        self._device_id = device_id
         if device_id and (device := device_registry.async_get(device_id)):
-            self._attr_device_info = DeviceInfo(
-                connections=device.connections,
-                identifiers=device.identifiers,
-            )
+            self.device_entry = device
         self._attr_entity_category = entity_category
         self._attr_has_entity_name = has_entity_name
         self._attr_name = name
@@ -61,7 +54,7 @@ class BaseEntity(Entity):
         self._switch_entity_id = switch_entity_id
 
         self._is_new_entity = (
-            registry.async_get_entity_id(domain, SWITCH_AS_X_DOMAIN, unique_id) is None
+            registry.async_get_entity_id(domain, DOMAIN, unique_id) is None
         )
 
     @callback
@@ -77,6 +70,7 @@ class BaseEntity(Entity):
 
         self._attr_available = True
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks and copy the wrapped entity's custom name if set."""
 
@@ -102,7 +96,7 @@ class BaseEntity(Entity):
         if registry.async_get(self.entity_id) is not None:
             registry.async_update_entity_options(
                 self.entity_id,
-                SWITCH_AS_X_DOMAIN,
+                DOMAIN,
                 self.async_generate_entity_options(),
             )
 
@@ -147,6 +141,7 @@ class BaseEntity(Entity):
 class BaseToggleEntity(BaseEntity, ToggleEntity):
     """Represents a Switch as a ToggleEntity."""
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Forward the turn_on command to the switch in this light switch."""
         await self.hass.services.async_call(
@@ -157,6 +152,7 @@ class BaseToggleEntity(BaseEntity, ToggleEntity):
             context=self._context,
         )
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Forward the turn_off command to the switch in this light switch."""
         await self.hass.services.async_call(
@@ -168,6 +164,7 @@ class BaseToggleEntity(BaseEntity, ToggleEntity):
         )
 
     @callback
+    @override
     def async_state_changed_listener(
         self, event: Event[EventStateChangedData] | None = None
     ) -> None:
@@ -199,6 +196,7 @@ class BaseInvertableEntity(BaseEntity):
         self._invert_state = invert
 
     @callback
+    @override
     def async_generate_entity_options(self) -> dict[str, Any]:
         """Generate entity options."""
         return super().async_generate_entity_options() | {"invert": self._invert_state}

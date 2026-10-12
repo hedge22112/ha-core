@@ -1,9 +1,8 @@
 """Buttons for the RainMachine integration."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import override
 
 from regenmaschine.controller import Controller
 from regenmaschine.errors import RainMachineError
@@ -17,7 +16,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import RainMachineConfigEntry
 from .const import DATA_PROVISION_SETTINGS
@@ -53,7 +52,7 @@ BUTTON_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RainMachineConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up RainMachine buttons based on a config entry."""
     data = entry.runtime_data
@@ -71,6 +70,7 @@ class RainMachineButton(RainMachineEntity, ButtonEntity):
 
     entity_description: RainMachineButtonDescription
 
+    @override
     async def async_press(self) -> None:
         """Send out a restart command."""
         try:

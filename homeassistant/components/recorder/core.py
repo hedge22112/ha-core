@@ -1,7 +1,5 @@
 """Support for recording details."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Iterable
 from concurrent.futures import CancelledError
@@ -12,9 +10,9 @@ import queue
 import sqlite3
 import threading
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, override
 
-from propcache import cached_property
+from propcache.api import cached_property
 import psutil_home_assistant as ha_psutil
 from sqlalchemy import create_engine, event as sqlalchemy_event, exc, select, update
 from sqlalchemy.engine import Engine
@@ -43,9 +41,10 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
     async_track_utc_time_change,
 )
+from homeassistant.helpers.recorder import DATA_RECORDER
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import UNDEFINED, UndefinedType
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 from homeassistant.util.enum import try_parse_enum
 from homeassistant.util.event_type import EventType
 
@@ -55,7 +54,6 @@ from .const import (
     DEFAULT_MAX_BIND_VARS,
     DOMAIN,
     KEEPALIVE_TIME,
-    LAST_REPORTED_SCHEMA_VERSION,
     MARIADB_PYMYSQL_URL_PREFIX,
     MARIADB_URL_PREFIX,
     MAX_QUEUE_BACKLOG_MIN_VALUE,
@@ -122,8 +120,6 @@ from .util import (
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_URL = "sqlite:///{hass_config_path}"
-
 # Controls how often we clean up
 # States and Events objects
 EXPIRE_AFTER_COMMITS = 120
@@ -183,7 +179,7 @@ class Recorder(threading.Thread):
         self.db_retry_wait = db_retry_wait
         self.database_engine: DatabaseEngine | None = None
         # Database connection is ready, but non-live migration may be in progress
-        db_connected: asyncio.Future[bool] = hass.data[DOMAIN].db_connected
+        db_connected: asyncio.Future[bool] = hass.data[DATA_RECORDER].db_connected
         self.async_db_connected: asyncio.Future[bool] = db_connected
         # Database is ready to use but live migration may be in progress
         self.async_db_ready: asyncio.Future[bool] = hass.loop.create_future()
@@ -380,7 +376,7 @@ class Recorder(threading.Thread):
         return cast(int, self._psutil.psutil.virtual_memory().available)
 
     def _reached_max_backlog(self) -> bool:
-        """Check if the system has reached the max queue backlog and return True if it has."""
+        """Check if the system has reached the max queue backlog."""
         # First check the minimum value since its cheap
         if self.backlog < MAX_QUEUE_BACKLOG_MIN_VALUE:
             return False
@@ -570,13 +566,18 @@ class Recorder(threading.Thread):
         statistic_id: str,
         *,
         new_statistic_id: str | UndefinedType = UNDEFINED,
-        new_unit_of_measurement: str | None | UndefinedType = UNDEFINED,
+        new_unit_class: str | UndefinedType | None = UNDEFINED,
+        new_unit_of_measurement: str | UndefinedType | None = UNDEFINED,
         on_done: Callable[[], None] | None = None,
     ) -> None:
         """Update statistics metadata for a statistic_id."""
         self.queue_task(
             UpdateStatisticsMetadataTask(
-                on_done, statistic_id, new_statistic_id, new_unit_of_measurement
+                on_done,
+                statistic_id,
+                new_statistic_id,
+                new_unit_class,
+                new_unit_of_measurement,
             )
         )
 
@@ -667,6 +668,7 @@ class Recorder(threading.Thread):
             )
             return SHUTDOWN_TASK
 
+    @override
     def run(self) -> None:
         """Run the recorder thread."""
         self.is_running = True
@@ -790,6 +792,10 @@ class Recorder(threading.Thread):
 
         # Catch up with missed statistics
         self._schedule_compile_missing_statistics()
+
+        # Kick off live migrations
+        migration.migrate_data_live(self, self.get_session, schema_status)
+
         _LOGGER.debug("Recorder processing the queue")
         self._adjust_lru_size()
         self.hass.add_job(self._async_set_recorder_ready_migration_done)
@@ -798,15 +804,13 @@ class Recorder(threading.Thread):
     def _activate_and_set_db_ready(
         self, schema_status: migration.SchemaValidationStatus
     ) -> None:
-        """Activate the table managers or schedule migrations and mark the db as ready."""
+        """Activate table managers or schedule migrations and mark db as ready."""
         with session_scope(session=self.get_session()) as session:
             # Prime the statistics meta manager as soon as possible
             # since we want the frontend queries to avoid a thundering
             # herd of queries to find the statistics meta data if
             # there are a lot of statistics graphs on the frontend.
             self.statistics_meta_manager.load(session)
-
-        migration.migrate_data_live(self, self.get_session, schema_status)
 
         # We must only set the db ready after we have set the table managers
         # to active if there is no data to migrate.
@@ -865,7 +869,10 @@ class Recorder(threading.Thread):
     def _guarded_process_one_task_or_event_or_recover(
         self, task: RecorderTask | Event
     ) -> None:
-        """Process a task, guarding against exceptions to ensure the loop does not collapse."""
+        """Process a task, guarding against exceptions.
+
+        This ensures the loop does not collapse.
+        """
         _LOGGER.debug("Processing task: %s", task)
         try:
             self._process_one_task_or_event_or_recover(task)
@@ -1111,9 +1118,6 @@ class Recorder(threading.Thread):
         else:
             states_manager.add_pending(entity_id, dbstate)
 
-        if states_meta_manager.active:
-            dbstate.entity_id = None
-
         if entity_id is None or not (
             shared_attrs_bytes := state_attributes_manager.serialize_from_event(event)
         ):
@@ -1124,7 +1128,7 @@ class Recorder(threading.Thread):
             dbstate.states_meta_rel = pending_states_meta
         elif metadata_id := states_meta_manager.get(entity_id, session, True):
             dbstate.metadata_id = metadata_id
-        elif states_meta_manager.active and entity_removed:
+        elif entity_removed:
             # If the entity was removed, we don't need to add it to the
             # StatesMeta table or record it in the pending commit
             # if it does not have a metadata_id allocated to it as
@@ -1211,7 +1215,7 @@ class Recorder(threading.Thread):
         if (
             pending_last_reported
             := self.states_manager.get_pending_last_reported_timestamp()
-        ) and self.schema_version >= LAST_REPORTED_SCHEMA_VERSION:
+        ):
             with session.no_autoflush:
                 session.execute(
                     update(States),
@@ -1220,7 +1224,9 @@ class Recorder(threading.Thread):
                             "state_id": state_id,
                             "last_reported_ts": last_reported_timestamp,
                         }
-                        for state_id, last_reported_timestamp in pending_last_reported.items()
+                        for state_id, last_reported_timestamp in (
+                            pending_last_reported.items()
+                        )
                     ],
                 )
         session.commit()
@@ -1291,11 +1297,20 @@ class Recorder(threading.Thread):
 
     async def async_block_till_done(self) -> None:
         """Async version of block_till_done."""
+        if future := self.async_get_commit_future():
+            await future
+
+    @callback
+    def async_get_commit_future(self) -> asyncio.Future[None] | None:
+        """Return a future that will wait for the next commit.
+
+        Returns None if nothing is pending.
+        """
         if self._queue.empty() and not self._event_session_has_pending_writes:
-            return
-        event = asyncio.Event()
-        self.queue_task(SynchronizeTask(event))
-        await event.wait()
+            return None
+        future: asyncio.Future[None] = self.hass.loop.create_future()
+        self.queue_task(SynchronizeTask(future))
+        return future
 
     def block_till_done(self) -> None:
         """Block till all events processed.
@@ -1366,10 +1381,16 @@ class Recorder(threading.Thread):
         self, dbapi_connection: DBAPIConnection, connection_record: Any
     ) -> None:
         """Dbapi specific connection settings."""
-        assert self.engine is not None
+        if (engine := self.engine) is None:
+            # _close_connection disposes the engine and drops our reference to it, but
+            # dispose() only empties the pool: the engine stays usable, so anything
+            # still holding a reference to it can check out a fresh DBAPI connection
+            # and get here. There is no longer an engine of ours to configure it for.
+            _LOGGER.debug("Ignoring connection setup for a closed database connection")
+            return
         if database_engine := setup_connection_for_dialect(
             self,
-            self.engine.dialect.name,
+            engine.dialect.name,
             dbapi_connection,
             not self._completed_first_database_setup,
         ):

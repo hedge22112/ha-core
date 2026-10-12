@@ -1,18 +1,14 @@
 """Define switch func."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import IntellifireDataUpdateCoordinator
-from .const import DOMAIN
+from .coordinator import IntellifireConfigEntry, IntellifireDataUpdateCoordinator
 from .entity import IntellifireEntity
 
 
@@ -52,11 +48,11 @@ INTELLIFIRE_SWITCHES: tuple[IntellifireSwitchEntityDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: IntellifireConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Configure switch entities."""
-    coordinator: IntellifireDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     async_add_entities(
         IntellifireSwitch(coordinator=coordinator, description=description)
@@ -69,17 +65,20 @@ class IntellifireSwitch(IntellifireEntity, SwitchEntity):
 
     entity_description: IntellifireSwitchEntityDescription
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
         await self.entity_description.on_fn(self.coordinator)
         await self.async_update_ha_state(force_refresh=True)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
         await self.entity_description.off_fn(self.coordinator)
         await self.async_update_ha_state(force_refresh=True)
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return the on state."""
         return self.entity_description.value_fn(self.coordinator)

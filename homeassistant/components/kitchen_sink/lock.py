@@ -1,13 +1,14 @@
 """Demo platform that has a couple of fake locks."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.lock import LockEntity, LockEntityFeature, LockState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 
@@ -49,7 +50,7 @@ async def async_setup_platform(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Everything but the Kitchen Sink config entry."""
     await async_setup_platform(hass, {}, async_add_entities)
@@ -74,15 +75,18 @@ class DemoLock(LockEntity):
         self._attr_is_unlocking = False
 
     @property
+    @override
     def is_locked(self) -> bool:
         """Return true if lock is locked."""
         return self._state == LockState.LOCKED
 
     @property
+    @override
     def is_open(self) -> bool:
         """Return true if lock is open."""
         return self._state == LockState.OPEN
 
+    @override
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the device."""
         self._attr_is_locking = True
@@ -91,6 +95,7 @@ class DemoLock(LockEntity):
         self._state = LockState.LOCKED
         self.async_write_ha_state()
 
+    @override
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the device."""
         self._attr_is_unlocking = True
@@ -99,6 +104,7 @@ class DemoLock(LockEntity):
         self._state = LockState.UNLOCKED
         self.async_write_ha_state()
 
+    @override
     async def async_open(self, **kwargs: Any) -> None:
         """Open the door latch."""
         self._state = LockState.OPEN

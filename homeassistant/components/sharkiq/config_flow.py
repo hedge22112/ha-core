@@ -1,21 +1,19 @@
 """Config flow for Shark IQ integration."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, override
 
 import aiohttp
+import probatio
 from sharkiq import SharkIqAuthError, get_ayla_api
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .const import (
     DOMAIN,
@@ -25,11 +23,11 @@ from .const import (
     SHARKIQ_REGION_OPTIONS,
 )
 
-SHARKIQ_SCHEMA = vol.Schema(
+SHARKIQ_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
-        vol.Required(
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
+        probatio.Required(
             CONF_REGION, default=SHARKIQ_REGION_DEFAULT
         ): selector.SelectSelector(
             selector.SelectSelectorConfig(
@@ -44,15 +42,19 @@ async def _validate_input(
     hass: HomeAssistant, data: Mapping[str, Any]
 ) -> dict[str, str]:
     """Validate the user input allows us to connect."""
+    new_websession = async_create_clientsession(
+        hass,
+        cookie_jar=aiohttp.CookieJar(unsafe=True, quote_cookie=False),
+    )
     ayla_api = get_ayla_api(
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
-        websession=async_get_clientsession(hass),
+        websession=new_websession,
         europe=(data[CONF_REGION] == SHARKIQ_REGION_EUROPE),
     )
 
     try:
-        async with asyncio.timeout(10):
+        async with asyncio.timeout(15):
             LOGGER.debug("Initialize connection to Ayla networks API")
             await ayla_api.async_sign_in()
     except (TimeoutError, aiohttp.ClientError, TypeError) as error:
@@ -69,7 +71,9 @@ async def _validate_input(
         LOGGER.exception("Unexpected exception")
         LOGGER.error(error)
         raise UnknownAuth(
-            "An unknown error occurred. Check your region settings and open an issue on Github if the issue persists."
+            "An unknown error occurred. Check your region"
+            " settings and open an issue on GitHub"
+            " if the issue persists."
         ) from error
 
     # Return info that you want to store in the config entry.
@@ -99,6 +103,7 @@ class SharkIqConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = "unknown"
         return info, errors
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, str] | None = None
     ) -> ConfigFlowResult:

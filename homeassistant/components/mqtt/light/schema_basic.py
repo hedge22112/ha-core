@@ -1,29 +1,20 @@
 """Support for MQTT lights."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 import logging
-from typing import Any, cast
+from typing import Any, cast, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.light import (
-    _DEPRECATED_ATTR_COLOR_TEMP,
-    _DEPRECATED_ATTR_MAX_MIREDS,
-    _DEPRECATED_ATTR_MIN_MIREDS,
     ATTR_BRIGHTNESS,
     ATTR_COLOR_MODE,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_EFFECT,
-    ATTR_EFFECT_LIST,
     ATTR_HS_COLOR,
-    ATTR_MAX_COLOR_TEMP_KELVIN,
-    ATTR_MIN_COLOR_TEMP_KELVIN,
     ATTR_RGB_COLOR,
     ATTR_RGBW_COLOR,
     ATTR_RGBWW_COLOR,
-    ATTR_SUPPORTED_COLOR_MODES,
     ATTR_WHITE,
     ATTR_XY_COLOR,
     DEFAULT_MAX_KELVIN,
@@ -31,7 +22,9 @@ from homeassistant.components.light import (
     ENTITY_ID_FORMAT,
     ColorMode,
     LightEntity,
+    LightEntityCapabilityAttribute,
     LightEntityFeature,
+    LightEntityStateAttribute,
     valid_supported_color_modes,
 )
 from homeassistant.const import (
@@ -42,22 +35,69 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.service_info.mqtt import ReceivePayloadType
 from homeassistant.helpers.typing import ConfigType, VolSchemaType
-import homeassistant.util.color as color_util
+from homeassistant.util import color as color_util
 
 from .. import subscription
 from ..config import MQTT_RW_SCHEMA
 from ..const import (
+    CONF_BRIGHTNESS_COMMAND_TEMPLATE,
+    CONF_BRIGHTNESS_COMMAND_TOPIC,
+    CONF_BRIGHTNESS_SCALE,
+    CONF_BRIGHTNESS_STATE_TOPIC,
+    CONF_BRIGHTNESS_VALUE_TEMPLATE,
+    CONF_COLOR_MODE_STATE_TOPIC,
+    CONF_COLOR_MODE_VALUE_TEMPLATE,
+    CONF_COLOR_TEMP_COMMAND_TEMPLATE,
+    CONF_COLOR_TEMP_COMMAND_TOPIC,
     CONF_COLOR_TEMP_KELVIN,
+    CONF_COLOR_TEMP_STATE_TOPIC,
+    CONF_COLOR_TEMP_VALUE_TEMPLATE,
     CONF_COMMAND_TOPIC,
+    CONF_EFFECT_COMMAND_TEMPLATE,
+    CONF_EFFECT_COMMAND_TOPIC,
+    CONF_EFFECT_LIST,
+    CONF_EFFECT_STATE_TOPIC,
+    CONF_EFFECT_VALUE_TEMPLATE,
+    CONF_HS_COMMAND_TEMPLATE,
+    CONF_HS_COMMAND_TOPIC,
+    CONF_HS_STATE_TOPIC,
+    CONF_HS_VALUE_TEMPLATE,
     CONF_MAX_KELVIN,
+    CONF_MAX_MIREDS,
     CONF_MIN_KELVIN,
+    CONF_MIN_MIREDS,
+    CONF_ON_COMMAND_TYPE,
+    CONF_RGB_COMMAND_TEMPLATE,
+    CONF_RGB_COMMAND_TOPIC,
+    CONF_RGB_STATE_TOPIC,
+    CONF_RGB_VALUE_TEMPLATE,
+    CONF_RGBW_COMMAND_TEMPLATE,
+    CONF_RGBW_COMMAND_TOPIC,
+    CONF_RGBW_STATE_TOPIC,
+    CONF_RGBW_VALUE_TEMPLATE,
+    CONF_RGBWW_COMMAND_TEMPLATE,
+    CONF_RGBWW_COMMAND_TOPIC,
+    CONF_RGBWW_STATE_TOPIC,
+    CONF_RGBWW_VALUE_TEMPLATE,
     CONF_STATE_TOPIC,
     CONF_STATE_VALUE_TEMPLATE,
+    CONF_WHITE_COMMAND_TOPIC,
+    CONF_WHITE_SCALE,
+    CONF_XY_COMMAND_TEMPLATE,
+    CONF_XY_COMMAND_TOPIC,
+    CONF_XY_STATE_TOPIC,
+    CONF_XY_VALUE_TEMPLATE,
+    DEFAULT_BRIGHTNESS_SCALE,
+    DEFAULT_ON_COMMAND_TYPE,
+    DEFAULT_PAYLOAD_OFF,
+    DEFAULT_PAYLOAD_ON,
+    DEFAULT_WHITE_SCALE,
     PAYLOAD_NONE,
+    VALUES_ON_COMMAND_TYPE,
 )
 from ..entity import MqttEntity
 from ..models import (
@@ -74,77 +114,25 @@ from .schema import MQTT_LIGHT_SCHEMA_SCHEMA
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_BRIGHTNESS_COMMAND_TEMPLATE = "brightness_command_template"
-CONF_BRIGHTNESS_COMMAND_TOPIC = "brightness_command_topic"
-CONF_BRIGHTNESS_SCALE = "brightness_scale"
-CONF_BRIGHTNESS_STATE_TOPIC = "brightness_state_topic"
-CONF_BRIGHTNESS_VALUE_TEMPLATE = "brightness_value_template"
-CONF_COLOR_MODE_STATE_TOPIC = "color_mode_state_topic"
-CONF_COLOR_MODE_VALUE_TEMPLATE = "color_mode_value_template"
-CONF_COLOR_TEMP_COMMAND_TEMPLATE = "color_temp_command_template"
-CONF_COLOR_TEMP_COMMAND_TOPIC = "color_temp_command_topic"
-CONF_COLOR_TEMP_STATE_TOPIC = "color_temp_state_topic"
-CONF_COLOR_TEMP_VALUE_TEMPLATE = "color_temp_value_template"
-CONF_EFFECT_COMMAND_TEMPLATE = "effect_command_template"
-CONF_EFFECT_COMMAND_TOPIC = "effect_command_topic"
-CONF_EFFECT_LIST = "effect_list"
-CONF_EFFECT_STATE_TOPIC = "effect_state_topic"
-CONF_EFFECT_VALUE_TEMPLATE = "effect_value_template"
-CONF_HS_COMMAND_TEMPLATE = "hs_command_template"
-CONF_HS_COMMAND_TOPIC = "hs_command_topic"
-CONF_HS_STATE_TOPIC = "hs_state_topic"
-CONF_HS_VALUE_TEMPLATE = "hs_value_template"
-CONF_MAX_MIREDS = "max_mireds"
-CONF_MIN_MIREDS = "min_mireds"
-CONF_RGB_COMMAND_TEMPLATE = "rgb_command_template"
-CONF_RGB_COMMAND_TOPIC = "rgb_command_topic"
-CONF_RGB_STATE_TOPIC = "rgb_state_topic"
-CONF_RGB_VALUE_TEMPLATE = "rgb_value_template"
-CONF_RGBW_COMMAND_TEMPLATE = "rgbw_command_template"
-CONF_RGBW_COMMAND_TOPIC = "rgbw_command_topic"
-CONF_RGBW_STATE_TOPIC = "rgbw_state_topic"
-CONF_RGBW_VALUE_TEMPLATE = "rgbw_value_template"
-CONF_RGBWW_COMMAND_TEMPLATE = "rgbww_command_template"
-CONF_RGBWW_COMMAND_TOPIC = "rgbww_command_topic"
-CONF_RGBWW_STATE_TOPIC = "rgbww_state_topic"
-CONF_RGBWW_VALUE_TEMPLATE = "rgbww_value_template"
-CONF_XY_COMMAND_TEMPLATE = "xy_command_template"
-CONF_XY_COMMAND_TOPIC = "xy_command_topic"
-CONF_XY_STATE_TOPIC = "xy_state_topic"
-CONF_XY_VALUE_TEMPLATE = "xy_value_template"
-CONF_WHITE_COMMAND_TOPIC = "white_command_topic"
-CONF_WHITE_SCALE = "white_scale"
-CONF_ON_COMMAND_TYPE = "on_command_type"
+DEFAULT_NAME = "MQTT LightEntity"
 
 MQTT_LIGHT_ATTRIBUTES_BLOCKED = frozenset(
     {
-        ATTR_COLOR_MODE,
-        ATTR_BRIGHTNESS,
-        _DEPRECATED_ATTR_COLOR_TEMP.value,
-        ATTR_COLOR_TEMP_KELVIN,
-        ATTR_EFFECT,
-        ATTR_EFFECT_LIST,
-        ATTR_HS_COLOR,
-        ATTR_MAX_COLOR_TEMP_KELVIN,
-        _DEPRECATED_ATTR_MAX_MIREDS.value,
-        ATTR_MIN_COLOR_TEMP_KELVIN,
-        _DEPRECATED_ATTR_MIN_MIREDS.value,
-        ATTR_RGB_COLOR,
-        ATTR_RGBW_COLOR,
-        ATTR_RGBWW_COLOR,
-        ATTR_SUPPORTED_COLOR_MODES,
-        ATTR_XY_COLOR,
+        LightEntityCapabilityAttribute.EFFECT_LIST,
+        LightEntityCapabilityAttribute.MAX_COLOR_TEMP_KELVIN,
+        LightEntityCapabilityAttribute.MIN_COLOR_TEMP_KELVIN,
+        LightEntityCapabilityAttribute.SUPPORTED_COLOR_MODES,
+        LightEntityStateAttribute.BRIGHTNESS,
+        LightEntityStateAttribute.COLOR_MODE,
+        LightEntityStateAttribute.COLOR_TEMP_KELVIN,
+        LightEntityStateAttribute.EFFECT,
+        LightEntityStateAttribute.HS_COLOR,
+        LightEntityStateAttribute.RGB_COLOR,
+        LightEntityStateAttribute.RGBW_COLOR,
+        LightEntityStateAttribute.RGBWW_COLOR,
+        LightEntityStateAttribute.XY_COLOR,
     }
 )
-
-DEFAULT_BRIGHTNESS_SCALE = 255
-DEFAULT_NAME = "MQTT LightEntity"
-DEFAULT_PAYLOAD_OFF = "OFF"
-DEFAULT_PAYLOAD_ON = "ON"
-DEFAULT_WHITE_SCALE = 255
-DEFAULT_ON_COMMAND_TYPE = "last"
-
-VALUES_ON_COMMAND_TYPE = ["first", "last", "brightness"]
 
 COMMAND_TEMPLATE_KEYS = [
     CONF_BRIGHTNESS_COMMAND_TEMPLATE,
@@ -172,68 +160,70 @@ VALUE_TEMPLATE_KEYS = [
 PLATFORM_SCHEMA_MODERN_BASIC = (
     MQTT_RW_SCHEMA.extend(
         {
-            vol.Optional(CONF_BRIGHTNESS_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_BRIGHTNESS_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(
+            probatio.Optional(CONF_BRIGHTNESS_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_BRIGHTNESS_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(
                 CONF_BRIGHTNESS_SCALE, default=DEFAULT_BRIGHTNESS_SCALE
-            ): vol.All(vol.Coerce(int), vol.Range(min=1)),
-            vol.Optional(CONF_BRIGHTNESS_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_BRIGHTNESS_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_COLOR_MODE_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_COLOR_MODE_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_COLOR_TEMP_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_COLOR_TEMP_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_COLOR_TEMP_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_COLOR_TEMP_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_COLOR_TEMP_KELVIN, default=False): cv.boolean,
-            vol.Optional(CONF_EFFECT_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_EFFECT_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_EFFECT_LIST): vol.All(cv.ensure_list, [cv.string]),
-            vol.Optional(CONF_EFFECT_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_EFFECT_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_HS_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_HS_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_HS_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_HS_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_MAX_MIREDS): cv.positive_int,
-            vol.Optional(CONF_MIN_MIREDS): cv.positive_int,
-            vol.Optional(CONF_MAX_KELVIN): cv.positive_int,
-            vol.Optional(CONF_MIN_KELVIN): cv.positive_int,
-            vol.Optional(CONF_NAME): vol.Any(cv.string, None),
-            vol.Optional(CONF_ON_COMMAND_TYPE, default=DEFAULT_ON_COMMAND_TYPE): vol.In(
-                VALUES_ON_COMMAND_TYPE
+            ): probatio.All(probatio.Coerce(int), probatio.Range(min=1)),
+            probatio.Optional(CONF_BRIGHTNESS_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_BRIGHTNESS_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_COLOR_MODE_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_COLOR_MODE_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_COLOR_TEMP_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_COLOR_TEMP_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_COLOR_TEMP_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_COLOR_TEMP_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_COLOR_TEMP_KELVIN, default=False): cv.boolean,
+            probatio.Optional(CONF_EFFECT_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_EFFECT_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_EFFECT_LIST): probatio.All(
+                probatio.EnsureList(), [cv.string]
             ),
-            vol.Optional(CONF_PAYLOAD_OFF, default=DEFAULT_PAYLOAD_OFF): cv.string,
-            vol.Optional(CONF_PAYLOAD_ON, default=DEFAULT_PAYLOAD_ON): cv.string,
-            vol.Optional(CONF_RGB_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_RGB_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_RGB_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_RGB_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_RGBW_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_RGBW_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_RGBW_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_RGBW_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_RGBWW_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_RGBWW_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_RGBWW_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_RGBWW_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_STATE_VALUE_TEMPLATE): cv.template,
-            vol.Optional(CONF_WHITE_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_WHITE_SCALE, default=DEFAULT_WHITE_SCALE): vol.All(
-                vol.Coerce(int), vol.Range(min=1)
-            ),
-            vol.Optional(CONF_XY_COMMAND_TEMPLATE): cv.template,
-            vol.Optional(CONF_XY_COMMAND_TOPIC): valid_publish_topic,
-            vol.Optional(CONF_XY_STATE_TOPIC): valid_subscribe_topic,
-            vol.Optional(CONF_XY_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_EFFECT_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_EFFECT_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_HS_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_HS_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_HS_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_HS_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_MAX_MIREDS): cv.positive_int,
+            probatio.Optional(CONF_MIN_MIREDS): cv.positive_int,
+            probatio.Optional(CONF_MAX_KELVIN): cv.positive_int,
+            probatio.Optional(CONF_MIN_KELVIN): cv.positive_int,
+            probatio.Optional(CONF_NAME): probatio.Any(cv.string, None),
+            probatio.Optional(
+                CONF_ON_COMMAND_TYPE, default=DEFAULT_ON_COMMAND_TYPE
+            ): probatio.In(VALUES_ON_COMMAND_TYPE),
+            probatio.Optional(CONF_PAYLOAD_OFF, default=DEFAULT_PAYLOAD_OFF): cv.string,
+            probatio.Optional(CONF_PAYLOAD_ON, default=DEFAULT_PAYLOAD_ON): cv.string,
+            probatio.Optional(CONF_RGB_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_RGB_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_RGB_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_RGB_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_RGBW_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_RGBW_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_RGBW_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_RGBW_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_RGBWW_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_RGBWW_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_RGBWW_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_RGBWW_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_STATE_VALUE_TEMPLATE): cv.template,
+            probatio.Optional(CONF_WHITE_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(
+                CONF_WHITE_SCALE, default=DEFAULT_WHITE_SCALE
+            ): probatio.All(probatio.Coerce(int), probatio.Range(min=1)),
+            probatio.Optional(CONF_XY_COMMAND_TEMPLATE): cv.template,
+            probatio.Optional(CONF_XY_COMMAND_TOPIC): valid_publish_topic,
+            probatio.Optional(CONF_XY_STATE_TOPIC): valid_subscribe_topic,
+            probatio.Optional(CONF_XY_VALUE_TEMPLATE): cv.template,
         },
     )
     .extend(MQTT_ENTITY_COMMON_SCHEMA.schema)
     .extend(MQTT_LIGHT_SCHEMA_SCHEMA.schema)
 )
 
-DISCOVERY_SCHEMA_BASIC = vol.All(
-    PLATFORM_SCHEMA_MODERN_BASIC.extend({}, extra=vol.REMOVE_EXTRA),
+DISCOVERY_SCHEMA_BASIC = probatio.All(
+    PLATFORM_SCHEMA_MODERN_BASIC.extend({}, extra=probatio.REMOVE_EXTRA),
 )
 
 
@@ -264,10 +254,12 @@ class MqttLight(MqttEntity, LightEntity, RestoreEntity):
     _optimistic_xy_color: bool
 
     @staticmethod
+    @override
     def config_schema() -> VolSchemaType:
         """Return the config schema."""
         return DISCOVERY_SCHEMA_BASIC
 
+    @override
     def _setup_from_config(self, config: ConfigType) -> None:
         """(Re)Setup the entity."""
         self._color_temp_kelvin = config[CONF_COLOR_TEMP_KELVIN]
@@ -587,6 +579,7 @@ class MqttLight(MqttEntity, LightEntity, RestoreEntity):
         self._attr_xy_color = cast(tuple[float, float], xy_color)
 
     @callback
+    @override
     def _prepare_subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         self.add_subscription(CONF_STATE_TOPIC, self._state_received, {"_attr_is_on"})
@@ -630,6 +623,7 @@ class MqttLight(MqttEntity, LightEntity, RestoreEntity):
             {"_attr_color_mode", "_attr_xy_color"},
         )
 
+    @override
     async def _subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         subscription.async_subscribe_topics_internal(self.hass, self._sub_state)
@@ -659,6 +653,7 @@ class MqttLight(MqttEntity, LightEntity, RestoreEntity):
         restore_state(ATTR_XY_COLOR)
         restore_state(ATTR_HS_COLOR, ATTR_XY_COLOR)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:  # noqa: C901
         """Turn the device on.
 
@@ -878,6 +873,7 @@ class MqttLight(MqttEntity, LightEntity, RestoreEntity):
         if should_update:
             self.async_write_ha_state()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off.
 

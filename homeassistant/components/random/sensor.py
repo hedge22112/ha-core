@@ -1,12 +1,10 @@
 """Support for showing random numbers."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from random import randrange
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
@@ -21,8 +19,11 @@ from homeassistant.const import (
     CONF_UNIT_OF_MEASUREMENT,
 )
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .const import DEFAULT_MAX, DEFAULT_MIN
@@ -35,10 +36,10 @@ DEFAULT_NAME = "Random sensor"
 
 PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Optional(CONF_MAXIMUM, default=DEFAULT_MAX): cv.positive_int,
-        vol.Optional(CONF_MINIMUM, default=DEFAULT_MIN): cv.positive_int,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
+        probatio.Optional(CONF_MAXIMUM, default=DEFAULT_MAX): cv.positive_int,
+        probatio.Optional(CONF_MINIMUM, default=DEFAULT_MIN): cv.positive_int,
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        probatio.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
     }
 )
 
@@ -57,7 +58,7 @@ async def async_setup_platform(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize config entry."""
 

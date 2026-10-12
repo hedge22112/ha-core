@@ -2,10 +2,10 @@
 
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 from pyeconet.equipment import EquipmentType
-from pyeconet.equipment.water_heater import WaterHeaterOperationMode
+from pyeconet.equipment.water_heater import WaterHeater, WaterHeaterOperationMode
 
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -17,12 +17,11 @@ from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, STATE_OFF, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN, EQUIPMENT
+from . import EconetConfigEntry
 from .entity import EcoNetEntity
 
 SCAN_INTERVAL = timedelta(hours=1)
@@ -46,11 +45,20 @@ SUPPORT_FLAGS_HEATER = (
 )
 
 
+def _operation_mode_to_ha(mode: WaterHeaterOperationMode | None) -> str:
+    """Translate an EcoNet operation mode to a Home Assistant state."""
+    if mode in (None, WaterHeaterOperationMode.VACATION):
+        return STATE_OFF
+    return ECONET_STATE_TO_HA[mode]
+
+
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EconetConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EcoNet water heater based on a config entry."""
-    equipment = hass.data[DOMAIN][EQUIPMENT][entry.entry_id]
+    equipment = entry.runtime_data
     async_add_entities(
         [
             EcoNetWaterHeater(water_heater)
@@ -60,47 +68,47 @@ async def async_setup_entry(
     )
 
 
-class EcoNetWaterHeater(EcoNetEntity, WaterHeaterEntity):
+class EcoNetWaterHeater(EcoNetEntity[WaterHeater], WaterHeaterEntity):
     """Define an Econet water heater."""
 
     _attr_should_poll = True  # Override False default from EcoNetEntity
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
 
-    def __init__(self, water_heater):
+    def __init__(self, water_heater: WaterHeater) -> None:
         """Initialize."""
         super().__init__(water_heater)
         self.water_heater = water_heater
 
     @property
-    def is_away_mode_on(self):
+    @override
+    def is_away_mode_on(self) -> bool:
         """Return true if away mode is on."""
         return self._econet.away
 
     @property
-    def current_operation(self):
+    @override
+    def current_operation(self) -> str:
         """Return current operation."""
-        econet_mode = self.water_heater.mode
-        _current_op = STATE_OFF
-        if econet_mode is not None:
-            _current_op = ECONET_STATE_TO_HA[econet_mode]
-
-        return _current_op
+        return _operation_mode_to_ha(self.water_heater.mode)
 
     @property
-    def operation_list(self):
+    @override
+    def operation_list(self) -> list[str]:
         """List of available operation modes."""
-        econet_modes = self.water_heater.modes
-        op_list = []
-        for mode in econet_modes:
-            if (
-                mode is not WaterHeaterOperationMode.UNKNOWN
-                and mode is not WaterHeaterOperationMode.VACATION
-            ):
-                ha_mode = ECONET_STATE_TO_HA[mode]
-                op_list.append(ha_mode)
-        return op_list
+        return list(
+            dict.fromkeys(
+                ECONET_STATE_TO_HA[mode]
+                for mode in self.water_heater.modes
+                if mode
+                not in (
+                    WaterHeaterOperationMode.UNKNOWN,
+                    WaterHeaterOperationMode.VACATION,
+                )
+            )
+        )
 
     @property
+    @override
     def supported_features(self) -> WaterHeaterEntityFeature:
         """Return the list of supported features."""
         if self.water_heater.modes:
@@ -114,6 +122,7 @@ class EcoNetWaterHeater(EcoNetEntity, WaterHeaterEntity):
             )
         return WaterHeaterEntityFeature.TARGET_TEMPERATURE
 
+    @override
     def set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         if (target_temp := kwargs.get(ATTR_TEMPERATURE)) is not None:
@@ -121,6 +130,7 @@ class EcoNetWaterHeater(EcoNetEntity, WaterHeaterEntity):
         else:
             _LOGGER.error("A target temperature must be provided")
 
+    @override
     def set_operation_mode(self, operation_mode: str) -> None:
         """Set operation mode."""
         op_mode_to_set = HA_STATE_TO_ECONET.get(operation_mode)
@@ -130,17 +140,20 @@ class EcoNetWaterHeater(EcoNetEntity, WaterHeaterEntity):
             _LOGGER.error("Invalid operation mode: %s", operation_mode)
 
     @property
-    def target_temperature(self):
+    @override
+    def native_target_temperature(self) -> int:
         """Return the temperature we try to reach."""
         return self.water_heater.set_point
 
     @property
-    def min_temp(self):
+    @override
+    def min_temp(self) -> float:
         """Return the minimum temperature."""
         return self.water_heater.set_point_limits[0]
 
     @property
-    def max_temp(self):
+    @override
+    def max_temp(self) -> float:
         """Return the maximum temperature."""
         return self.water_heater.set_point_limits[1]
 
@@ -149,10 +162,12 @@ class EcoNetWaterHeater(EcoNetEntity, WaterHeaterEntity):
         await self.water_heater.get_energy_usage()
         await self.water_heater.get_water_usage()
 
+    @override
     def turn_away_mode_on(self) -> None:
         """Turn away mode on."""
         self.water_heater.set_away_mode(True)
 
+    @override
     def turn_away_mode_off(self) -> None:
         """Turn away mode off."""
         self.water_heater.set_away_mode(False)

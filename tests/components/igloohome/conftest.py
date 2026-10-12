@@ -3,7 +3,7 @@
 from collections.abc import Generator
 from unittest.mock import AsyncMock, patch
 
-from igloohome_api import GetDeviceInfoResponse, GetDevicesResponse
+from igloohome_api import GetDeviceInfoResponse, GetDevicesResponse, LinkedDevice
 import pytest
 
 from homeassistant.components.igloohome.const import DOMAIN
@@ -23,6 +23,28 @@ GET_DEVICE_INFO_RESPONSE_LOCK = GetDeviceInfoResponse(
     batteryLevel=100,
 )
 
+GET_DEVICE_INFO_RESPONSE_BRIDGE_LINKED_LOCK = GetDeviceInfoResponse(
+    id="001",
+    type="Bridge",
+    deviceId="EB1X04eeeeee",
+    deviceName="Home Bridge",
+    pairedAt="2024-11-09T12:19:25+00:00",
+    homeId=[],
+    linkedDevices=[LinkedDevice(type="Lock", deviceId="OE1X123cbb11")],
+    batteryLevel=None,
+)
+
+GET_DEVICE_INFO_RESPONSE_BRIDGE_NO_LINKED_DEVICE = GetDeviceInfoResponse(
+    id="001",
+    type="Bridge",
+    deviceId="EB1X04eeeeee",
+    deviceName="Home Bridge",
+    pairedAt="2024-11-09T12:19:25+00:00",
+    homeId=[],
+    linkedDevices=[],
+    batteryLevel=None,
+)
+
 
 @pytest.fixture
 def mock_setup_entry() -> Generator[AsyncMock]:
@@ -35,7 +57,7 @@ def mock_setup_entry() -> Generator[AsyncMock]:
 
 @pytest.fixture
 async def mock_auth() -> Generator[AsyncMock]:
-    """Set up the mock usages of the igloohome_api.Auth class. Defaults to always successfully operate."""
+    """Set up mock igloohome_api.Auth class, defaulting to success."""
     with patch(
         "homeassistant.components.igloohome.config_flow.IgloohomeAuth.async_get_access_token",
         return_value="mock_access_token",
@@ -66,7 +88,10 @@ def mock_api() -> Generator[AsyncMock]:
         api = api_mock.return_value
         api.get_devices.return_value = GetDevicesResponse(
             nextCursor="",
-            payload=[GET_DEVICE_INFO_RESPONSE_LOCK],
+            payload=[
+                GET_DEVICE_INFO_RESPONSE_LOCK,
+                GET_DEVICE_INFO_RESPONSE_BRIDGE_LINKED_LOCK,
+            ],
         )
         api.get_device_info.return_value = GET_DEVICE_INFO_RESPONSE_LOCK
         yield api

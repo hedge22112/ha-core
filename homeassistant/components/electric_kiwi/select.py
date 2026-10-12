@@ -1,18 +1,18 @@
 """Support for Electric Kiwi hour of free power."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTRIBUTION, DOMAIN, HOP_COORDINATOR
-from .coordinator import ElectricKiwiHOPDataCoordinator
+from .const import ATTRIBUTION
+from .coordinator import ElectricKiwiConfigEntry, ElectricKiwiHOPDataCoordinator
+
+PARALLEL_UPDATES = 1
 
 _LOGGER = logging.getLogger(__name__)
 ATTR_EK_HOP_SELECT = "hop_select"
@@ -25,12 +25,12 @@ HOP_SELECT = SelectEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ElectricKiwiConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Electric Kiwi select setup."""
-    hop_coordinator: ElectricKiwiHOPDataCoordinator = hass.data[DOMAIN][entry.entry_id][
-        HOP_COORDINATOR
-    ]
+    hop_coordinator = entry.runtime_data.hop
 
     _LOGGER.debug("Setting up select entity")
     async_add_entities([ElectricKiwiSelectHOPEntity(hop_coordinator, HOP_SELECT)])
@@ -54,14 +54,15 @@ class ElectricKiwiSelectHOPEntity(
         """Initialise the HOP selection entity."""
         super().__init__(coordinator)
         self._attr_unique_id = (
-            f"{coordinator._ek_api.customer_number}"  # noqa: SLF001
-            f"_{coordinator._ek_api.connection_id}_{description.key}"  # noqa: SLF001
+            f"{coordinator.ek_api.customer_number}"
+            f"_{coordinator.ek_api.electricity.identifier}_{description.key}"
         )
         self.entity_description = description
         self.values_dict = coordinator.get_hop_options()
         self._attr_options = list(self.values_dict)
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return the currently selected option."""
         return (
@@ -69,6 +70,7 @@ class ElectricKiwiSelectHOPEntity(
             f" - {self.coordinator.data.end.end_time}"
         )
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         value = self.values_dict[option]

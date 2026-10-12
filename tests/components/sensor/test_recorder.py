@@ -1,11 +1,12 @@
 """The tests for sensor recorder platform."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
+import logging
 import math
 from statistics import mean
 from typing import Any, Literal
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, Mock, patch
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory
@@ -26,38 +27,53 @@ from homeassistant.components.recorder.db_schema import (
 )
 from homeassistant.components.recorder.models import (
     StatisticData,
+    StatisticMeanType,
     StatisticMetaData,
     process_timestamp,
 )
 from homeassistant.components.recorder.statistics import (
+    DEG_TO_RAD,
+    RAD_TO_DEG,
     async_import_statistics,
     get_metadata,
     list_statistic_ids,
 )
 from homeassistant.components.recorder.util import get_instance, session_scope
-from homeassistant.components.sensor import ATTR_OPTIONS, DOMAIN, SensorDeviceClass
-from homeassistant.const import ATTR_FRIENDLY_NAME, STATE_UNAVAILABLE
+from homeassistant.components.sensor import (
+    ATTR_OPTIONS,
+    DOMAIN,
+    SensorDeviceClass,
+    SensorStateClass,
+)
+from homeassistant.components.sensor.recorder import (
+    MEAN_TYPE_CHANGED_ISSUE,
+    STATE_CLASS_REMOVED_ISSUE,
+    UNITS_CHANGED_ISSUE,
+)
+from homeassistant.const import ATTR_FRIENDLY_NAME, DEGREE, STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 from .common import MockSensor
 
-from tests.common import setup_test_component_platform
+from tests.common import mock_platform, setup_test_component_platform
 from tests.components.recorder.common import (
     assert_dict_of_states_equal_without_context_and_last_changed,
     assert_multiple_states_equal_without_context_and_last_changed,
     async_recorder_block_till_done,
     async_wait_recording_done,
+    db_state_attributes_to_native,
+    db_state_to_native,
     do_adhoc_statistics,
     get_start_time,
     statistics_during_period,
 )
 from tests.typing import (
     MockHAClientWebSocket,
-    RecorderInstanceGenerator,
+    RecorderInstanceContextManager,
     WebSocketGenerator,
 )
 
@@ -98,11 +114,18 @@ KW_SENSOR_ATTRIBUTES = {
     "state_class": "measurement",
     "unit_of_measurement": "kW",
 }
+WIND_DIRECTION_ATTRIBUTES = {
+    "device_class": SensorDeviceClass.WIND_DIRECTION,
+    "state_class": SensorStateClass.MEASUREMENT_ANGLE,
+    "unit_of_measurement": DEGREE,
+}
+WIND_DIRECTION_STATES_SEQ = [350, 0, 15]
+TEMP_STATES_SEQ = [-10, 15, 30, 60]
 
 
 @pytest.fixture
 async def mock_recorder_before_hass(
-    async_test_recorder: RecorderInstanceGenerator,
+    async_test_recorder: RecorderInstanceContextManager,
 ) -> None:
     """Set up recorder patches."""
 
@@ -117,6 +140,20 @@ def disable_mariadb_issue() -> None:
     """Disable creating issue about outdated MariaDB version."""
     with patch(
         "homeassistant.components.recorder.util._async_create_mariadb_range_index_regression_issue"
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def disable_deprecated_database_version_issue() -> None:
+    """Disable creating issues about deprecated database versions."""
+    with (
+        patch(
+            "homeassistant.components.recorder.util._async_create_issue_deprecated_version"
+        ),
+        patch(
+            "homeassistant.components.recorder.util._async_create_issue_not_supported_lts"
+        ),
     ):
         yield
 
@@ -218,14 +255,29 @@ async def assert_validation_result(
     ),
     [
         (None, "%", "%", "%", "unitless", 13.050847, -10, 30),
+        (None, "ppm", "ppm", "ppm", "unitless", 13.050847, -10, 30),
+        (None, "g/m³", "g/m³", "g/m³", "concentration", 13.050847, -10, 30),
+        (None, "mg/m³", "mg/m³", "mg/m³", "concentration", 13.050847, -10, 30),
         ("area", "m²", "m²", "m²", "area", 13.050847, -10, 30),
         ("area", "mi²", "mi²", "mi²", "area", 13.050847, -10, 30),
         ("battery", "%", "%", "%", "unitless", 13.050847, -10, 30),
         ("battery", None, None, None, "unitless", 13.050847, -10, 30),
+        (
+            "carbon_monoxide",
+            "mg/m³",
+            "mg/m³",
+            "mg/m³",
+            "carbon_monoxide",
+            13.050847,
+            -10,
+            30,
+        ),
+        ("carbon_monoxide", "ppm", "ppm", "ppm", "carbon_monoxide", 13.050847, -10, 30),
         ("distance", "m", "m", "m", "distance", 13.050847, -10, 30),
         ("distance", "mi", "mi", "mi", "distance", 13.050847, -10, 30),
         ("humidity", "%", "%", "%", "unitless", 13.050847, -10, 30),
         ("humidity", None, None, None, "unitless", 13.050847, -10, 30),
+        ("pressure", "mPa", "mPa", "mPa", "pressure", 13.050847, -10, 30),
         ("pressure", "Pa", "Pa", "Pa", "pressure", 13.050847, -10, 30),
         ("pressure", "hPa", "hPa", "hPa", "pressure", 13.050847, -10, 30),
         ("pressure", "mbar", "mbar", "mbar", "pressure", 13.050847, -10, 30),
@@ -235,6 +287,26 @@ async def assert_validation_result(
         ("speed", "mph", "mph", "mph", "speed", 13.050847, -10, 30),
         ("temperature", "°C", "°C", "°C", "temperature", 13.050847, -10, 30),
         ("temperature", "°F", "°F", "°F", "temperature", 13.050847, -10, 30),
+        (
+            "temperature_delta",
+            "°C",
+            "°C",
+            "°C",
+            "temperature_delta",
+            13.050847,
+            -10,
+            30,
+        ),
+        (
+            "temperature_delta",
+            "°F",
+            "°F",
+            "°F",
+            "temperature_delta",
+            13.050847,
+            -10,
+            30,
+        ),
         ("volume", "m³", "m³", "m³", "volume", 13.050847, -10, 30),
         ("volume", "ft³", "ft³", "ft³", "volume", 13.050847, -10, 30),
         ("weight", "g", "g", "g", "mass", 13.050847, -10, 30),
@@ -255,7 +327,7 @@ async def test_compile_hourly_statistics(
 ) -> None:
     """Test compiling hourly statistics."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -281,6 +353,7 @@ async def test_compile_hourly_statistics(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -297,6 +370,64 @@ async def test_compile_hourly_statistics(
                 "mean": pytest.approx(mean),
                 "min": pytest.approx(min),
                 "max": pytest.approx(max),
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            }
+        ]
+    }
+    assert "Error while processing event StatisticsTask" not in caplog.text
+
+
+async def test_compile_hourly_statistics_angle(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test compiling hourly statistics for measurement_angle."""
+    zero = get_start_time(dt_util.utcnow())
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+    with freeze_time(zero) as freezer:
+        four, states = await async_record_states(
+            hass,
+            freezer,
+            zero,
+            "sensor.test1",
+            WIND_DIRECTION_ATTRIBUTES,
+            seq=WIND_DIRECTION_STATES_SEQ,
+        )
+    await async_wait_recording_done(hass)
+    hist = history.get_significant_states(
+        hass, zero, four, hass.states.async_entity_ids()
+    )
+    assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
+
+    do_adhoc_statistics(hass, start=zero)
+    await async_wait_recording_done(hass)
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.test1",
+            "display_unit_of_measurement": DEGREE,
+            "has_mean": False,
+            "mean_type": StatisticMeanType.CIRCULAR,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": DEGREE,
+            "unit_class": None,
+        }
+    ]
+    stats = statistics_during_period(hass, zero, period="5minute")
+    assert stats == {
+        "sensor.test1": [
+            {
+                "start": process_timestamp(zero).timestamp(),
+                "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "mean": pytest.approx(0.5802544),
+                "min": None,
+                "max": None,
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -339,7 +470,7 @@ async def test_compile_hourly_statistics_with_some_same_last_updated(
     If the last updated value is the same we will have a zero duration.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     entity_id = "sensor.test1"
@@ -349,7 +480,7 @@ async def test_compile_hourly_statistics_with_some_same_last_updated(
         "unit_of_measurement": state_unit,
     }
     attributes = dict(attributes)
-    seq = [-10, 15, 30, 60]
+    seq = TEMP_STATES_SEQ
 
     async def set_state(entity_id, state, **kwargs):
         """Set the state."""
@@ -395,6 +526,7 @@ async def test_compile_hourly_statistics_with_some_same_last_updated(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -420,50 +552,177 @@ async def test_compile_hourly_statistics_with_some_same_last_updated(
     assert "Error while processing event StatisticsTask" not in caplog.text
 
 
+async def test_compile_hourly_statistics_with_some_same_last_updated_angle(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test compiling stats with same last_updated for angle.
+
+    If the last updated value is the same we will have a zero duration.
+    """
+    zero = get_start_time(dt_util.utcnow())
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+    entity_id = "sensor.test1"
+    seq = [350, 2, 15, 345]
+
+    async def set_state(entity_id, state, **kwargs):
+        """Set the state."""
+        hass.states.async_set(entity_id, state, **kwargs)
+        await async_wait_recording_done(hass)
+        return hass.states.get(entity_id)
+
+    one = zero + timedelta(seconds=1 * 5)
+    two = one + timedelta(seconds=10 * 5)
+    three = two + timedelta(seconds=40 * 5)
+    four = three + timedelta(seconds=10 * 5)
+
+    states = {entity_id: []}
+    with freeze_time(one) as freezer:
+        states[entity_id].append(
+            await set_state(
+                entity_id, str(seq[0]), attributes=WIND_DIRECTION_ATTRIBUTES
+            )
+        )
+
+        # Record two states at the exact same time
+        freezer.move_to(two)
+        states[entity_id].append(
+            await set_state(
+                entity_id, str(seq[1]), attributes=WIND_DIRECTION_ATTRIBUTES
+            )
+        )
+        states[entity_id].append(
+            await set_state(
+                entity_id, str(seq[2]), attributes=WIND_DIRECTION_ATTRIBUTES
+            )
+        )
+
+        freezer.move_to(three)
+        states[entity_id].append(
+            await set_state(
+                entity_id, str(seq[3]), attributes=WIND_DIRECTION_ATTRIBUTES
+            )
+        )
+
+    hist = history.get_significant_states(
+        hass, zero, four, hass.states.async_entity_ids()
+    )
+    assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
+
+    do_adhoc_statistics(hass, start=zero)
+    await async_wait_recording_done(hass)
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.test1",
+            "display_unit_of_measurement": DEGREE,
+            "has_mean": False,
+            "mean_type": StatisticMeanType.CIRCULAR,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": DEGREE,
+            "unit_class": None,
+        }
+    ]
+    stats = statistics_during_period(hass, zero, period="5minute")
+    assert stats == {
+        "sensor.test1": [
+            {
+                "start": process_timestamp(zero).timestamp(),
+                "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "mean": pytest.approx(6.274605),
+                "min": None,
+                "max": None,
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            }
+        ]
+    }
+    assert "Error while processing event StatisticsTask" not in caplog.text
+
+
 @pytest.mark.parametrize(
     (
-        "device_class",
-        "state_unit",
+        "attributes",
         "display_unit",
         "statistics_unit",
         "unit_class",
         "mean",
         "min",
         "max",
+        "mean_type",
+        "seq",
     ),
     [
-        ("temperature", "°C", "°C", "°C", "temperature", 60, -10, 60),
-        ("temperature", "°F", "°F", "°F", "temperature", 60, -10, 60),
+        (
+            {
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "unit_of_measurement": "°C",
+            },
+            "°C",
+            "°C",
+            "temperature",
+            60,
+            -10,
+            60,
+            StatisticMeanType.ARITHMETIC,
+            TEMP_STATES_SEQ,
+        ),
+        (
+            {
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "unit_of_measurement": "°F",
+            },
+            "°F",
+            "°F",
+            "temperature",
+            60,
+            -10,
+            60,
+            StatisticMeanType.ARITHMETIC,
+            TEMP_STATES_SEQ,
+        ),
+        (
+            WIND_DIRECTION_ATTRIBUTES,
+            DEGREE,
+            DEGREE,
+            None,
+            15,
+            None,
+            None,
+            StatisticMeanType.CIRCULAR,
+            [350, 0, 355, 15],
+        ),
     ],
 )
 async def test_compile_hourly_statistics_with_all_same_last_updated(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
-    device_class,
-    state_unit,
-    display_unit,
-    statistics_unit,
-    unit_class,
-    mean,
-    min,
-    max,
+    attributes: dict[str, Any],
+    display_unit: str,
+    statistics_unit: str,
+    unit_class: str | None,
+    mean: float | None,
+    min: float | None,
+    max: float | None,
+    mean_type: StatisticMeanType,
+    seq: list[float],
 ) -> None:
     """Test compiling hourly statistics with the all of the same last updated value.
 
     If the last updated value is the same we will have a zero duration.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     entity_id = "sensor.test1"
-    attributes = {
-        "device_class": device_class,
-        "state_class": "measurement",
-        "unit_of_measurement": state_unit,
-    }
-    attributes = dict(attributes)
-    seq = [-10, 15, 30, 60]
 
     async def set_state(entity_id, state, **kwargs):
         """Set the state."""
@@ -503,7 +762,8 @@ async def test_compile_hourly_statistics_with_all_same_last_updated(
         {
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
-            "has_mean": True,
+            "has_mean": mean_type is StatisticMeanType.ARITHMETIC,
+            "mean_type": mean_type,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -531,45 +791,79 @@ async def test_compile_hourly_statistics_with_all_same_last_updated(
 
 @pytest.mark.parametrize(
     (
-        "device_class",
-        "state_unit",
+        "attributes",
         "display_unit",
         "statistics_unit",
         "unit_class",
         "mean",
         "min",
         "max",
+        "mean_type",
+        "seq",
     ),
     [
-        ("temperature", "°C", "°C", "°C", "temperature", 0, 60, 60),
-        ("temperature", "°F", "°F", "°F", "temperature", 0, 60, 60),
+        (
+            {
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "unit_of_measurement": "°C",
+            },
+            "°C",
+            "°C",
+            "temperature",
+            60,
+            -10,
+            60,
+            StatisticMeanType.ARITHMETIC,
+            TEMP_STATES_SEQ,
+        ),
+        (
+            {
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "unit_of_measurement": "°F",
+            },
+            "°F",
+            "°F",
+            "temperature",
+            60,
+            -10,
+            60,
+            StatisticMeanType.ARITHMETIC,
+            TEMP_STATES_SEQ,
+        ),
+        (
+            WIND_DIRECTION_ATTRIBUTES,
+            DEGREE,
+            DEGREE,
+            None,
+            15,
+            None,
+            None,
+            StatisticMeanType.CIRCULAR,
+            [350, 0, 355, 15],
+        ),
     ],
 )
-async def test_compile_hourly_statistics_only_state_is_and_end_of_period(
+async def test_compile_hourly_statistics_only_state_is_at_end_of_period(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
-    device_class,
-    state_unit,
-    display_unit,
-    statistics_unit,
-    unit_class,
-    mean,
-    min,
-    max,
+    attributes: dict[str, Any],
+    display_unit: str,
+    statistics_unit: str,
+    unit_class: str | None,
+    mean: float | None,
+    min: float | None,
+    max: float | None,
+    mean_type: StatisticMeanType,
+    seq: list[float],
 ) -> None:
-    """Test compiling hourly statistics when the only state at end of period."""
+    """Test compiling hourly statistics when the only states are at end of period."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     entity_id = "sensor.test1"
-    attributes = {
-        "device_class": device_class,
-        "state_class": "measurement",
-        "unit_of_measurement": state_unit,
-    }
-    attributes = dict(attributes)
-    seq = [-10, 15, 30, 60]
 
     async def set_state(entity_id, state, **kwargs):
         """Set the state."""
@@ -604,13 +898,15 @@ async def test_compile_hourly_statistics_only_state_is_and_end_of_period(
     assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
 
     do_adhoc_statistics(hass, start=zero)
+    do_adhoc_statistics(hass, start=zero + timedelta(minutes=5))
     await async_wait_recording_done(hass)
     statistic_ids = await async_list_statistic_ids(hass)
     assert statistic_ids == [
         {
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
-            "has_mean": True,
+            "has_mean": mean_type is StatisticMeanType.ARITHMETIC,
+            "mean_type": mean_type,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -622,8 +918,8 @@ async def test_compile_hourly_statistics_only_state_is_and_end_of_period(
     assert stats == {
         "sensor.test1": [
             {
-                "start": process_timestamp(zero).timestamp(),
-                "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "start": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "end": process_timestamp(zero + timedelta(minutes=10)).timestamp(),
                 "mean": pytest.approx(mean),
                 "min": pytest.approx(min),
                 "max": pytest.approx(max),
@@ -651,9 +947,12 @@ async def test_compile_hourly_statistics_purged_state_changes(
     statistics_unit,
     unit_class,
 ) -> None:
-    """Test compiling hourly statistics."""
+    """Test compiling hourly statistics.
+
+    This tests statistics falls back to the state machine when states are purged.
+    """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -691,6 +990,7 @@ async def test_compile_hourly_statistics_purged_state_changes(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -716,15 +1016,103 @@ async def test_compile_hourly_statistics_purged_state_changes(
     assert "Error while processing event StatisticsTask" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    (
+        "device_class",
+        "state_unit",
+        "display_unit",
+        "statistics_unit",
+        "unit_class",
+        "mean",
+        "min",
+        "max",
+    ),
+    [
+        (None, "%", "%", "%", "unitless", 13.050847, -10, 30),
+    ],
+)
+async def test_compile_hourly_statistics_ignore_future_state(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    device_class,
+    state_unit,
+    display_unit,
+    statistics_unit,
+    unit_class,
+    mean,
+    min,
+    max,
+) -> None:
+    """Test compiling hourly statistics.
+
+    This tests statistics does not fall back to the state machine if the state
+    in the state machine is newer than the end of the statistics period.
+    """
+    zero = get_start_time(dt_util.utcnow() + timedelta(minutes=5))
+    previous_period = zero - timedelta(minutes=5)
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+    attributes = {
+        "device_class": device_class,
+        "state_class": "measurement",
+        "unit_of_measurement": state_unit,
+    }
+    with freeze_time(zero) as freezer:
+        four, states = await async_record_states(
+            hass, freezer, zero, "sensor.test1", attributes
+        )
+    await async_wait_recording_done(hass)
+    hist = history.get_significant_states(
+        hass, zero, four, hass.states.async_entity_ids()
+    )
+    assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
+
+    do_adhoc_statistics(hass, start=previous_period)
+    do_adhoc_statistics(hass, start=zero)
+    await async_wait_recording_done(hass)
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.test1",
+            "display_unit_of_measurement": display_unit,
+            "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": statistics_unit,
+            "unit_class": unit_class,
+        }
+    ]
+    stats = statistics_during_period(hass, previous_period, period="5minute")
+    # Check we get no stats from the previous period
+    assert stats == {
+        "sensor.test1": [
+            {
+                "start": process_timestamp(zero).timestamp(),
+                "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "mean": pytest.approx(mean),
+                "min": pytest.approx(min),
+                "max": pytest.approx(max),
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            }
+        ]
+    }
+    assert "Error while processing event StatisticsTask" not in caplog.text
+
+
 @pytest.mark.parametrize("attributes", [TEMPERATURE_SENSOR_ATTRIBUTES])
 async def test_compile_hourly_statistics_wrong_unit(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
     attributes,
 ) -> None:
-    """Test compiling hourly statistics for sensor with unit not matching device class."""
+    """Test stats for sensor with unit not matching device class."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     with freeze_time(zero) as freezer:
@@ -782,6 +1170,7 @@ async def test_compile_hourly_statistics_wrong_unit(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": "°C",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -791,6 +1180,7 @@ async def test_compile_hourly_statistics_wrong_unit(
         {
             "display_unit_of_measurement": "invalid",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -801,6 +1191,7 @@ async def test_compile_hourly_statistics_wrong_unit(
         {
             "display_unit_of_measurement": None,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -812,6 +1203,7 @@ async def test_compile_hourly_statistics_wrong_unit(
             "statistic_id": "sensor.test6",
             "display_unit_of_measurement": "°C",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -822,6 +1214,7 @@ async def test_compile_hourly_statistics_wrong_unit(
             "statistic_id": "sensor.test7",
             "display_unit_of_measurement": "°C",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -956,7 +1349,7 @@ async def test_compile_hourly_sum_statistics_amount(
     period1_end = period2 = period0 + timedelta(minutes=10)
     period2_end = period0 + timedelta(minutes=15)
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -993,6 +1386,7 @@ async def test_compile_hourly_sum_statistics_amount(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": statistics_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1136,7 +1530,7 @@ async def test_compile_hourly_sum_statistics_amount_reset_every_state_change(
 ) -> None:
     """Test compiling hourly statistics."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -1197,6 +1591,7 @@ async def test_compile_hourly_sum_statistics_amount_reset_every_state_change(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1259,7 +1654,7 @@ async def test_compile_hourly_sum_statistics_amount_invalid_last_reset(
 ) -> None:
     """Test compiling hourly statistics."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -1306,6 +1701,7 @@ async def test_compile_hourly_sum_statistics_amount_invalid_last_reset(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1359,7 +1755,7 @@ async def test_compile_hourly_sum_statistics_nan_inf_state(
 ) -> None:
     """Test compiling hourly statistics with nan and inf states."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -1402,6 +1798,7 @@ async def test_compile_hourly_sum_statistics_nan_inf_state(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1478,6 +1875,10 @@ async def test_compile_hourly_sum_statistics_nan_inf_state(
     ],
 )
 @pytest.mark.parametrize("state_class", ["total_increasing"])
+@patch(
+    "homeassistant.components.demo.COMPONENTS_WITH_CONFIG_ENTRY_DEMO_PLATFORM",
+    [Platform.SENSOR],
+)
 async def test_compile_hourly_sum_statistics_negative_state(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
@@ -1503,7 +1904,7 @@ async def test_compile_hourly_sum_statistics_negative_state(
     await async_setup_component(hass, "homeassistant", {})
     with freeze_time(zero) as freezer:
         await async_setup_component(
-            hass, "sensor", {"sensor": [{"platform": "demo"}, {"platform": "test"}]}
+            hass, DOMAIN, {"sensor": [{"platform": "demo"}, {"platform": "test"}]}
         )
         await hass.async_block_till_done()
     attributes = {
@@ -1545,6 +1946,7 @@ async def test_compile_hourly_sum_statistics_negative_state(
     assert {
         "display_unit_of_measurement": display_unit,
         "has_mean": False,
+        "mean_type": StatisticMeanType.NONE,
         "has_sum": True,
         "name": None,
         "source": "recorder",
@@ -1569,9 +1971,10 @@ async def test_compile_hourly_sum_statistics_negative_state(
     state = states[entity_id][offending_state].state
     last_updated = states[entity_id][offending_state].last_updated.isoformat()
     assert (
-        f"Entity {entity_id} {warning_1}has state class total_increasing, but its state "
-        f"is negative. Triggered by state {state} with last_updated set to {last_updated}."
-        in caplog.text
+        f"Entity {entity_id} {warning_1}has state class"
+        f" total_increasing, but its state "
+        f"is negative. Triggered by state {state}"
+        f" with last_updated set to {last_updated}." in caplog.text
     )
     assert warning_2 in caplog.text
 
@@ -1610,7 +2013,7 @@ async def test_compile_hourly_sum_statistics_total_no_reset(
     period0_end = period1 = period0 + timedelta(minutes=5)
     period1_end = period2 = period0 + timedelta(minutes=10)
     period2_end = period0 + timedelta(minutes=15)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -1620,7 +2023,7 @@ async def test_compile_hourly_sum_statistics_total_no_reset(
     }
     seq = [10, 15, 20, 10, 30, 40, 50, 60, 70]
     with freeze_time(period0) as freezer:
-        four, eight, states = await async_record_meter_states(
+        _four, eight, states = await async_record_meter_states(
             hass, freezer, period0, "sensor.test1", attributes, seq
         )
     await async_wait_recording_done(hass)
@@ -1646,6 +2049,7 @@ async def test_compile_hourly_sum_statistics_total_no_reset(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1723,7 +2127,7 @@ async def test_compile_hourly_sum_statistics_total_increasing(
     period0_end = period1 = period0 + timedelta(minutes=5)
     period1_end = period2 = period0 + timedelta(minutes=10)
     period2_end = period0 + timedelta(minutes=15)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -1733,7 +2137,7 @@ async def test_compile_hourly_sum_statistics_total_increasing(
     }
     seq = [10, 15, 20, 10, 30, 40, 50, 60, 70]
     with freeze_time(period0) as freezer:
-        four, eight, states = await async_record_meter_states(
+        _four, eight, states = await async_record_meter_states(
             hass, freezer, period0, "sensor.test1", attributes, seq
         )
     await async_wait_recording_done(hass)
@@ -1759,6 +2163,7 @@ async def test_compile_hourly_sum_statistics_total_increasing(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1836,7 +2241,7 @@ async def test_compile_hourly_sum_statistics_total_increasing_small_dip(
     period0_end = period1 = period0 + timedelta(minutes=5)
     period1_end = period2 = period0 + timedelta(minutes=10)
     period2_end = period0 + timedelta(minutes=15)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -1846,7 +2251,7 @@ async def test_compile_hourly_sum_statistics_total_increasing_small_dip(
     }
     seq = [10, 15, 20, 19, 30, 40, 39, 60, 70]
     with freeze_time(period0) as freezer:
-        four, eight, states = await async_record_meter_states(
+        _four, eight, states = await async_record_meter_states(
             hass, freezer, period0, "sensor.test1", attributes, seq
         )
     await async_wait_recording_done(hass)
@@ -1875,8 +2280,9 @@ async def test_compile_hourly_sum_statistics_total_increasing_small_dip(
     last_updated = states["sensor.test1"][6].last_updated.isoformat()
     assert (
         "Entity sensor.test1 has state class total_increasing, but its state is not "
-        f"strictly increasing. Triggered by state {state} ({previous_state}) with "
-        f"last_updated set to {last_updated}. Please create a bug report at "
+        f"strictly increasing. Triggered by state {state}"
+        f" (previous state: {previous_state}) "
+        f"with last_updated set to {last_updated}. Please create a bug report at "
         "https://github.com/home-assistant/core/issues?q=is%3Aopen+is%3Aissue"
     ) in caplog.text
     statistic_ids = await async_list_statistic_ids(hass)
@@ -1885,6 +2291,7 @@ async def test_compile_hourly_sum_statistics_total_increasing_small_dip(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -1938,7 +2345,7 @@ async def test_compile_hourly_energy_statistics_unsupported(
     period0_end = period1 = period0 + timedelta(minutes=5)
     period1_end = period2 = period0 + timedelta(minutes=10)
     period2_end = period0 + timedelta(minutes=15)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     sns1_attr = {
@@ -1989,6 +2396,7 @@ async def test_compile_hourly_energy_statistics_unsupported(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": "kWh",
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -2042,7 +2450,7 @@ async def test_compile_hourly_energy_statistics_multiple(
     period0_end = period1 = period0 + timedelta(minutes=5)
     period1_end = period2 = period0 + timedelta(minutes=10)
     period2_end = period0 + timedelta(minutes=15)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     sns1_attr = {**ENERGY_SENSOR_ATTRIBUTES, "last_reset": None}
@@ -2091,6 +2499,7 @@ async def test_compile_hourly_energy_statistics_multiple(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": "kWh",
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -2101,6 +2510,7 @@ async def test_compile_hourly_energy_statistics_multiple(
             "statistic_id": "sensor.test2",
             "display_unit_of_measurement": "kWh",
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -2111,6 +2521,7 @@ async def test_compile_hourly_energy_statistics_multiple(
             "statistic_id": "sensor.test3",
             "display_unit_of_measurement": "Wh",
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -2231,6 +2642,7 @@ async def test_compile_hourly_energy_statistics_multiple(
         ("distance", "mi", 30),
         ("humidity", "%", 30),
         ("humidity", None, 30),
+        ("pressure", "mPa", 30),
         ("pressure", "Pa", 30),
         ("pressure", "hPa", 30),
         ("pressure", "mbar", 30),
@@ -2255,7 +2667,7 @@ async def test_compile_hourly_statistics_unchanged(
 ) -> None:
     """Test compiling hourly statistics, with no changes during the hour."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -2293,16 +2705,72 @@ async def test_compile_hourly_statistics_unchanged(
     assert "Error while processing event StatisticsTask" not in caplog.text
 
 
+async def test_compile_hourly_statistics_unchanged_angle(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test compiling hourly stats, no changes for measurement_angle."""
+    zero = get_start_time(dt_util.utcnow())
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+    with freeze_time(zero) as freezer:
+        four, states = await async_record_states(
+            hass,
+            freezer,
+            zero,
+            "sensor.test1",
+            WIND_DIRECTION_ATTRIBUTES,
+            seq=WIND_DIRECTION_STATES_SEQ,
+        )
+    await async_wait_recording_done(hass)
+    hist = history.get_significant_states(
+        hass, zero, four, hass.states.async_entity_ids()
+    )
+    assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
+
+    do_adhoc_statistics(hass, start=four)
+    await async_wait_recording_done(hass)
+    stats = statistics_during_period(hass, four, period="5minute")
+    assert stats == {
+        "sensor.test1": [
+            {
+                "start": process_timestamp(four).timestamp(),
+                "end": process_timestamp(four + timedelta(minutes=5)).timestamp(),
+                "mean": pytest.approx(15),
+                "min": None,
+                "max": None,
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            }
+        ]
+    }
+    assert "Error while processing event StatisticsTask" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected_mean", "expected_min", "expected_max"),
+    [
+        (TEMPERATURE_SENSOR_ATTRIBUTES, 21.1864406779661, 10.0, 25.0),
+        (WIND_DIRECTION_ATTRIBUTES, 21.202479155239875, None, None),
+    ],
+)
 async def test_compile_hourly_statistics_partially_unavailable(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    attributes: dict,
+    expected_mean: float,
+    expected_min: float | None,
+    expected_max: float | None,
 ) -> None:
     """Test compiling hourly statistics, with the sensor being partially unavailable."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     four, states = await async_record_states_partially_unavailable(
-        hass, zero, "sensor.test1", TEMPERATURE_SENSOR_ATTRIBUTES
+        hass, zero, "sensor.test1", attributes
     )
     await async_wait_recording_done(hass)
     hist = history.get_significant_states(
@@ -2318,9 +2786,9 @@ async def test_compile_hourly_statistics_partially_unavailable(
             {
                 "start": process_timestamp(zero).timestamp(),
                 "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
-                "mean": pytest.approx(21.1864406779661),
-                "min": pytest.approx(10.0),
-                "max": pytest.approx(25.0),
+                "mean": pytest.approx(expected_mean),
+                "min": pytest.approx(expected_min),
+                "max": pytest.approx(expected_max),
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -2341,6 +2809,7 @@ async def test_compile_hourly_statistics_partially_unavailable(
         ("distance", "mi", 30),
         ("humidity", "%", 30),
         ("humidity", None, 30),
+        ("pressure", "mPa", 30),
         ("pressure", "Pa", 30),
         ("pressure", "hPa", 30),
         ("pressure", "mbar", 30),
@@ -2356,6 +2825,7 @@ async def test_compile_hourly_statistics_partially_unavailable(
         ("weight", "oz", 30),
     ],
 )
+@pytest.mark.timeout(25)
 async def test_compile_hourly_statistics_unavailable(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
@@ -2369,7 +2839,7 @@ async def test_compile_hourly_statistics_unavailable(
     sensor.test2 should have statistics generated
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -2411,12 +2881,64 @@ async def test_compile_hourly_statistics_unavailable(
     assert "Error while processing event StatisticsTask" not in caplog.text
 
 
+async def test_compile_hourly_statistics_unavailable_angle(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test hourly stats with one sensor unavailable for angle.
+
+    sensor.test1 is unavailable and should not have statistics generated
+    sensor.test2 should have statistics generated
+    """
+    zero = get_start_time(dt_util.utcnow())
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+    four, states = await async_record_states_partially_unavailable(
+        hass, zero, "sensor.test1", WIND_DIRECTION_ATTRIBUTES
+    )
+    with freeze_time(zero) as freezer:
+        _, _states = await async_record_states(
+            hass,
+            freezer,
+            zero,
+            "sensor.test2",
+            WIND_DIRECTION_ATTRIBUTES,
+            seq=WIND_DIRECTION_STATES_SEQ,
+        )
+    await async_wait_recording_done(hass)
+    states = {**states, **_states}
+    hist = history.get_significant_states(
+        hass, zero, four, hass.states.async_entity_ids()
+    )
+    assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
+
+    do_adhoc_statistics(hass, start=four)
+    await async_wait_recording_done(hass)
+    stats = statistics_during_period(hass, four, period="5minute")
+    assert stats == {
+        "sensor.test2": [
+            {
+                "start": process_timestamp(four).timestamp(),
+                "end": process_timestamp(four + timedelta(minutes=5)).timestamp(),
+                "mean": pytest.approx(15),
+                "min": None,
+                "max": None,
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            }
+        ]
+    }
+    assert "Error while processing event StatisticsTask" not in caplog.text
+
+
 async def test_compile_hourly_statistics_fails(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Test compiling hourly statistics throws."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     with patch(
@@ -2439,62 +2961,297 @@ async def test_compile_hourly_statistics_fails(
         "statistic_type",
     ),
     [
-        ("measurement", "area", "m²", "m²", "m²", "area", "mean"),
-        ("measurement", "area", "mi²", "mi²", "mi²", "area", "mean"),
+        ("measurement", "area", "m²", "m²", "m²", "area", StatisticMeanType.ARITHMETIC),
+        (
+            "measurement",
+            "area",
+            "mi²",
+            "mi²",
+            "mi²",
+            "area",
+            StatisticMeanType.ARITHMETIC,
+        ),
         ("total", "area", "m²", "m²", "m²", "area", "sum"),
         ("total", "area", "mi²", "mi²", "mi²", "area", "sum"),
-        ("measurement", "battery", "%", "%", "%", "unitless", "mean"),
-        ("measurement", "battery", None, None, None, "unitless", "mean"),
-        ("measurement", "distance", "m", "m", "m", "distance", "mean"),
-        ("measurement", "distance", "mi", "mi", "mi", "distance", "mean"),
+        (
+            "measurement",
+            "battery",
+            "%",
+            "%",
+            "%",
+            "unitless",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "battery",
+            None,
+            None,
+            None,
+            "unitless",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "distance",
+            "m",
+            "m",
+            "m",
+            "distance",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "distance",
+            "mi",
+            "mi",
+            "mi",
+            "distance",
+            StatisticMeanType.ARITHMETIC,
+        ),
         ("total", "distance", "m", "m", "m", "distance", "sum"),
         ("total", "distance", "mi", "mi", "mi", "distance", "sum"),
         ("total", "energy", "Wh", "Wh", "Wh", "energy", "sum"),
         ("total", "energy", "kWh", "kWh", "kWh", "energy", "sum"),
-        ("measurement", "energy", "Wh", "Wh", "Wh", "energy", "mean"),
-        ("measurement", "energy", "kWh", "kWh", "kWh", "energy", "mean"),
-        ("measurement", "humidity", "%", "%", "%", "unitless", "mean"),
-        ("measurement", "humidity", None, None, None, "unitless", "mean"),
+        (
+            "measurement",
+            "energy",
+            "Wh",
+            "Wh",
+            "Wh",
+            "energy",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "energy",
+            "kWh",
+            "kWh",
+            "kWh",
+            "energy",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "humidity",
+            "%",
+            "%",
+            "%",
+            "unitless",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "humidity",
+            None,
+            None,
+            None,
+            "unitless",
+            StatisticMeanType.ARITHMETIC,
+        ),
         ("total", "monetary", "USD", "USD", "USD", None, "sum"),
         ("total", "monetary", "None", "None", "None", None, "sum"),
         ("total", "gas", "m³", "m³", "m³", "volume", "sum"),
         ("total", "gas", "ft³", "ft³", "ft³", "volume", "sum"),
-        ("measurement", "monetary", "USD", "USD", "USD", None, "mean"),
-        ("measurement", "monetary", "None", "None", "None", None, "mean"),
-        ("measurement", "gas", "m³", "m³", "m³", "volume", "mean"),
-        ("measurement", "gas", "ft³", "ft³", "ft³", "volume", "mean"),
-        ("measurement", "pressure", "Pa", "Pa", "Pa", "pressure", "mean"),
-        ("measurement", "pressure", "hPa", "hPa", "hPa", "pressure", "mean"),
-        ("measurement", "pressure", "mbar", "mbar", "mbar", "pressure", "mean"),
-        ("measurement", "pressure", "inHg", "inHg", "inHg", "pressure", "mean"),
-        ("measurement", "pressure", "psi", "psi", "psi", "pressure", "mean"),
-        ("measurement", "speed", "m/s", "m/s", "m/s", "speed", "mean"),
-        ("measurement", "speed", "mph", "mph", "mph", "speed", "mean"),
-        ("measurement", "temperature", "°C", "°C", "°C", "temperature", "mean"),
-        ("measurement", "temperature", "°F", "°F", "°F", "temperature", "mean"),
-        ("measurement", "volume", "m³", "m³", "m³", "volume", "mean"),
-        ("measurement", "volume", "ft³", "ft³", "ft³", "volume", "mean"),
+        (
+            "measurement",
+            "monetary",
+            "USD",
+            "USD",
+            "USD",
+            None,
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "monetary",
+            "None",
+            "None",
+            "None",
+            None,
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "gas",
+            "m³",
+            "m³",
+            "m³",
+            "volume",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "gas",
+            "ft³",
+            "ft³",
+            "ft³",
+            "volume",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "pressure",
+            "mPa",
+            "mPa",
+            "mPa",
+            "pressure",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "pressure",
+            "Pa",
+            "Pa",
+            "Pa",
+            "pressure",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "pressure",
+            "hPa",
+            "hPa",
+            "hPa",
+            "pressure",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "pressure",
+            "mbar",
+            "mbar",
+            "mbar",
+            "pressure",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "pressure",
+            "inHg",
+            "inHg",
+            "inHg",
+            "pressure",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "pressure",
+            "psi",
+            "psi",
+            "psi",
+            "pressure",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "speed",
+            "m/s",
+            "m/s",
+            "m/s",
+            "speed",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "speed",
+            "mph",
+            "mph",
+            "mph",
+            "speed",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "temperature",
+            "°C",
+            "°C",
+            "°C",
+            "temperature",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "temperature",
+            "°F",
+            "°F",
+            "°F",
+            "temperature",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "temperature_delta",
+            "°C",
+            "°C",
+            "°C",
+            "temperature_delta",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "temperature_delta",
+            "°F",
+            "°F",
+            "°F",
+            "temperature_delta",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "volume",
+            "m³",
+            "m³",
+            "m³",
+            "volume",
+            StatisticMeanType.ARITHMETIC,
+        ),
+        (
+            "measurement",
+            "volume",
+            "ft³",
+            "ft³",
+            "ft³",
+            "volume",
+            StatisticMeanType.ARITHMETIC,
+        ),
         ("total", "volume", "m³", "m³", "m³", "volume", "sum"),
         ("total", "volume", "ft³", "ft³", "ft³", "volume", "sum"),
-        ("measurement", "weight", "g", "g", "g", "mass", "mean"),
-        ("measurement", "weight", "oz", "oz", "oz", "mass", "mean"),
+        ("measurement", "weight", "g", "g", "g", "mass", StatisticMeanType.ARITHMETIC),
+        (
+            "measurement",
+            "weight",
+            "oz",
+            "oz",
+            "oz",
+            "mass",
+            StatisticMeanType.ARITHMETIC,
+        ),
         ("total", "weight", "g", "g", "g", "mass", "sum"),
         ("total", "weight", "oz", "oz", "oz", "mass", "sum"),
+        (
+            SensorStateClass.MEASUREMENT_ANGLE,
+            SensorDeviceClass.WIND_DIRECTION,
+            DEGREE,
+            DEGREE,
+            DEGREE,
+            None,
+            StatisticMeanType.CIRCULAR,
+        ),
     ],
 )
 async def test_list_statistic_ids(
     hass: HomeAssistant,
-    caplog: pytest.LogCaptureFixture,
-    state_class,
-    device_class,
-    state_unit,
-    display_unit,
-    statistics_unit,
-    unit_class,
-    statistic_type,
+    state_class: str | SensorStateClass,
+    device_class: str | SensorDeviceClass,
+    state_unit: str,
+    display_unit: str,
+    statistics_unit: str,
+    unit_class: str | None,
+    statistic_type: str | StatisticMeanType,
 ) -> None:
     """Test listing future statistic ids."""
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -2505,11 +3262,20 @@ async def test_list_statistic_ids(
     }
     hass.states.async_set("sensor.test1", 0, attributes=attributes)
     statistic_ids = await async_list_statistic_ids(hass)
+    mean_type = (
+        statistic_type
+        if isinstance(statistic_type, StatisticMeanType)
+        else StatisticMeanType.NONE
+    )
+    statistic_type = (
+        statistic_type if not isinstance(statistic_type, StatisticMeanType) else "mean"
+    )
     assert statistic_ids == [
         {
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
-            "has_mean": statistic_type == "mean",
+            "has_mean": mean_type is StatisticMeanType.ARITHMETIC,
+            "mean_type": mean_type,
             "has_sum": statistic_type == "sum",
             "name": None,
             "source": "recorder",
@@ -2517,6 +3283,7 @@ async def test_list_statistic_ids(
             "unit_class": unit_class,
         },
     ]
+
     for stat_type in ("mean", "sum", "dogs"):
         statistic_ids = await async_list_statistic_ids(hass, statistic_type=stat_type)
         if statistic_type == stat_type:
@@ -2524,7 +3291,8 @@ async def test_list_statistic_ids(
                 {
                     "statistic_id": "sensor.test1",
                     "display_unit_of_measurement": display_unit,
-                    "has_mean": statistic_type == "mean",
+                    "has_mean": mean_type is StatisticMeanType.ARITHMETIC,
+                    "mean_type": mean_type,
                     "has_sum": statistic_type == "sum",
                     "name": None,
                     "source": "recorder",
@@ -2545,7 +3313,7 @@ async def test_list_statistic_ids_unsupported(
     energy_attributes: dict[str, Any],
 ) -> None:
     """Test listing future statistic ids for unsupported sensor."""
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = dict(energy_attributes)
@@ -2596,7 +3364,7 @@ async def test_compile_hourly_statistics_changing_units_1(
     This tests the case where the recorder cannot convert between the units.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -2632,6 +3400,7 @@ async def test_compile_hourly_statistics_changing_units_1(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -2667,6 +3436,7 @@ async def test_compile_hourly_statistics_changing_units_1(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -2725,7 +3495,7 @@ async def test_compile_hourly_statistics_changing_units_2(
     converter.
     """
     zero = get_start_time(dt_util.utcnow()) - timedelta(seconds=30 * 5)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -2758,6 +3528,7 @@ async def test_compile_hourly_statistics_changing_units_2(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": "cats",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -2804,7 +3575,7 @@ async def test_compile_hourly_statistics_changing_units_3(
     converter.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -2840,6 +3611,7 @@ async def test_compile_hourly_statistics_changing_units_3(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -2875,6 +3647,7 @@ async def test_compile_hourly_statistics_changing_units_3(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -2901,17 +3674,50 @@ async def test_compile_hourly_statistics_changing_units_3(
 
 
 @pytest.mark.parametrize(
-    ("state_unit_1", "state_unit_2", "unit_class", "mean", "min", "max", "factor"),
+    (
+        "device_class",
+        "state_unit_1",
+        "state_unit_2",
+        "unit_class",
+        "mean",
+        "min",
+        "max",
+        "factor",
+    ),
     [
-        (None, "%", "unitless", 13.050847, -10, 30, 100),
-        ("%", None, "unitless", 13.050847, -10, 30, 0.01),
-        ("W", "kW", "power", 13.050847, -10, 30, 0.001),
-        ("kW", "W", "power", 13.050847, -10, 30, 1000),
+        (None, None, "%", "unitless", 13.050847, -10, 30, 100),
+        (None, None, "ppm", "unitless", 13.050847, -10, 30, 1000000),
+        (None, "g/m³", "mg/m³", "concentration", 13.050847, -10, 30, 1000),
+        (None, "mg/m³", "g/m³", "concentration", 13.050847, -10, 30, 0.001),
+        (
+            "carbon_monoxide",
+            "ppm",
+            "mg/m³",
+            "carbon_monoxide",
+            13.050847,
+            -10,
+            30,
+            1.16441,
+        ),
+        (
+            "carbon_monoxide",
+            "mg/m³",
+            "ppm",
+            "carbon_monoxide",
+            13.050847,
+            -10,
+            30,
+            1 / 1.16441,
+        ),
+        (None, "%", None, "unitless", 13.050847, -10, 30, 0.01),
+        (None, "W", "kW", "power", 13.050847, -10, 30, 0.001),
+        (None, "kW", "W", "power", 13.050847, -10, 30, 1000),
     ],
 )
 async def test_compile_hourly_statistics_convert_units_1(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
+    device_class,
     state_unit_1,
     state_unit_2,
     unit_class,
@@ -2925,11 +3731,11 @@ async def test_compile_hourly_statistics_convert_units_1(
     This tests the case where the recorder can convert between the units.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
-        "device_class": None,
+        "device_class": device_class,
         "state_class": "measurement",
         "unit_of_measurement": state_unit_1,
     }
@@ -2957,6 +3763,7 @@ async def test_compile_hourly_statistics_convert_units_1(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit_1,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3004,6 +3811,7 @@ async def test_compile_hourly_statistics_convert_units_1(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit_2,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3039,6 +3847,89 @@ async def test_compile_hourly_statistics_convert_units_1(
     assert "Error while processing event StatisticsTask" not in caplog.text
 
 
+async def test_compile_hourly_statistics_convert_zero_to_inverse_unit(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test compiling statistics when a sensor changes to an inverse unit.
+
+    A zero value has no representation in the inverse unit used for the
+    previously compiled statistics and should be skipped instead of raising
+    ZeroDivisionError.
+    """
+    zero = get_start_time(dt_util.utcnow())
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+    attributes = {
+        "device_class": "energy_distance",
+        "state_class": "measurement",
+        "unit_of_measurement": "kWh/100km",
+    }
+    with freeze_time(zero) as freezer:
+        await async_record_states(
+            hass, freezer, zero, "sensor.test1", attributes, seq=[16, 16, None]
+        )
+        attributes["unit_of_measurement"] = "km/kWh"
+        await async_record_states(
+            hass,
+            freezer,
+            zero + timedelta(minutes=5),
+            "sensor.test1",
+            attributes,
+            seq=[0, 20, 20],
+        )
+    await async_wait_recording_done(hass)
+
+    do_adhoc_statistics(hass, start=zero)
+    do_adhoc_statistics(hass, start=zero + timedelta(minutes=5))
+    await async_wait_recording_done(hass)
+
+    assert "Error while processing event StatisticsTask" not in caplog.text
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.test1",
+            "display_unit_of_measurement": "km/kWh",
+            "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": "kWh/100km",
+            "unit_class": "energy_distance",
+        },
+    ]
+    # The zero state at the start of the second period is skipped as it has no
+    # representation in kWh/100km, the 20 km/kWh states convert to 5 kWh/100km.
+    # The stored statistics are displayed converted to the current state unit
+    stats = statistics_during_period(hass, zero, period="5minute")
+    assert stats == {
+        "sensor.test1": [
+            {
+                "start": process_timestamp(zero).timestamp(),
+                "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "mean": pytest.approx(100 / 16),
+                "min": pytest.approx(100 / 16),
+                "max": pytest.approx(100 / 16),
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            },
+            {
+                "start": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
+                "end": process_timestamp(zero + timedelta(minutes=10)).timestamp(),
+                "mean": pytest.approx(20.0),
+                "min": pytest.approx(20.0),
+                "max": pytest.approx(20.0),
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            },
+        ]
+    }
+
+
 @pytest.mark.parametrize(
     (
         "device_class",
@@ -3067,6 +3958,59 @@ async def test_compile_hourly_statistics_convert_units_1(
             30,
         ),
         (None, "m3", "m³", None, "volume", 13.050847, 13.333333, -10, 30),
+        (None, "\u00b5V", "\u03bcV", None, "voltage", 13.050847, 13.333333, -10, 30),
+        (None, "\u00b5Sv/h", "\u03bcSv/h", None, None, 13.050847, 13.333333, -10, 30),
+        (
+            None,
+            "\u00b5S/cm",
+            "\u03bcS/cm",
+            None,
+            "conductivity",
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        (None, "\u00b5g/ft³", "\u03bcg/ft³", None, None, 13.050847, 13.333333, -10, 30),
+        (
+            None,
+            "\u00b5g/m³",
+            "\u03bcg/m³",
+            None,
+            "concentration",
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        (
+            None,
+            "\u00b5mol/s⋅m²",
+            "\u03bcmol/s⋅m²",
+            None,
+            None,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        (None, "\u00b5g", "\u03bcg", None, "mass", 13.050847, 13.333333, -10, 30),
+        (None, "\u00b5s", "\u03bcs", None, "duration", 13.050847, 13.333333, -10, 30),
+        (None, "mVAr", "mvar", None, "reactive_power", 13.050847, 13.333333, -10, 30),
+        (None, "VAr", "var", None, "reactive_power", 13.050847, 13.333333, -10, 30),
+        (None, "kVAr", "kvar", None, "reactive_power", 13.050847, 13.333333, -10, 30),
+        (None, "VArh", "varh", None, "reactive_energy", 13.050847, 13.333333, -10, 30),
+        (
+            None,
+            "kVArh",
+            "kvarh",
+            None,
+            "reactive_energy",
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
     ],
 )
 async def test_compile_hourly_statistics_equivalent_units_1(
@@ -3084,7 +4028,7 @@ async def test_compile_hourly_statistics_equivalent_units_1(
 ) -> None:
     """Test compiling hourly statistics where units change from one hour to the next."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -3120,6 +4064,7 @@ async def test_compile_hourly_statistics_equivalent_units_1(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3151,6 +4096,7 @@ async def test_compile_hourly_statistics_equivalent_units_1(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit2,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3194,6 +4140,27 @@ async def test_compile_hourly_statistics_equivalent_units_1(
         (None, "ft3", "ft³", None, 13.333333, -10, 30),
         (None, "ft³/m", "ft³/min", None, 13.333333, -10, 30),
         (None, "m3", "m³", None, 13.333333, -10, 30),
+        (None, "\u00b5V", "\u03bcV", None, 13.333333, -10, 30),
+        (SensorDeviceClass.VOLTAGE, "\u00b5V", "\u03bcV", None, 13.333333, -10, 30),
+        (None, "\u00b5Sv/h", "\u03bcSv/h", None, 13.333333, -10, 30),
+        (None, "\u00b5S/cm", "\u03bcS/cm", None, 13.333333, -10, 30),
+        (None, "\u00b5g/ft³", "\u03bcg/ft³", None, 13.333333, -10, 30),
+        (None, "\u00b5g/m³", "\u03bcg/m³", None, 13.333333, -10, 30),
+        (None, "\u00b5mol/s⋅m²", "\u03bcmol/s⋅m²", None, 13.333333, -10, 30),
+        (None, "\u00b5g", "\u03bcg", None, 13.333333, -10, 30),
+        (SensorDeviceClass.WEIGHT, "\u00b5g", "\u03bcg", None, 13.333333, -10, 30),
+        (None, "\u00b5s", "\u03bcs", None, 13.333333, -10, 30),
+        (SensorDeviceClass.DURATION, "\u00b5s", "\u03bcs", None, 13.333333, -10, 30),
+        (None, "mVAr", "mvar", None, 13.333333, -10, 30),
+        (None, "VAr", "var", None, 13.333333, -10, 30),
+        (None, "kVAr", "kvar", None, 13.333333, -10, 30),
+        (None, "VArh", "varh", None, 13.333333, -10, 30),
+        (None, "kVArh", "kvarh", None, 13.333333, -10, 30),
+        (SensorDeviceClass.REACTIVE_POWER, "mVAr", "mvar", None, 13.333333, -10, 30),
+        (SensorDeviceClass.REACTIVE_POWER, "VAr", "var", None, 13.333333, -10, 30),
+        (SensorDeviceClass.REACTIVE_POWER, "kVAr", "kvar", None, 13.333333, -10, 30),
+        (SensorDeviceClass.REACTIVE_ENERGY, "VArh", "varh", None, 13.333333, -10, 30),
+        (SensorDeviceClass.REACTIVE_ENERGY, "kVArh", "kvarh", None, 13.333333, -10, 30),
     ],
 )
 async def test_compile_hourly_statistics_equivalent_units_2(
@@ -3209,7 +4176,7 @@ async def test_compile_hourly_statistics_equivalent_units_2(
 ) -> None:
     """Test compiling hourly statistics where units change during an hour."""
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -3242,6 +4209,110 @@ async def test_compile_hourly_statistics_equivalent_units_2(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": state_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": state_unit,
+            "unit_class": unit_class,
+        },
+    ]
+    stats = statistics_during_period(hass, zero, period="5minute")
+    assert stats == {
+        "sensor.test1": [
+            {
+                "start": process_timestamp(
+                    zero + timedelta(seconds=30 * 10)
+                ).timestamp(),
+                "end": process_timestamp(zero + timedelta(seconds=30 * 20)).timestamp(),
+                "mean": pytest.approx(mean),
+                "min": pytest.approx(min),
+                "max": pytest.approx(max),
+                "last_reset": None,
+                "state": None,
+                "sum": None,
+            },
+        ]
+    }
+
+    assert "Error while processing event StatisticsTask" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("device_class", "state_unit", "state_unit2", "unit_class", "mean", "min", "max"),
+    [
+        (None, "KB/s", "kB/s", None, 13.333333, -10, 30),
+        (SensorDeviceClass.DATA_RATE, "KB/s", "kB/s", None, 13.333333, -10, 30),
+        # Can't downgrade from "kB/s" to "KB/s"
+        (None, "kB/s", "KB/s", "data_rate", 30, 30, 30),
+        (SensorDeviceClass.DATA_RATE, "kB/s", "KB/s", "data_rate", 30, 30, 30),
+    ],
+)
+async def test_compile_hourly_statistics_custom_equivalent_units(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    device_class: SensorDeviceClass | None,
+    state_unit: str,
+    state_unit2: str,
+    unit_class: str | None,
+    mean: float,
+    min: float,
+    max: float,
+) -> None:
+    """Test stats where units change with custom equivalent units."""
+    zero = get_start_time(dt_util.utcnow())
+    await async_setup_component(hass, DOMAIN, {})
+    # Wait for the sensor recorder platform to be added
+    await async_recorder_block_till_done(hass)
+
+    # Add a recorder platform that provides custom equivalent units
+    def _mock_custom_equivalent_units(*args: Any) -> dict:
+        return {"sensor.test1": {"KB/s": "kB/s"}}
+
+    recorder_platform = Mock(
+        compile_statistics=None,
+        async_custom_equivalent_units=Mock(wraps=_mock_custom_equivalent_units),
+        list_statistic_ids=None,
+        update_statistics_issues=None,
+        validate_statistics=None,
+    )
+
+    mock_platform(hass, "some_domain.recorder", recorder_platform)
+    assert await async_setup_component(hass, "some_domain", {})
+    # Wait for the some_domain recorder platform to be added
+    await async_recorder_block_till_done(hass)
+
+    attributes = {
+        "device_class": device_class,
+        "state_class": "measurement",
+        "unit_of_measurement": state_unit,
+    }
+    with freeze_time(zero) as freezer:
+        four, states = await async_record_states(
+            hass, freezer, zero, "sensor.test1", attributes
+        )
+        attributes["unit_of_measurement"] = state_unit2
+        four, _states = await async_record_states(
+            hass, freezer, zero + timedelta(minutes=5), "sensor.test1", attributes
+        )
+    await async_wait_recording_done(hass)
+    states["sensor.test1"] += _states["sensor.test1"]
+    hist = history.get_significant_states(
+        hass, zero, four, hass.states.async_entity_ids()
+    )
+    assert_dict_of_states_equal_without_context_and_last_changed(states, hist)
+
+    do_adhoc_statistics(hass, start=zero + timedelta(seconds=30 * 10))
+    await async_wait_recording_done(hass)
+    assert "The unit of sensor.test1 is changing" not in caplog.text
+    assert "and matches the unit of already compiled statistics" not in caplog.text
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.test1",
+            "display_unit_of_measurement": state_unit,
+            "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3273,43 +4344,141 @@ async def test_compile_hourly_statistics_equivalent_units_2(
 @pytest.mark.parametrize(
     (
         "device_class",
-        "state_unit",
-        "statistic_unit",
-        "unit_class",
+        "unit_1",
+        "unit_2",
+        "unit_3",
+        "unit_class_1",
+        "unit_class_2",
+        "factor_2",
+        "factor_3",
         "mean1",
         "mean2",
         "min",
         "max",
     ),
     [
-        ("power", "kW", "kW", "power", 13.050847, 13.333333, -10, 30),
+        (
+            "power",
+            "kW",
+            "kW",
+            "kW",
+            "power",
+            "power",
+            1,
+            1,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        (
+            "carbon_monoxide",
+            "ppm",
+            "ppm",
+            "ppm",
+            "unitless",
+            "carbon_monoxide",
+            1,
+            1,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        # Valid change of unit class from unitless to carbon_monoxide
+        (
+            "carbon_monoxide",
+            "ppm",
+            "ppm",
+            "mg/m³",
+            "unitless",
+            "carbon_monoxide",
+            1,
+            1.164409,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        # Valid change of unit class from unitless to carbon_monoxide
+        (
+            "carbon_monoxide",
+            "ppm",
+            "mg/m³",
+            "mg/m³",
+            "unitless",
+            "carbon_monoxide",
+            1.164409,
+            1.164409,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        # Valid change of unit class from concentration to carbon_monoxide
+        (
+            "carbon_monoxide",
+            "mg/m³",
+            "mg/m³",
+            "ppm",
+            "concentration",
+            "carbon_monoxide",
+            1,
+            1 / 1.164409,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
+        # Valid change of unit class from concentration to carbon_monoxide
+        (
+            "carbon_monoxide",
+            "mg/m³",
+            "ppm",
+            "ppm",
+            "concentration",
+            "carbon_monoxide",
+            1 / 1.164409,
+            1 / 1.164409,
+            13.050847,
+            13.333333,
+            -10,
+            30,
+        ),
     ],
 )
 async def test_compile_hourly_statistics_changing_device_class_1(
     hass: HomeAssistant,
     caplog: pytest.LogCaptureFixture,
     device_class,
-    state_unit,
-    statistic_unit,
-    unit_class,
+    unit_1,
+    unit_2,
+    unit_3,
+    unit_class_1,
+    unit_class_2,
+    factor_2,
+    factor_3,
     mean1,
     mean2,
     min,
     max,
 ) -> None:
-    """Test compiling hourly statistics where device class changes from one hour to the next.
+    """Test stats where device class changes between hours.
 
-    Device class is ignored, meaning changing device class should not influence the statistics.
+    In this test, the device class is first None, then set to a
+    specific device class.
+
+    Changing device class may influence the unit class.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
 
     # Record some states for an initial period, the entity has no device class
     attributes = {
         "state_class": "measurement",
-        "unit_of_measurement": state_unit,
+        "unit_of_measurement": unit_1,
     }
     with freeze_time(zero) as freezer:
         four, states = await async_record_states(
@@ -3324,13 +4493,14 @@ async def test_compile_hourly_statistics_changing_device_class_1(
     assert statistic_ids == [
         {
             "statistic_id": "sensor.test1",
-            "display_unit_of_measurement": state_unit,
+            "display_unit_of_measurement": unit_1,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
-            "statistics_unit_of_measurement": state_unit,
-            "unit_class": unit_class,
+            "statistics_unit_of_measurement": unit_1,
+            "unit_class": unit_class_1,
         },
     ]
     stats = statistics_during_period(hass, zero, period="5minute")
@@ -3349,15 +4519,17 @@ async def test_compile_hourly_statistics_changing_device_class_1(
         ]
     }
 
-    # Update device class and record additional states in the original UoM
+    # Update device class and record additional states in a different UoM
     attributes["device_class"] = device_class
+    attributes["unit_of_measurement"] = unit_2
+    seq = [x * factor_2 for x in (-10, 15, 30)]
     with freeze_time(zero) as freezer:
         four, _states = await async_record_states(
-            hass, freezer, zero + timedelta(minutes=5), "sensor.test1", attributes
+            hass, freezer, zero + timedelta(minutes=5), "sensor.test1", attributes, seq
         )
         states["sensor.test1"] += _states["sensor.test1"]
         four, _states = await async_record_states(
-            hass, freezer, zero + timedelta(minutes=10), "sensor.test1", attributes
+            hass, freezer, zero + timedelta(minutes=10), "sensor.test1", attributes, seq
         )
     await async_wait_recording_done(hass)
     states["sensor.test1"] += _states["sensor.test1"]
@@ -3373,13 +4545,14 @@ async def test_compile_hourly_statistics_changing_device_class_1(
     assert statistic_ids == [
         {
             "statistic_id": "sensor.test1",
-            "display_unit_of_measurement": state_unit,
+            "display_unit_of_measurement": unit_2,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
-            "statistics_unit_of_measurement": state_unit,
-            "unit_class": unit_class,
+            "statistics_unit_of_measurement": unit_1,
+            "unit_class": unit_class_2,
         },
     ]
     stats = statistics_during_period(hass, zero, period="5minute")
@@ -3388,9 +4561,9 @@ async def test_compile_hourly_statistics_changing_device_class_1(
             {
                 "start": process_timestamp(zero).timestamp(),
                 "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
-                "mean": pytest.approx(mean1),
-                "min": pytest.approx(min),
-                "max": pytest.approx(max),
+                "mean": pytest.approx(mean1 * factor_2),
+                "min": pytest.approx(min * factor_2),
+                "max": pytest.approx(max * factor_2),
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -3398,9 +4571,9 @@ async def test_compile_hourly_statistics_changing_device_class_1(
             {
                 "start": process_timestamp(zero + timedelta(minutes=10)).timestamp(),
                 "end": process_timestamp(zero + timedelta(minutes=15)).timestamp(),
-                "mean": pytest.approx(mean2),
-                "min": pytest.approx(min),
-                "max": pytest.approx(max),
+                "mean": pytest.approx(mean2 * factor_2),
+                "min": pytest.approx(min * factor_2),
+                "max": pytest.approx(max * factor_2),
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -3409,14 +4582,15 @@ async def test_compile_hourly_statistics_changing_device_class_1(
     }
 
     # Update device class and record additional states in a different UoM
-    attributes["unit_of_measurement"] = statistic_unit
+    attributes["unit_of_measurement"] = unit_3
+    seq = [x * factor_3 for x in (-10, 15, 30)]
     with freeze_time(zero) as freezer:
         four, _states = await async_record_states(
-            hass, freezer, zero + timedelta(minutes=15), "sensor.test1", attributes
+            hass, freezer, zero + timedelta(minutes=15), "sensor.test1", attributes, seq
         )
         states["sensor.test1"] += _states["sensor.test1"]
         four, _states = await async_record_states(
-            hass, freezer, zero + timedelta(minutes=20), "sensor.test1", attributes
+            hass, freezer, zero + timedelta(minutes=20), "sensor.test1", attributes, seq
         )
     await async_wait_recording_done(hass)
     states["sensor.test1"] += _states["sensor.test1"]
@@ -3432,13 +4606,14 @@ async def test_compile_hourly_statistics_changing_device_class_1(
     assert statistic_ids == [
         {
             "statistic_id": "sensor.test1",
-            "display_unit_of_measurement": state_unit,
+            "display_unit_of_measurement": unit_3,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
-            "statistics_unit_of_measurement": state_unit,
-            "unit_class": unit_class,
+            "statistics_unit_of_measurement": unit_1,
+            "unit_class": unit_class_2,
         },
     ]
     stats = statistics_during_period(hass, zero, period="5minute")
@@ -3447,9 +4622,9 @@ async def test_compile_hourly_statistics_changing_device_class_1(
             {
                 "start": process_timestamp(zero).timestamp(),
                 "end": process_timestamp(zero + timedelta(minutes=5)).timestamp(),
-                "mean": pytest.approx(mean1),
-                "min": pytest.approx(min),
-                "max": pytest.approx(max),
+                "mean": pytest.approx(mean1 * factor_3),
+                "min": pytest.approx(min * factor_3),
+                "max": pytest.approx(max * factor_3),
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -3457,9 +4632,9 @@ async def test_compile_hourly_statistics_changing_device_class_1(
             {
                 "start": process_timestamp(zero + timedelta(minutes=10)).timestamp(),
                 "end": process_timestamp(zero + timedelta(minutes=15)).timestamp(),
-                "mean": pytest.approx(mean2),
-                "min": pytest.approx(min),
-                "max": pytest.approx(max),
+                "mean": pytest.approx(mean2 * factor_3),
+                "min": pytest.approx(min * factor_3),
+                "max": pytest.approx(max * factor_3),
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -3467,9 +4642,9 @@ async def test_compile_hourly_statistics_changing_device_class_1(
             {
                 "start": process_timestamp(zero + timedelta(minutes=20)).timestamp(),
                 "end": process_timestamp(zero + timedelta(minutes=25)).timestamp(),
-                "mean": pytest.approx(mean2),
-                "min": pytest.approx(min),
-                "max": pytest.approx(max),
+                "mean": pytest.approx(mean2 * factor_3),
+                "min": pytest.approx(min * factor_3),
+                "max": pytest.approx(max * factor_3),
                 "last_reset": None,
                 "state": None,
                 "sum": None,
@@ -3508,12 +4683,13 @@ async def test_compile_hourly_statistics_changing_device_class_2(
     min,
     max,
 ) -> None:
-    """Test compiling hourly statistics where device class changes from one hour to the next.
+    """Test stats where device class changes between hours.
 
-    Device class is ignored, meaning changing device class should not influence the statistics.
+    In this test, the device class is first set to a specific device
+    class, then set to None.
     """
     zero = get_start_time(dt_util.utcnow())
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
 
@@ -3538,6 +4714,7 @@ async def test_compile_hourly_statistics_changing_device_class_2(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3587,6 +4764,7 @@ async def test_compile_hourly_statistics_changing_device_class_2(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": display_unit,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3626,15 +4804,13 @@ async def test_compile_hourly_statistics_changing_device_class_2(
     (
         "device_class",
         "state_unit",
-        "display_unit",
-        "statistics_unit",
         "unit_class",
         "mean",
         "min",
         "max",
     ),
     [
-        (None, None, None, None, "unitless", 13.050847, -10, 30),
+        (None, None, "unitless", 13.050847, -10, 30),
     ],
 )
 async def test_compile_hourly_statistics_changing_state_class(
@@ -3642,8 +4818,6 @@ async def test_compile_hourly_statistics_changing_state_class(
     caplog: pytest.LogCaptureFixture,
     device_class,
     state_unit,
-    display_unit,
-    statistics_unit,
     unit_class,
     mean,
     min,
@@ -3653,7 +4827,7 @@ async def test_compile_hourly_statistics_changing_state_class(
     period0 = get_start_time(dt_util.utcnow())
     period0_end = period1 = period0 + timedelta(minutes=5)
     period1_end = period0 + timedelta(minutes=10)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes_1 = {
@@ -3679,6 +4853,7 @@ async def test_compile_hourly_statistics_changing_state_class(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": None,
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3692,10 +4867,12 @@ async def test_compile_hourly_statistics_changing_state_class(
             1,
             {
                 "has_mean": True,
+                "mean_type": StatisticMeanType.ARITHMETIC,
                 "has_sum": False,
                 "name": None,
                 "source": "recorder",
                 "statistic_id": "sensor.test1",
+                "unit_class": unit_class,
                 "unit_of_measurement": None,
             },
         )
@@ -3721,6 +4898,7 @@ async def test_compile_hourly_statistics_changing_state_class(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": None,
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
@@ -3734,10 +4912,12 @@ async def test_compile_hourly_statistics_changing_state_class(
             1,
             {
                 "has_mean": False,
+                "mean_type": StatisticMeanType.NONE,
                 "has_sum": True,
                 "name": None,
                 "source": "recorder",
                 "statistic_id": "sensor.test1",
+                "unit_class": unit_class,
                 "unit_of_measurement": None,
             },
         )
@@ -3784,7 +4964,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
 
     zero = dt_util.utcnow()
     instance = get_instance(hass)
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     # Wait for the sensor recorder platform to be added
     await async_recorder_block_till_done(hass)
     attributes = {
@@ -3799,10 +4979,11 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         "unit_of_measurement": "EUR",
     }
 
+    durations = [50, 200, 45]
+
     def _weighted_average(seq, i, last_state):
         total = 0
         duration = 0
-        durations = [50, 200, 45]
         if i > 0:
             total += last_state * 5
             duration += 5
@@ -3810,6 +4991,20 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
             total += seq[j] * dur
             duration += dur
         return total / duration
+
+    def _weighted_circular_mean(
+        values: Iterable[tuple[float, float]],
+    ) -> tuple[float, float]:
+        sin_sum = 0
+        cos_sum = 0
+        for x, weight in values:
+            sin_sum += math.sin(x * DEG_TO_RAD) * weight
+            cos_sum += math.cos(x * DEG_TO_RAD) * weight
+
+        return (
+            (RAD_TO_DEG * math.atan2(sin_sum, cos_sum)) % 360,
+            math.sqrt(sin_sum**2 + cos_sum**2),
+        )
 
     def _min(seq, last_state):
         if last_state is None:
@@ -3832,17 +5027,24 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         "sensor.test2": [],
         "sensor.test3": [],
         "sensor.test4": [],
+        "sensor.test5": [],
     }
     expected_minima = {"sensor.test1": [], "sensor.test2": [], "sensor.test3": []}
     expected_maxima = {"sensor.test1": [], "sensor.test2": [], "sensor.test3": []}
-    expected_averages = {"sensor.test1": [], "sensor.test2": [], "sensor.test3": []}
+    expected_means = {
+        "sensor.test1": [],
+        "sensor.test2": [],
+        "sensor.test3": [],
+        "sensor.test5": [],
+    }
     expected_states = {"sensor.test4": []}
     expected_sums = {"sensor.test4": []}
-    last_states = {
+    last_states: dict[str, float | None] = {
         "sensor.test1": None,
         "sensor.test2": None,
         "sensor.test3": None,
         "sensor.test4": None,
+        "sensor.test5": None,
     }
     start = zero
     for i in range(24):
@@ -3855,7 +5057,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         last_state = last_states["sensor.test1"]
         expected_minima["sensor.test1"].append(_min(seq, last_state))
         expected_maxima["sensor.test1"].append(_max(seq, last_state))
-        expected_averages["sensor.test1"].append(_weighted_average(seq, i, last_state))
+        expected_means["sensor.test1"].append(_weighted_average(seq, i, last_state))
         last_states["sensor.test1"] = seq[-1]
         # test2 values change: min/max at the last state
         seq = [-10 * (i + 1), 15 * (i + 1), 30 * (i + 1)]
@@ -3866,7 +5068,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         last_state = last_states["sensor.test2"]
         expected_minima["sensor.test2"].append(_min(seq, last_state))
         expected_maxima["sensor.test2"].append(_max(seq, last_state))
-        expected_averages["sensor.test2"].append(_weighted_average(seq, i, last_state))
+        expected_means["sensor.test2"].append(_weighted_average(seq, i, last_state))
         last_states["sensor.test2"] = seq[-1]
         # test3 values change: min/max at the first state
         seq = [-10 * (23 - i + 1), 15 * (23 - i + 1), 30 * (23 - i + 1)]
@@ -3877,7 +5079,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         last_state = last_states["sensor.test3"]
         expected_minima["sensor.test3"].append(_min(seq, last_state))
         expected_maxima["sensor.test3"].append(_max(seq, last_state))
-        expected_averages["sensor.test3"].append(_weighted_average(seq, i, last_state))
+        expected_means["sensor.test3"].append(_weighted_average(seq, i, last_state))
         last_states["sensor.test3"] = seq[-1]
         # test4 values grow
         seq = [i, i + 0.5, i + 0.75]
@@ -3899,6 +5101,18 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
             _sum(seq, last_state, expected_sums["sensor.test4"])
         )
         last_states["sensor.test4"] = seq[-1]
+
+        # test5 circular mean
+        seq = [350 - i, 0 + (i / 2.0), 15 + i]
+        four, _states = await async_record_states(
+            hass, freezer, start, "sensor.test5", WIND_DIRECTION_ATTRIBUTES, seq
+        )
+        states["sensor.test5"] += _states["sensor.test5"]
+        values = [(seq, durations[j]) for j, seq in enumerate(seq)]
+        if (state := last_states["sensor.test5"]) is not None:
+            values.append((state, 5))
+        expected_means["sensor.test5"].append(_weighted_circular_mean(values))
+        last_states["sensor.test5"] = seq[-1]
 
         start += timedelta(minutes=5)
     await async_wait_recording_done(hass)
@@ -3925,6 +5139,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
             "statistic_id": "sensor.test1",
             "display_unit_of_measurement": "%",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3935,6 +5150,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
             "statistic_id": "sensor.test2",
             "display_unit_of_measurement": "%",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3945,6 +5161,7 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
             "statistic_id": "sensor.test3",
             "display_unit_of_measurement": "%",
             "has_mean": True,
+            "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
             "name": None,
             "source": "recorder",
@@ -3955,10 +5172,22 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
             "statistic_id": "sensor.test4",
             "display_unit_of_measurement": "EUR",
             "has_mean": False,
+            "mean_type": StatisticMeanType.NONE,
             "has_sum": True,
             "name": None,
             "source": "recorder",
             "statistics_unit_of_measurement": "EUR",
+            "unit_class": None,
+        },
+        {
+            "statistic_id": "sensor.test5",
+            "display_unit_of_measurement": DEGREE,
+            "has_mean": False,
+            "mean_type": StatisticMeanType.CIRCULAR,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": DEGREE,
             "unit_class": None,
         },
     ]
@@ -3979,19 +5208,21 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         "sensor.test2": [],
         "sensor.test3": [],
         "sensor.test4": [],
+        "sensor.test5": [],
     }
     start = zero
     end = zero + timedelta(minutes=5)
     for i in range(24):
-        for entity_id in (
-            "sensor.test1",
-            "sensor.test2",
-            "sensor.test3",
-            "sensor.test4",
+        for entity_id, mean_extractor in (
+            ("sensor.test1", lambda x: x),
+            ("sensor.test2", lambda x: x),
+            ("sensor.test3", lambda x: x),
+            ("sensor.test4", lambda x: x),
+            ("sensor.test5", lambda x: x[0]),
         ):
             expected_average = (
-                expected_averages[entity_id][i]
-                if entity_id in expected_averages
+                mean_extractor(expected_means[entity_id][i])
+                if entity_id in expected_means
                 else None
             )
             expected_minimum = (
@@ -4022,176 +5253,78 @@ async def test_compile_statistics_hourly_daily_monthly_summary(
         end += timedelta(minutes=5)
     assert stats == expected_stats
 
-    stats = statistics_during_period(hass, zero, period="hour")
-    expected_stats = {
-        "sensor.test1": [],
-        "sensor.test2": [],
-        "sensor.test3": [],
-        "sensor.test4": [],
-    }
-    start = zero
-    end = zero + timedelta(hours=1)
-    for i in range(2):
-        for entity_id in (
-            "sensor.test1",
-            "sensor.test2",
-            "sensor.test3",
-            "sensor.test4",
-        ):
-            expected_average = (
-                mean(expected_averages[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_averages
-                else None
-            )
-            expected_minimum = (
-                min(expected_minima[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_minima
-                else None
-            )
-            expected_maximum = (
-                max(expected_maxima[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_maxima
-                else None
-            )
-            expected_state = (
-                expected_states[entity_id][(i + 1) * 12 - 1]
-                if entity_id in expected_states
-                else None
-            )
-            expected_sum = (
-                expected_sums[entity_id][(i + 1) * 12 - 1]
-                if entity_id in expected_sums
-                else None
-            )
-            expected_stats[entity_id].append(
-                {
-                    "start": process_timestamp(start).timestamp(),
-                    "end": process_timestamp(end).timestamp(),
-                    "mean": pytest.approx(expected_average),
-                    "min": pytest.approx(expected_minimum),
-                    "max": pytest.approx(expected_maximum),
-                    "last_reset": None,
-                    "state": expected_state,
-                    "sum": expected_sum,
-                }
-            )
-        start += timedelta(hours=1)
-        end += timedelta(hours=1)
-    assert stats == expected_stats
+    def verify_stats(
+        period: Literal["hour", "day", "week", "month"],
+        start: datetime,
+        next_datetime: Callable[[datetime], datetime],
+    ) -> None:
+        stats = statistics_during_period(hass, zero, period=period)
+        expected_stats = {
+            "sensor.test1": [],
+            "sensor.test2": [],
+            "sensor.test3": [],
+            "sensor.test4": [],
+            "sensor.test5": [],
+        }
+        end = next_datetime(start)
+        for i in range(2):
+            for entity_id, mean_fn in (
+                ("sensor.test1", mean),
+                ("sensor.test2", mean),
+                ("sensor.test3", mean),
+                ("sensor.test4", mean),
+                ("sensor.test5", lambda x: _weighted_circular_mean(x)[0]),
+            ):
+                expected_average = (
+                    mean_fn(expected_means[entity_id][i * 12 : (i + 1) * 12])
+                    if entity_id in expected_means
+                    else None
+                )
+                expected_minimum = (
+                    min(expected_minima[entity_id][i * 12 : (i + 1) * 12])
+                    if entity_id in expected_minima
+                    else None
+                )
+                expected_maximum = (
+                    max(expected_maxima[entity_id][i * 12 : (i + 1) * 12])
+                    if entity_id in expected_maxima
+                    else None
+                )
+                expected_state = (
+                    expected_states[entity_id][(i + 1) * 12 - 1]
+                    if entity_id in expected_states
+                    else None
+                )
+                expected_sum = (
+                    expected_sums[entity_id][(i + 1) * 12 - 1]
+                    if entity_id in expected_sums
+                    else None
+                )
+                expected_stats[entity_id].append(
+                    {
+                        "start": process_timestamp(start).timestamp(),
+                        "end": process_timestamp(end).timestamp(),
+                        "mean": pytest.approx(expected_average),
+                        "min": pytest.approx(expected_minimum),
+                        "max": pytest.approx(expected_maximum),
+                        "last_reset": None,
+                        "state": expected_state,
+                        "sum": expected_sum,
+                    }
+                )
+            start = next_datetime(start)
+            end = next_datetime(end)
+        assert stats == expected_stats
 
-    stats = statistics_during_period(hass, zero, period="day")
-    expected_stats = {
-        "sensor.test1": [],
-        "sensor.test2": [],
-        "sensor.test3": [],
-        "sensor.test4": [],
-    }
+    verify_stats("hour", zero, lambda v: v + timedelta(hours=1))
+
     start = dt_util.parse_datetime("2021-08-31T06:00:00+00:00")
-    end = start + timedelta(days=1)
-    for i in range(2):
-        for entity_id in (
-            "sensor.test1",
-            "sensor.test2",
-            "sensor.test3",
-            "sensor.test4",
-        ):
-            expected_average = (
-                mean(expected_averages[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_averages
-                else None
-            )
-            expected_minimum = (
-                min(expected_minima[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_minima
-                else None
-            )
-            expected_maximum = (
-                max(expected_maxima[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_maxima
-                else None
-            )
-            expected_state = (
-                expected_states[entity_id][(i + 1) * 12 - 1]
-                if entity_id in expected_states
-                else None
-            )
-            expected_sum = (
-                expected_sums[entity_id][(i + 1) * 12 - 1]
-                if entity_id in expected_sums
-                else None
-            )
-            expected_stats[entity_id].append(
-                {
-                    "start": process_timestamp(start).timestamp(),
-                    "end": process_timestamp(end).timestamp(),
-                    "mean": pytest.approx(expected_average),
-                    "min": pytest.approx(expected_minimum),
-                    "max": pytest.approx(expected_maximum),
-                    "last_reset": None,
-                    "state": expected_state,
-                    "sum": expected_sum,
-                }
-            )
-        start += timedelta(days=1)
-        end += timedelta(days=1)
-    assert stats == expected_stats
+    assert start
+    verify_stats("day", start, lambda v: v + timedelta(days=1))
 
-    stats = statistics_during_period(hass, zero, period="month")
-    expected_stats = {
-        "sensor.test1": [],
-        "sensor.test2": [],
-        "sensor.test3": [],
-        "sensor.test4": [],
-    }
     start = dt_util.parse_datetime("2021-08-01T06:00:00+00:00")
-    end = dt_util.parse_datetime("2021-09-01T06:00:00+00:00")
-    for i in range(2):
-        for entity_id in (
-            "sensor.test1",
-            "sensor.test2",
-            "sensor.test3",
-            "sensor.test4",
-        ):
-            expected_average = (
-                mean(expected_averages[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_averages
-                else None
-            )
-            expected_minimum = (
-                min(expected_minima[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_minima
-                else None
-            )
-            expected_maximum = (
-                max(expected_maxima[entity_id][i * 12 : (i + 1) * 12])
-                if entity_id in expected_maxima
-                else None
-            )
-            expected_state = (
-                expected_states[entity_id][(i + 1) * 12 - 1]
-                if entity_id in expected_states
-                else None
-            )
-            expected_sum = (
-                expected_sums[entity_id][(i + 1) * 12 - 1]
-                if entity_id in expected_sums
-                else None
-            )
-            expected_stats[entity_id].append(
-                {
-                    "start": process_timestamp(start).timestamp(),
-                    "end": process_timestamp(end).timestamp(),
-                    "mean": pytest.approx(expected_average),
-                    "min": pytest.approx(expected_minimum),
-                    "max": pytest.approx(expected_maximum),
-                    "last_reset": None,
-                    "state": expected_state,
-                    "sum": expected_sum,
-                }
-            )
-        start = (start + timedelta(days=31)).replace(day=1)
-        end = (end + timedelta(days=31)).replace(day=1)
-    assert stats == expected_stats
+    assert start
+    verify_stats("month", start, lambda v: (v + timedelta(days=31)).replace(day=1))
 
     assert "Error while processing event StatisticsTask" not in caplog.text
 
@@ -4236,37 +5369,55 @@ async def async_record_states(
 
 
 @pytest.mark.parametrize(
-    ("units", "attributes", "unit", "unit2", "supported_unit"),
+    ("units", "attributes", "unit_class", "unit", "unit2", "supported_unit"),
     [
         (
             US_CUSTOMARY_SYSTEM,
             POWER_SENSOR_ATTRIBUTES,
+            "power",
             "W",
             "kW",
-            "GW, MW, TW, W, kW, mW",
+            "BTU/h, GW, MW, TW, W, kW, mW",
         ),
-        (METRIC_SYSTEM, POWER_SENSOR_ATTRIBUTES, "W", "kW", "GW, MW, TW, W, kW, mW"),
+        (
+            METRIC_SYSTEM,
+            POWER_SENSOR_ATTRIBUTES,
+            "power",
+            "W",
+            "kW",
+            "BTU/h, GW, MW, TW, W, kW, mW",
+        ),
         (
             US_CUSTOMARY_SYSTEM,
             TEMPERATURE_SENSOR_ATTRIBUTES,
+            "temperature",
             "°F",
             "K",
             "K, °C, °F",
         ),
-        (METRIC_SYSTEM, TEMPERATURE_SENSOR_ATTRIBUTES, "°C", "K", "K, °C, °F"),
+        (
+            METRIC_SYSTEM,
+            TEMPERATURE_SENSOR_ATTRIBUTES,
+            "temperature",
+            "°C",
+            "K",
+            "K, °C, °F",
+        ),
         (
             US_CUSTOMARY_SYSTEM,
             PRESSURE_SENSOR_ATTRIBUTES,
+            "pressure",
             "psi",
             "bar",
-            "Pa, bar, cbar, hPa, inHg, kPa, mbar, mmHg, psi",
+            "Pa, atm, bar, cbar, hPa, inHg, inH₂O, kPa, mPa, mbar, mmHg, psi",
         ),
         (
             METRIC_SYSTEM,
             PRESSURE_SENSOR_ATTRIBUTES,
+            "pressure",
             "Pa",
             "bar",
-            "Pa, bar, cbar, hPa, inHg, kPa, mbar, mmHg, psi",
+            "Pa, atm, bar, cbar, hPa, inHg, inH₂O, kPa, mPa, mbar, mmHg, psi",
         ),
     ],
 )
@@ -4275,6 +5426,7 @@ async def test_validate_unit_change_convertible(
     hass_ws_client: WebSocketGenerator,
     units,
     attributes,
+    unit_class,
     unit,
     unit2,
     supported_unit,
@@ -4291,7 +5443,7 @@ async def test_validate_unit_change_convertible(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4333,15 +5485,17 @@ async def test_validate_unit_change_convertible(
             {
                 "data": {
                     "metadata_unit": unit,
+                    "metadata_unit_class": unit_class,
                     "state_unit": "dogs",
+                    "state_unit_class": None,
                     "statistic_id": "sensor.test",
                     "supported_unit": supported_unit,
                 },
-                "type": "units_changed",
+                "type": UNITS_CHANGED_ISSUE,
             }
         ],
     }
-    await assert_validation_result(hass, client, expected, {"units_changed"})
+    await assert_validation_result(hass, client, expected, {UNITS_CHANGED_ISSUE})
 
     # Unavailable state - empty response
     hass.states.async_set(
@@ -4425,7 +5579,7 @@ async def test_validate_statistics_unit_ignore_device_class(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4454,44 +5608,63 @@ async def test_validate_statistics_unit_ignore_device_class(
 
 
 @pytest.mark.parametrize(
-    ("units", "attributes", "unit", "unit2", "supported_unit"),
+    ("units", "attributes", "unit_class", "unit", "unit2", "supported_unit"),
     [
         (
             US_CUSTOMARY_SYSTEM,
             POWER_SENSOR_ATTRIBUTES,
+            "power",
             "W",
             "kW",
-            "GW, MW, TW, W, kW, mW",
+            "BTU/h, GW, MW, TW, W, kW, mW",
         ),
-        (METRIC_SYSTEM, POWER_SENSOR_ATTRIBUTES, "W", "kW", "GW, MW, TW, W, kW, mW"),
+        (
+            METRIC_SYSTEM,
+            POWER_SENSOR_ATTRIBUTES,
+            "power",
+            "W",
+            "kW",
+            "BTU/h, GW, MW, TW, W, kW, mW",
+        ),
         (
             US_CUSTOMARY_SYSTEM,
             TEMPERATURE_SENSOR_ATTRIBUTES,
+            "temperature",
             "°F",
             "K",
             "K, °C, °F",
         ),
-        (METRIC_SYSTEM, TEMPERATURE_SENSOR_ATTRIBUTES, "°C", "K", "K, °C, °F"),
+        (
+            METRIC_SYSTEM,
+            TEMPERATURE_SENSOR_ATTRIBUTES,
+            "temperature",
+            "°C",
+            "K",
+            "K, °C, °F",
+        ),
         (
             US_CUSTOMARY_SYSTEM,
             PRESSURE_SENSOR_ATTRIBUTES,
+            "pressure",
             "psi",
             "bar",
-            "Pa, bar, cbar, hPa, inHg, kPa, mbar, mmHg, psi",
+            "Pa, atm, bar, cbar, hPa, inHg, inH₂O, kPa, mPa, mbar, mmHg, psi",
         ),
         (
             METRIC_SYSTEM,
             PRESSURE_SENSOR_ATTRIBUTES,
+            "pressure",
             "Pa",
             "bar",
-            "Pa, bar, cbar, hPa, inHg, kPa, mbar, mmHg, psi",
+            "Pa, atm, bar, cbar, hPa, inHg, inH₂O, kPa, mPa, mbar, mmHg, psi",
         ),
         (
             METRIC_SYSTEM,
             BATTERY_SENSOR_ATTRIBUTES,
+            "unitless",
             "%",
             None,
-            "%, <None>",
+            "%, <None>, ppb, ppm",
         ),
     ],
 )
@@ -4500,6 +5673,7 @@ async def test_validate_statistics_unit_change_no_device_class(
     hass_ws_client: WebSocketGenerator,
     units,
     attributes,
+    unit_class,
     unit,
     unit2,
     supported_unit,
@@ -4516,7 +5690,7 @@ async def test_validate_statistics_unit_change_no_device_class(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4558,15 +5732,17 @@ async def test_validate_statistics_unit_change_no_device_class(
             {
                 "data": {
                     "metadata_unit": unit,
+                    "metadata_unit_class": unit_class,
                     "state_unit": "dogs",
+                    "state_unit_class": None,
                     "statistic_id": "sensor.test",
                     "supported_unit": supported_unit,
                 },
-                "type": "units_changed",
+                "type": UNITS_CHANGED_ISSUE,
             }
         ],
     }
-    await assert_validation_result(hass, client, expected, {"units_changed"})
+    await assert_validation_result(hass, client, expected, {UNITS_CHANGED_ISSUE})
 
     # Unavailable state - empty response
     hass.states.async_set(
@@ -4648,7 +5824,7 @@ async def test_validate_statistics_state_class_removed(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4678,11 +5854,11 @@ async def test_validate_statistics_state_class_removed(
         "sensor.test": [
             {
                 "data": {"statistic_id": "sensor.test"},
-                "type": "state_class_removed",
+                "type": STATE_CLASS_REMOVED_ISSUE,
             }
         ],
     }
-    await assert_validation_result(hass, client, expected, {"state_class_removed"})
+    await assert_validation_result(hass, client, expected, {STATE_CLASS_REMOVED_ISSUE})
 
     # Unavailable state - empty response
     hass.states.async_set(
@@ -4716,7 +5892,7 @@ async def test_validate_statistics_state_class_removed_issue_cleaned_up(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4746,11 +5922,11 @@ async def test_validate_statistics_state_class_removed_issue_cleaned_up(
         "sensor.test": [
             {
                 "data": {"statistic_id": "sensor.test"},
-                "type": "state_class_removed",
+                "type": STATE_CLASS_REMOVED_ISSUE,
             }
         ],
     }
-    await assert_validation_result(hass, client, expected, {"state_class_removed"})
+    await assert_validation_result(hass, client, expected, {STATE_CLASS_REMOVED_ISSUE})
 
     # Remove the statistics - empty response
     get_instance(hass).async_clear_statistics(["sensor.test"])
@@ -4775,7 +5951,7 @@ async def test_validate_statistics_sensor_no_longer_recorded(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4829,7 +6005,7 @@ async def test_validate_statistics_sensor_not_recorded(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4880,7 +6056,7 @@ async def test_validate_statistics_sensor_removed(
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4929,7 +6105,7 @@ async def test_validate_statistics_unit_change_no_conversion(
     """Test validate_statistics."""
     now = get_start_time(dt_util.utcnow())
 
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -4991,15 +6167,17 @@ async def test_validate_statistics_unit_change_no_conversion(
             {
                 "data": {
                     "metadata_unit": unit1,
+                    "metadata_unit_class": None,
                     "state_unit": unit2,
+                    "state_unit_class": None,
                     "statistic_id": "sensor.test",
                     "supported_unit": unit1,
                 },
-                "type": "units_changed",
+                "type": UNITS_CHANGED_ISSUE,
             }
         ],
     }
-    await assert_validation_result(hass, client, expected, {"units_changed"})
+    await assert_validation_result(hass, client, expected, {UNITS_CHANGED_ISSUE})
 
     # Unavailable state - empty response
     hass.states.async_set(
@@ -5056,6 +6234,19 @@ async def test_validate_statistics_unit_change_no_conversion(
         (NONE_SENSOR_ATTRIBUTES, "m3", "m³"),
         (NONE_SENSOR_ATTRIBUTES, "rpm", "RPM"),
         (NONE_SENSOR_ATTRIBUTES, "RPM", "rpm"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5V", "\u03bcV"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5Sv/h", "\u03bcSv/h"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5S/cm", "\u03bcS/cm"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5g/ft³", "\u03bcg/ft³"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5g/m³", "\u03bcg/m³"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5mol/s⋅m²", "\u03bcmol/s⋅m²"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5g", "\u03bcg"),
+        (NONE_SENSOR_ATTRIBUTES, "\u00b5s", "\u03bcs"),
+        (NONE_SENSOR_ATTRIBUTES, "mVAr", "mvar"),
+        (NONE_SENSOR_ATTRIBUTES, "VAr", "var"),
+        (NONE_SENSOR_ATTRIBUTES, "kVAr", "kvar"),
+        (NONE_SENSOR_ATTRIBUTES, "VArh", "varh"),
+        (NONE_SENSOR_ATTRIBUTES, "kVArh", "kvarh"),
     ],
 )
 async def test_validate_statistics_unit_change_equivalent_units(
@@ -5072,7 +6263,7 @@ async def test_validate_statistics_unit_change_equivalent_units(
     """
     now = get_start_time(dt_util.utcnow())
 
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -5116,15 +6307,55 @@ async def test_validate_statistics_unit_change_equivalent_units(
 
 
 @pytest.mark.parametrize(
-    ("attributes", "unit1", "unit2", "supported_unit"),
+    ("attributes", "unit_class", "unit1", "unit2", "supported_unit"),
     [
-        (NONE_SENSOR_ATTRIBUTES, "m³", "m3", "CCF, L, fl. oz., ft³, gal, mL, m³"),
+        (
+            NONE_SENSOR_ATTRIBUTES,
+            "volume",
+            "m³",
+            "m3",
+            "CCF, L, MCF, fl. oz., ft³, gal, mL, m³",
+        ),
+        (
+            NONE_SENSOR_ATTRIBUTES,
+            "voltage",
+            "\u03bcV",
+            "\u00b5V",
+            "MV, V, kV, mV, \u03bcV",
+        ),
+        (
+            NONE_SENSOR_ATTRIBUTES,
+            "conductivity",
+            "\u03bcS/cm",
+            "\u00b5S/cm",
+            "S/cm, mS/cm, \u03bcS/cm",
+        ),
+        (
+            NONE_SENSOR_ATTRIBUTES,
+            "mass",
+            "\u03bcg",
+            "\u00b5g",
+            "g, kg, lb, mg, oz, st, \u03bcg",
+        ),
+        (
+            NONE_SENSOR_ATTRIBUTES,
+            "duration",
+            "\u03bcs",
+            "\u00b5s",
+            "d, h, min, ms, s, w, \u03bcs",
+        ),
+        (NONE_SENSOR_ATTRIBUTES, "reactive_power", "mvar", "mVAr", "kvar, mvar, var"),
+        (NONE_SENSOR_ATTRIBUTES, "reactive_power", "var", "VAr", "kvar, mvar, var"),
+        (NONE_SENSOR_ATTRIBUTES, "reactive_power", "kvar", "kVAr", "kvar, mvar, var"),
+        (NONE_SENSOR_ATTRIBUTES, "reactive_energy", "varh", "VArh", "kvarh, varh"),
+        (NONE_SENSOR_ATTRIBUTES, "reactive_energy", "kvarh", "kVArh", "kvarh, varh"),
     ],
 )
 async def test_validate_statistics_unit_change_equivalent_units_2(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
     attributes,
+    unit_class,
     unit1,
     unit2,
     supported_unit,
@@ -5136,7 +6367,7 @@ async def test_validate_statistics_unit_change_equivalent_units_2(
     """
     now = get_start_time(dt_util.utcnow())
 
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
@@ -5172,15 +6403,17 @@ async def test_validate_statistics_unit_change_equivalent_units_2(
             {
                 "data": {
                     "metadata_unit": unit1,
+                    "metadata_unit_class": unit_class,
                     "state_unit": unit2,
+                    "state_unit_class": None,
                     "statistic_id": "sensor.test",
                     "supported_unit": supported_unit,
                 },
-                "type": "units_changed",
+                "type": UNITS_CHANGED_ISSUE,
             }
         ],
     }
-    await assert_validation_result(hass, client, expected, {"units_changed"})
+    await assert_validation_result(hass, client, expected, {UNITS_CHANGED_ISSUE})
 
     # Run statistics one hour later, metadata will not be updated
     await async_recorder_block_till_done(hass)
@@ -5189,24 +6422,107 @@ async def test_validate_statistics_unit_change_equivalent_units_2(
     await assert_statistic_ids(
         hass, [{"statistic_id": "sensor.test", "unit_of_measurement": unit1}]
     )
-    await assert_validation_result(hass, client, expected, {"units_changed"})
+    await assert_validation_result(hass, client, expected, {UNITS_CHANGED_ISSUE})
+
+
+@pytest.mark.parametrize(
+    ("attributes", "unit1", "unit2"),
+    [
+        (NONE_SENSOR_ATTRIBUTES, "KB/s", "kB/s"),
+        (NONE_SENSOR_ATTRIBUTES, "KW", "kW"),
+    ],
+)
+async def test_validate_statistics_unit_change_custom_equivalent_units(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    attributes: dict,
+    unit1: str,
+    unit2: str,
+) -> None:
+    """Test validate_statistics.
+
+    This tests no validation issue is created when a sensor's unit changes to a custom
+    equivalent unit provided by an integration's recorder platform.
+    """
+    now = get_start_time(dt_util.utcnow())
+
+    await async_setup_component(hass, DOMAIN, {})
+    await async_recorder_block_till_done(hass)
+
+    # Add a recorder platform that provides custom equivalent units
+    def _mock_custom_equivalent_units(*args: Any) -> dict:
+        return {"sensor.test": {unit1: unit2}}
+
+    recorder_platform = Mock(
+        compile_statistics=None,
+        async_custom_equivalent_units=Mock(wraps=_mock_custom_equivalent_units),
+        list_statistic_ids=None,
+        update_statistics_issues=None,
+        validate_statistics=None,
+    )
+
+    mock_platform(hass, "some_domain.recorder", recorder_platform)
+    assert await async_setup_component(hass, "some_domain", {})
+    # Wait for the some_domain recorder platform to be added
+    await async_recorder_block_till_done(hass)
+
+    client = await hass_ws_client()
+
+    # No statistics, no state - empty response
+    await assert_validation_result(hass, client, {}, {})
+
+    # No statistics, original unit - empty response
+    hass.states.async_set(
+        "sensor.test",
+        10,
+        attributes=attributes | {"unit_of_measurement": unit1},
+        timestamp=now.timestamp(),
+    )
+    await assert_validation_result(hass, client, {}, {})
+
+    # Run statistics
+    await async_recorder_block_till_done(hass)
+    do_adhoc_statistics(hass, start=now)
+    await async_recorder_block_till_done(hass)
+    await assert_statistic_ids(
+        hass, [{"statistic_id": "sensor.test", "unit_of_measurement": unit1}]
+    )
+
+    # Units changed to a custom equivalent unit - empty response
+    hass.states.async_set(
+        "sensor.test",
+        12,
+        attributes=attributes | {"unit_of_measurement": unit2},
+        timestamp=now.timestamp() + 1,
+    )
+    await assert_validation_result(hass, client, {}, {})
+
+    # Run statistics one hour later, metadata will be updated
+    await async_recorder_block_till_done(hass)
+    do_adhoc_statistics(hass, start=now + timedelta(hours=1))
+    await async_recorder_block_till_done(hass)
+    await assert_statistic_ids(
+        hass, [{"statistic_id": "sensor.test", "unit_of_measurement": unit2}]
+    )
+    await assert_validation_result(hass, client, {}, {})
 
 
 async def test_validate_statistics_other_domain(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
     """Test sensor does not raise issues for statistics for other domains."""
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
     client = await hass_ws_client()
 
     # Create statistics for another domain
     metadata: StatisticMetaData = {
-        "has_mean": True,
         "has_sum": True,
+        "mean_type": StatisticMeanType.ARITHMETIC,
         "name": None,
         "source": RECORDER_DOMAIN,
         "statistic_id": "number.test",
+        "unit_class": None,
         "unit_of_measurement": None,
     }
     statistics: StatisticData = {
@@ -5225,36 +6541,35 @@ async def test_validate_statistics_other_domain(
     await assert_validation_result(hass, client, {}, {})
 
 
+async def _one_hour_stats(hass: HomeAssistant, start: datetime) -> datetime:
+    """Generate 5-minute statistics for one hour."""
+    for _ in range(12):
+        do_adhoc_statistics(hass, start=start)
+        await async_wait_recording_done(hass)
+        start += timedelta(minutes=5)
+    return start
+
+
 @pytest.mark.parametrize(
-    ("units", "attributes", "unit"),
+    ("units", "attributes"),
     [
-        (US_CUSTOMARY_SYSTEM, POWER_SENSOR_ATTRIBUTES, "W"),
+        (US_CUSTOMARY_SYSTEM, POWER_SENSOR_ATTRIBUTES),
     ],
 )
 async def test_update_statistics_issues(
     hass: HomeAssistant,
     units,
     attributes,
-    unit,
 ) -> None:
     """Test update_statistics_issues."""
-
-    async def one_hour_stats(start: datetime) -> datetime:
-        """Generate 5-minute statistics for one hour."""
-        for _ in range(12):
-            do_adhoc_statistics(hass, start=start)
-            await async_wait_recording_done(hass)
-            start += timedelta(minutes=5)
-        return start
-
     now = get_start_time(dt_util.utcnow())
 
     hass.config.units = units
-    await async_setup_component(hass, "sensor", {})
+    await async_setup_component(hass, DOMAIN, {})
     await async_recorder_block_till_done(hass)
 
     # No statistics, no state - no issues
-    now = await one_hour_stats(now)
+    now = await _one_hour_stats(hass, now)
     assert_issues(hass, {})
 
     # Statistics, valid state - no issues
@@ -5262,7 +6577,7 @@ async def test_update_statistics_issues(
         "sensor.test", 10, attributes=attributes, timestamp=now.timestamp()
     )
     await hass.async_block_till_done()
-    now = await one_hour_stats(now)
+    now = await _one_hour_stats(hass, now)
     assert_issues(hass, {})
 
     # State update with invalid state class, statistics did not run again
@@ -5275,14 +6590,80 @@ async def test_update_statistics_issues(
     assert_issues(hass, {})
 
     # Let statistics run for one hour, expect issue
-    now = await one_hour_stats(now)
+    now = await _one_hour_stats(hass, now)
     expected = {
         "state_class_removed_sensor.test": {
-            "issue_type": "state_class_removed",
+            "issue_type": STATE_CLASS_REMOVED_ISSUE,
             "statistic_id": "sensor.test",
         }
     }
     assert_issues(hass, expected)
+
+
+@pytest.mark.parametrize(
+    ("attributes", "unit1", "unit2"),
+    [
+        (NONE_SENSOR_ATTRIBUTES, "KB/s", "kB/s"),
+        (NONE_SENSOR_ATTRIBUTES, "KW", "kW"),
+    ],
+)
+async def test_update_statistics_issues_with_custom_equivalent_units(
+    hass: HomeAssistant,
+    attributes: dict,
+    unit1: str,
+    unit2: str,
+) -> None:
+    """Test update_statistics_issues when custom equivalent units are provided."""
+    now = get_start_time(dt_util.utcnow())
+
+    await async_setup_component(hass, DOMAIN, {})
+    await async_recorder_block_till_done(hass)
+
+    # Add a recorder platform that provides custom equivalent units
+    def _mock_custom_equivalent_units(*args: Any) -> dict:
+        return {"sensor.test": {unit1: unit2}}
+
+    recorder_platform = Mock(
+        compile_statistics=None,
+        async_custom_equivalent_units=Mock(wraps=_mock_custom_equivalent_units),
+        list_statistic_ids=None,
+        update_statistics_issues=None,
+        validate_statistics=None,
+    )
+
+    mock_platform(hass, "some_domain.recorder", recorder_platform)
+    assert await async_setup_component(hass, "some_domain", {})
+    # Wait for the some_domain recorder platform to be added
+    await async_recorder_block_till_done(hass)
+
+    # No statistics, no state - no issues
+    now = await _one_hour_stats(hass, now)
+    assert_issues(hass, {})
+
+    # Statistics, unit not part of unit system but still a valid state - no issues
+    hass.states.async_set(
+        "sensor.test",
+        10,
+        attributes=attributes | {"unit_of_measurement": unit1},
+        timestamp=now.timestamp(),
+    )
+    await hass.async_block_till_done()
+    now = await _one_hour_stats(hass, now)
+    assert_issues(hass, {})
+
+    # State update with equivalent supported unit, statistics did not run again
+    hass.states.async_set(
+        "sensor.test",
+        12,
+        attributes=attributes | {"unit_of_measurement": unit2},
+        timestamp=now.timestamp(),
+    )
+    await hass.async_block_till_done()
+    assert_issues(hass, {})
+
+    # Let statistics run for one hour, expect no issues
+    now = await _one_hour_stats(hass, now)
+    assert_issues(hass, {})
 
 
 async def async_record_meter_states(
@@ -5422,7 +6803,7 @@ async def test_exclude_attributes(hass: HomeAssistant) -> None:
         options=["option1", "option2"],
     )
     setup_test_component_platform(hass, DOMAIN, [entity0])
-    assert await async_setup_component(hass, "sensor", {"sensor": {"platform": "test"}})
+    assert await async_setup_component(hass, DOMAIN, {"sensor": {"platform": "test"}})
     await hass.async_block_till_done()
     await async_wait_recording_done(hass)
 
@@ -5438,8 +6819,8 @@ async def test_exclude_attributes(hass: HomeAssistant) -> None:
                 .outerjoin(StatesMeta, States.metadata_id == StatesMeta.metadata_id)
             ):
                 db_state.entity_id = db_states_meta.entity_id
-                state = db_state.to_native()
-                state.attributes = db_state_attributes.to_native()
+                state = db_state_to_native(db_state)
+                state.attributes = db_state_attributes_to_native(db_state_attributes)
                 native_states.append(state)
             return native_states
 
@@ -5449,23 +6830,23 @@ async def test_exclude_attributes(hass: HomeAssistant) -> None:
     assert ATTR_FRIENDLY_NAME in states[0].attributes
 
 
+@pytest.mark.parametrize("ignore_translations_for_mock_domains", ["test"])
 @pytest.mark.parametrize(
-    "ignore_translations",
+    "ignore_missing_translations",
     [
         [
-            "component.test.issues..title",
-            "component.test.issues..description",
             "component.sensor.issues..title",
             "component.sensor.issues..description",
         ]
     ],
 )
 async def test_clean_up_repairs(
-    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+    hass: HomeAssistant,
+    issue_registry: ir.IssueRegistry,
+    hass_ws_client: WebSocketGenerator,
 ) -> None:
     """Test cleaning up repairs."""
-    await async_setup_component(hass, "sensor", {})
-    issue_registry = ir.async_get(hass)
+    await async_setup_component(hass, DOMAIN, {})
     client = await hass_ws_client()
 
     # Create some issues
@@ -5483,8 +6864,9 @@ async def test_clean_up_repairs(
     create_issue("test", "test_issue", None)
     create_issue(DOMAIN, "test_issue_1", None)
     create_issue(DOMAIN, "test_issue_2", {"issue_type": "another_issue"})
-    create_issue(DOMAIN, "test_issue_3", {"issue_type": "state_class_removed"})
-    create_issue(DOMAIN, "test_issue_4", {"issue_type": "units_changed"})
+    create_issue(DOMAIN, "test_issue_3", {"issue_type": STATE_CLASS_REMOVED_ISSUE})
+    create_issue(DOMAIN, "test_issue_4", {"issue_type": UNITS_CHANGED_ISSUE})
+    create_issue(DOMAIN, "test_issue_5", {"issue_type": MEAN_TYPE_CHANGED_ISSUE})
 
     # Check the issues
     assert set(issue_registry.issues) == {
@@ -5493,6 +6875,7 @@ async def test_clean_up_repairs(
         ("sensor", "test_issue_2"),
         ("sensor", "test_issue_3"),
         ("sensor", "test_issue_4"),
+        ("sensor", "test_issue_5"),
     }
 
     # Request update of issues
@@ -5506,3 +6889,140 @@ async def test_clean_up_repairs(
         ("sensor", "test_issue_1"),
         ("sensor", "test_issue_2"),
     }
+
+
+async def test_validate_statistics_mean_type_changed(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test validate_statistics.
+
+    This tests a validation issue is created when a the mean type is changed.
+    """
+    now = get_start_time(dt_util.utcnow())
+
+    await async_setup_component(hass, DOMAIN, {})
+    await async_recorder_block_till_done(hass)
+    client = await hass_ws_client()
+
+    # No statistics, no state - empty response
+    await assert_validation_result(hass, client, {}, {})
+
+    # No statistics, original unit - empty response
+    hass.states.async_set(
+        "sensor.wind_direction",
+        10,
+        attributes=WIND_DIRECTION_ATTRIBUTES,
+        timestamp=now.timestamp(),
+    )
+    await assert_validation_result(hass, client, {}, {})
+
+    # Run statistics
+    await async_recorder_block_till_done(hass)
+    do_adhoc_statistics(hass, start=now)
+    await async_recorder_block_till_done(hass)
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.wind_direction",
+            "display_unit_of_measurement": DEGREE,
+            "has_mean": False,
+            "mean_type": StatisticMeanType.CIRCULAR,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": DEGREE,
+            "unit_class": None,
+        }
+    ]
+
+    expected_log_entry = (
+        "homeassistant.components.sensor.recorder",
+        logging.WARNING,
+        (
+            "The statistics mean algorithm for sensor.wind_direction have changed from"
+            " CIRCULAR to ARITHMETIC. Generation of long term statistics will be "
+            "suppressed unless it changes back or go to "
+            "https://my.home-assistant.io/redirect/developer_statistics "
+            "to delete the old statistics"
+        ),
+    )
+    # Valid stats, no log entry
+    assert expected_log_entry not in caplog.record_tuples
+
+    # State class changed
+    hass.states.async_set(
+        "sensor.wind_direction",
+        5,
+        attributes={
+            **WIND_DIRECTION_ATTRIBUTES,
+            "state_class": SensorStateClass.MEASUREMENT,
+        },
+        timestamp=now.timestamp(),
+    )
+    expected = {
+        "sensor.wind_direction": [
+            {
+                "data": {
+                    "statistic_id": "sensor.wind_direction",
+                    "metadata_mean_type": StatisticMeanType.CIRCULAR,
+                    "state_mean_type": StatisticMeanType.ARITHMETIC,
+                },
+                "type": MEAN_TYPE_CHANGED_ISSUE,
+            }
+        ],
+    }
+    await assert_validation_result(hass, client, expected, {MEAN_TYPE_CHANGED_ISSUE})
+
+    # Run statistics one hour later, metadata will not be updated
+    await async_recorder_block_till_done(hass)
+    do_adhoc_statistics(hass, start=now + timedelta(hours=1))
+    await async_recorder_block_till_done(hass)
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.wind_direction",
+            "display_unit_of_measurement": DEGREE,
+            "has_mean": False,
+            "mean_type": StatisticMeanType.CIRCULAR,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": DEGREE,
+            "unit_class": None,
+        }
+    ]
+    await assert_validation_result(hass, client, expected, {MEAN_TYPE_CHANGED_ISSUE})
+    assert expected_log_entry in caplog.record_tuples
+
+    # State class changed back
+    hass.states.async_set(
+        "sensor.wind_direction",
+        350,
+        attributes=WIND_DIRECTION_ATTRIBUTES,
+        timestamp=now.timestamp(),
+    )
+    await assert_validation_result(hass, client, {}, {})
+
+    # Run statistics
+    await async_recorder_block_till_done(hass)
+    do_adhoc_statistics(hass, start=now)
+    await async_recorder_block_till_done(hass)
+    statistic_ids = await async_list_statistic_ids(hass)
+    assert statistic_ids == [
+        {
+            "statistic_id": "sensor.wind_direction",
+            "display_unit_of_measurement": DEGREE,
+            "has_mean": False,
+            "mean_type": StatisticMeanType.CIRCULAR,
+            "has_sum": False,
+            "name": None,
+            "source": "recorder",
+            "statistics_unit_of_measurement": DEGREE,
+            "unit_class": None,
+        }
+    ]
+
+    # Issue should be resolved
+    await assert_validation_result(hass, client, {}, {})

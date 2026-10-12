@@ -1,22 +1,19 @@
 """Support for IntelliFire Binary Sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import IntellifireDataUpdateCoordinator
-from .const import DOMAIN
+from .coordinator import IntellifireConfigEntry, IntellifireDataUpdateCoordinator
 from .entity import IntellifireEntity
 
 
@@ -151,11 +148,11 @@ INTELLIFIRE_BINARY_SENSORS: tuple[IntellifireBinarySensorEntityDescription, ...]
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: IntellifireConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a IntelliFire On/Off Sensor."""
-    coordinator: IntellifireDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     async_add_entities(
         IntellifireBinarySensor(coordinator=coordinator, description=description)
@@ -169,6 +166,7 @@ class IntellifireBinarySensor(IntellifireEntity, BinarySensorEntity):
     entity_description: IntellifireBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Use this to get the correct value."""
         return self.entity_description.value_fn(self.coordinator)

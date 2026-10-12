@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from aiotedee import TedeeLock
 
@@ -13,7 +14,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import TedeeConfigEntry
 from .entity import TedeeDescriptionEntity
@@ -53,7 +54,7 @@ ENTITIES: tuple[TedeeSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TedeeConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tedee sensor entity."""
     coordinator = entry.runtime_data
@@ -75,6 +76,7 @@ class TedeeSensorEntity(TedeeDescriptionEntity, SensorEntity):
     entity_description: TedeeSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self._lock)

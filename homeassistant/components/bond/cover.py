@@ -1,8 +1,6 @@
 """Support for Bond covers."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from bond_async import Action, DeviceType
 
@@ -13,7 +11,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BondConfigEntry
 from .entity import BondEntity
@@ -34,7 +32,7 @@ def _hass_to_bond_position(hass_position: int) -> int:
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BondConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Bond cover devices."""
     data = entry.runtime_data
@@ -71,6 +69,7 @@ class BondCover(BondEntity, CoverEntity):
                 supported_features |= CoverEntityFeature.STOP_TILT
         self._attr_supported_features = supported_features
 
+    @override
     def _apply_state(self) -> None:
         state = self._device.state
         cover_open = state.get("open")
@@ -78,6 +77,7 @@ class BondCover(BondEntity, CoverEntity):
         if (bond_position := state.get("position")) is not None:
             self._attr_current_cover_position = _bond_to_hass_position(bond_position)
 
+    @override
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Set the cover position."""
         await self._bond.action(
@@ -85,26 +85,32 @@ class BondCover(BondEntity, CoverEntity):
             Action.set_position(_hass_to_bond_position(kwargs[ATTR_POSITION])),
         )
 
+    @override
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
         await self._bond.action(self._device_id, Action.open())
 
+    @override
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close cover."""
         await self._bond.action(self._device_id, Action.close())
 
+    @override
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Hold cover."""
         await self._bond.action(self._device_id, Action.hold())
 
+    @override
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         """Open the cover tilt."""
         await self._bond.action(self._device_id, Action.tilt_open())
 
+    @override
     async def async_close_cover_tilt(self, **kwargs: Any) -> None:
         """Close the cover tilt."""
         await self._bond.action(self._device_id, Action.tilt_close())
 
+    @override
     async def async_stop_cover_tilt(self, **kwargs: Any) -> None:
         """Stop the cover."""
         await self._bond.action(self._device_id, Action.hold())

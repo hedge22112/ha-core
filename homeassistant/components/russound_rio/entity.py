@@ -2,16 +2,22 @@
 
 from collections.abc import Awaitable, Callable, Coroutine
 from functools import wraps
-from typing import Any, Concatenate
+from typing import TYPE_CHECKING, Any, Concatenate, override
 
-from aiorussound import Controller, RussoundClient, RussoundTcpConnectionHandler
-from aiorussound.models import CallbackType
+from aiorussound.rio import RussoundRIOClient
+from aiorussound.rio.client import Controller, ZoneControlSurface
+from aiorussound.rio.models import CallbackType
 
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN, RUSSOUND_RIO_EXCEPTIONS
+
+if TYPE_CHECKING:
+    from . import RussoundConfigEntry
 
 
 def command[_EntityT: RussoundBaseEntity, **_P](
@@ -45,7 +51,10 @@ class RussoundBaseEntity(Entity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         controller: Controller,
+        entry: RussoundConfigEntry,
+        zone_id: int | None = None,
     ) -> None:
         """Initialize the entity."""
         self._client = controller.client
@@ -57,32 +66,34 @@ class RussoundBaseEntity(Entity):
             self._controller.mac_address
             or f"{self._primary_mac_address}-{self._controller.controller_id}"
         )
+        self._zone_id = zone_id
+        if not zone_id:
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, self._device_identifier)},
+            )
+            return
+        zone = controller.zones[zone_id]
         self._attr_device_info = DeviceInfo(
-            # Use MAC address of Russound device as identifier
-            identifiers={(DOMAIN, self._device_identifier)},
+            identifiers={(DOMAIN, f"{self._device_identifier}-{zone_id}")},
+            name=zone.name,
             manufacturer="Russound",
-            name=controller.controller_type,
             model=controller.controller_type,
             sw_version=controller.firmware_version,
+            suggested_area=zone.name,
+            via_device_id=dr.async_get_device_id_by_identifier(
+                hass,
+                (DOMAIN, self._device_identifier),
+                config_entry_id=entry.entry_id,
+            ),
         )
-        if isinstance(self._client.connection_handler, RussoundTcpConnectionHandler):
-            self._attr_device_info["configuration_url"] = (
-                f"http://{self._client.connection_handler.host}"
-            )
-        if controller.controller_id != 1:
-            assert self._client.controllers[1].mac_address
-            self._attr_device_info["via_device"] = (
-                DOMAIN,
-                self._client.controllers[1].mac_address,
-            )
-        else:
-            assert controller.mac_address
-            self._attr_device_info["connections"] = {
-                (CONNECTION_NETWORK_MAC, controller.mac_address)
-            }
+
+    @property
+    def _zone(self) -> ZoneControlSurface:
+        assert self._zone_id
+        return self._controller.zones[self._zone_id]
 
     async def _state_update_callback(
-        self, _client: RussoundClient, _callback_type: CallbackType
+        self, _client: RussoundRIOClient, _callback_type: CallbackType
     ) -> None:
         """Call when the device is notified of changes."""
         if _callback_type == CallbackType.CONNECTION:
@@ -90,10 +101,12 @@ class RussoundBaseEntity(Entity):
         self._controller = _client.controllers[self._controller.controller_id]
         self.async_write_ha_state()
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callback handlers."""
         await self._client.register_state_update_callbacks(self._state_update_callback)
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Remove callbacks."""
         self._client.unregister_state_update_callbacks(self._state_update_callback)

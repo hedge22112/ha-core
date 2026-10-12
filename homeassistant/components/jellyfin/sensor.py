@@ -1,17 +1,15 @@
 """Support for Jellyfin sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import JellyfinConfigEntry, JellyfinDataUpdateCoordinator
+from .coordinator import JellyfinConfigEntry, JellyfinDataUpdateCoordinator
 from .entity import JellyfinServerEntity
 
 
@@ -43,7 +41,7 @@ SENSOR_TYPES: tuple[JellyfinSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: JellyfinConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Jellyfin sensor based on a config entry."""
     coordinator = entry.runtime_data
@@ -69,6 +67,7 @@ class JellyfinServerSensor(JellyfinServerEntity, SensorEntity):
         self._attr_unique_id = f"{coordinator.server_id}-{description.key}"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

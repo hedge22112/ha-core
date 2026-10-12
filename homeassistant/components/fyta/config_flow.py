@@ -1,10 +1,8 @@
 """Config flow for FYTA integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 
 from fyta_cli.fyta_connector import FytaConnector
 from fyta_cli.fyta_exceptions import (
@@ -13,7 +11,7 @@ from fyta_cli.fyta_exceptions import (
     FytaPasswordError,
 )
 from fyta_cli.fyta_models import Credentials
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ACCESS_TOKEN, CONF_PASSWORD, CONF_USERNAME
@@ -28,15 +26,15 @@ from .const import CONF_EXPIRATION, DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-DATA_SCHEMA = vol.Schema(
+DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_USERNAME): TextSelector(
+        probatio.Required(CONF_USERNAME): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.TEXT,
                 autocomplete="username",
             ),
         ),
-        vol.Required(CONF_PASSWORD): TextSelector(
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.PASSWORD,
                 autocomplete="current-password",
@@ -65,14 +63,15 @@ class FytaConfigFlow(ConfigFlow, domain=DOMAIN):
             return {"base": "invalid_auth"}
         except FytaPasswordError:
             return {"base": "invalid_auth", CONF_PASSWORD: "password_error"}
-        except Exception as e:  # noqa: BLE001
-            _LOGGER.error(e)
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
             return {"base": "unknown"}
         finally:
             await fyta.client.close()
 
         return {}
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:

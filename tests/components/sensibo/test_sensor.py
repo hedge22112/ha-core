@@ -1,7 +1,5 @@
 """The test for the sensibo sensor platform."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 from unittest.mock import MagicMock
 
@@ -11,7 +9,7 @@ import pytest
 from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -43,5 +41,16 @@ async def test_sensor(
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.kitchen_pure_aqi")
+    state = hass.states.get("sensor.kitchen_kitchen_pure_aqi")
     assert state.state == "moderate"
+
+    mock_client.async_get_devices_data.return_value.parsed[
+        "AAZZAAZZ"
+    ].pm25_pure = PureAQI(0)
+
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.kitchen_kitchen_pure_aqi")
+    assert state.state == STATE_UNKNOWN

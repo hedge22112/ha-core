@@ -1,11 +1,9 @@
 """Provides device triggers for Xiaomi BLE."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
 from homeassistant.components.homeassistant.triggers import event as event_trigger
@@ -47,6 +45,8 @@ from .const import (
     LOCK_FINGERPRINT,
     MOTION,
     MOTION_DEVICE,
+    QUADRUPLE_BUTTON,
+    QUADRUPLE_BUTTON_PRESS_DOUBLE_LONG,
     REMOTE,
     REMOTE_BATHROOM,
     REMOTE_FAN,
@@ -123,6 +123,12 @@ EVENT_TYPES = {
     DIMMER: ["dimmer"],
     DOUBLE_BUTTON: ["button_left", "button_right"],
     TRIPPLE_BUTTON: ["button_left", "button_middle", "button_right"],
+    QUADRUPLE_BUTTON: [
+        "button_left",
+        "button_mid_left",
+        "button_mid_right",
+        "button_right",
+    ],
     ERROR: ["error"],
     FINGERPRINT: ["fingerprint"],
     LOCK: ["lock"],
@@ -205,6 +211,11 @@ TRIGGER_MODEL_DATA = {
         event_types=EVENT_TYPES[TRIPPLE_BUTTON],
         triggers=TRIGGERS_BY_TYPE[BUTTON_PRESS_DOUBLE_LONG],
     ),
+    QUADRUPLE_BUTTON_PRESS_DOUBLE_LONG: TriggerModelData(
+        event_class=EVENT_CLASS_BUTTON,
+        event_types=EVENT_TYPES[QUADRUPLE_BUTTON],
+        triggers=TRIGGERS_BY_TYPE[BUTTON_PRESS_DOUBLE_LONG],
+    ),
     ERROR: TriggerModelData(
         event_class=EVENT_CLASS_ERROR,
         event_types=EVENT_TYPES[ERROR],
@@ -261,6 +272,8 @@ MODEL_DATA = {
     "XMWXKG01YL": TRIGGER_MODEL_DATA[DOUBLE_BUTTON_PRESS_DOUBLE_LONG],
     "K9B-2BTN": TRIGGER_MODEL_DATA[DOUBLE_BUTTON_PRESS_DOUBLE_LONG],
     "K9B-3BTN": TRIGGER_MODEL_DATA[TRIPPLE_BUTTON_PRESS_DOUBLE_LONG],
+    "KS1": TRIGGER_MODEL_DATA[QUADRUPLE_BUTTON_PRESS_DOUBLE_LONG],
+    "KS1BP": TRIGGER_MODEL_DATA[QUADRUPLE_BUTTON_PRESS_DOUBLE_LONG],
     "YLYK01YL": TRIGGER_MODEL_DATA[REMOTE],
     "YLYK01YL-FANRC": TRIGGER_MODEL_DATA[REMOTE_FAN],
     "YLYK01YL-VENFAN": TRIGGER_MODEL_DATA[REMOTE_VENFAN],
@@ -275,6 +288,7 @@ MODEL_DATA = {
     "XMZNMS04LM": TRIGGER_MODEL_DATA[LOCK_FINGERPRINT],
     "ZNMS16LM": TRIGGER_MODEL_DATA[LOCK_FINGERPRINT],
     "ZNMS17LM": TRIGGER_MODEL_DATA[LOCK_FINGERPRINT],
+    "MJZNMS03LM": TRIGGER_MODEL_DATA[LOCK_FINGERPRINT],
 }
 
 
@@ -286,8 +300,8 @@ async def async_validate_trigger_config(
     if model_data := _async_trigger_model_data(hass, device_id):
         schema = DEVICE_TRIGGER_BASE_SCHEMA.extend(
             {
-                vol.Required(CONF_TYPE): vol.In(model_data.event_types),
-                vol.Required(CONF_SUBTYPE): vol.In(model_data.triggers),
+                probatio.Required(CONF_TYPE): probatio.In(model_data.event_types),
+                probatio.Required(CONF_SUBTYPE): probatio.In(model_data.triggers),
             }
         )
         return schema(config)  # type: ignore[no-any-return]
@@ -351,7 +365,7 @@ def _async_trigger_model_data(
 ) -> TriggerModelData | None:
     """Get available triggers for a given model."""
     device_registry = dr.async_get(hass)
-    device = device_registry.async_get(device_id)
+    device = device_registry.async_get(device_id, include_child_devices=False)
     if device and device.model and (model_data := MODEL_DATA.get(device.model)):
         return model_data
     return None

@@ -1,7 +1,5 @@
 """Define Guardian-specific utilities."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -10,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Concatenate
 
 from aioguardian.errors import GuardianError
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -18,6 +15,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import LOGGER
 
 if TYPE_CHECKING:
+    from . import GuardianConfigEntry
     from .entity import GuardianEntity
 
 DEFAULT_UPDATE_INTERVAL = timedelta(seconds=30)
@@ -36,7 +34,7 @@ class EntityDomainReplacementStrategy:
 @callback
 def async_finish_entity_domain_replacements(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: GuardianConfigEntry,
     entity_replacement_strategies: Iterable[EntityDomainReplacementStrategy],
 ) -> None:
     """Remove old entities and create a repairs issue with info on their replacement."""

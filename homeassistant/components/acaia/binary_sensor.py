@@ -2,8 +2,9 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
-from aioacaia.acaiascale import AcaiaScale
+from aioacaia import AcaiaScale
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -11,7 +12,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import AcaiaConfigEntry
 from .entity import AcaiaEntity
@@ -40,7 +41,7 @@ BINARY_SENSORS: tuple[AcaiaBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AcaiaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up binary sensors."""
 
@@ -56,6 +57,7 @@ class AcaiaBinarySensor(AcaiaEntity, BinarySensorEntity):
     entity_description: AcaiaBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return self.entity_description.is_on_fn(self._scale)

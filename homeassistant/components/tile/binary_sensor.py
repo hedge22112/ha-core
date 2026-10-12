@@ -1,9 +1,8 @@
 """Support for Tile binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from pytile.tile import Tile
 
@@ -12,7 +11,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import TileConfigEntry, TileCoordinator
 from .entity import TileEntity
@@ -35,7 +34,9 @@ ENTITIES: tuple[TileBinarySensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: TileConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: TileConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tile binary sensors."""
 
@@ -64,6 +65,7 @@ class TileBinarySensor(TileEntity, BinarySensorEntity):
         )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return True if the binary sensor is on."""
         return self.entity_description.is_on_fn(self._tile)

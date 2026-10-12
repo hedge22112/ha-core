@@ -1,16 +1,18 @@
 # serializer version: 1
 # name: test_all_entities[number.stove_combustion_power-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 5,
-      'min': 1,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 5,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 1,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -24,6 +26,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Combustion power',
     'options': dict({
     }),
     'original_device_class': <NumberDeviceClass.POWER_FACTOR: 'power_factor'>,
@@ -31,6 +34,7 @@
     'original_name': 'Combustion power',
     'platform': 'palazzetti',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'combustion_power',
     'unique_id': '11:22:33:44:55:66-combustion_power',
@@ -40,12 +44,12 @@
 # name: test_all_entities[number.stove_combustion_power-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'power_factor',
-      'friendly_name': 'Stove Combustion power',
-      'max': 5,
-      'min': 1,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'power_factor',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Stove Combustion power',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 5,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 1,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1,
     }),
     'context': <ANY>,
     'entity_id': 'number.stove_combustion_power',
@@ -57,16 +61,18 @@
 # ---
 # name: test_all_entities[number.stove_left_fan_speed-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 5,
-      'min': 0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 5,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -80,6 +86,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Left fan speed',
     'options': dict({
     }),
     'original_device_class': <NumberDeviceClass.WIND_SPEED: 'wind_speed'>,
@@ -87,6 +94,7 @@
     'original_name': 'Left fan speed',
     'platform': 'palazzetti',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'fan_left_speed',
     'unique_id': '11:22:33:44:55:66-fan_left_speed',
@@ -96,12 +104,12 @@
 # name: test_all_entities[number.stove_left_fan_speed-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'wind_speed',
-      'friendly_name': 'Stove Left fan speed',
-      'max': 5,
-      'min': 0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'wind_speed',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Stove Left fan speed',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 5,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1,
     }),
     'context': <ANY>,
     'entity_id': 'number.stove_left_fan_speed',
@@ -113,16 +121,18 @@
 # ---
 # name: test_all_entities[number.stove_right_fan_speed-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 5,
-      'min': 0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 5,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -136,6 +146,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Right fan speed',
     'options': dict({
     }),
     'original_device_class': <NumberDeviceClass.WIND_SPEED: 'wind_speed'>,
@@ -143,6 +154,7 @@
     'original_name': 'Right fan speed',
     'platform': 'palazzetti',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'fan_right_speed',
     'unique_id': '11:22:33:44:55:66-fan_right_speed',
@@ -152,12 +164,12 @@
 # name: test_all_entities[number.stove_right_fan_speed-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'wind_speed',
-      'friendly_name': 'Stove Right fan speed',
-      'max': 5,
-      'min': 0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1,
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'wind_speed',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Stove Right fan speed',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 5,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1,
     }),
     'context': <ANY>,
     'entity_id': 'number.stove_right_fan_speed',

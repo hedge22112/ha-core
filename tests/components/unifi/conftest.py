@@ -1,20 +1,18 @@
 """Fixtures for UniFi Network methods."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Coroutine, Generator
 from datetime import timedelta
 from types import MappingProxyType
 from typing import Any, Protocol
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiounifi.models.message import MessageKey
 import orjson
 import pytest
 
 from homeassistant.components.unifi import STORAGE_KEY, STORAGE_VERSION
-from homeassistant.components.unifi.const import CONF_SITE_ID, DOMAIN as UNIFI_DOMAIN
+from homeassistant.components.unifi.const import CONF_SITE_ID, DOMAIN
 from homeassistant.components.unifi.hub.websocket import RETRY_TIMER
 from homeassistant.const import (
     CONF_HOST,
@@ -26,7 +24,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from tests.common import MockConfigEntry, async_fire_time_changed
 from tests.test_util.aiohttp import AiohttpClientMocker
@@ -69,10 +67,18 @@ class WebsocketMessageMock(Protocol):
 @pytest.fixture(autouse=True, name="mock_discovery")
 def fixture_discovery():
     """No real network traffic allowed."""
-    with patch(
-        "homeassistant.components.unifi.config_flow._async_discover_unifi",
-        return_value=None,
-    ) as mock:
+    with (
+        patch(
+            "homeassistant.components.unifi.config_flow._async_discover_unifi",
+            return_value=None,
+        ) as mock,
+        patch(
+            "homeassistant.components.unifi_discovery.discovery.AIOUnifiScanner",
+            return_value=MagicMock(
+                async_scan=AsyncMock(return_value=[]), found_devices=[]
+            ),
+        ),
+    ):
         yield mock
 
 
@@ -112,7 +118,7 @@ def fixture_config_entry(
 ) -> MockConfigEntry:
     """Define a config entry fixture."""
     config_entry = MockConfigEntry(
-        domain=UNIFI_DOMAIN,
+        domain=DOMAIN,
         entry_id="1",
         unique_id="1",
         data=config_entry_data,
@@ -172,6 +178,8 @@ def fixture_request(
     device_payload: list[dict[str, Any]],
     dpi_app_payload: list[dict[str, Any]],
     dpi_group_payload: list[dict[str, Any]],
+    firewall_policy_payload: list[dict[str, Any]],
+    object_oriented_network_config_payload: list[dict[str, Any]],
     port_forward_payload: list[dict[str, Any]],
     traffic_rule_payload: list[dict[str, Any]],
     traffic_route_payload: list[dict[str, Any]],
@@ -211,6 +219,13 @@ def fixture_request(
         mock_get_request(f"/api/s/{site_id}/stat/device", device_payload)
         mock_get_request(f"/api/s/{site_id}/rest/dpiapp", dpi_app_payload)
         mock_get_request(f"/api/s/{site_id}/rest/dpigroup", dpi_group_payload)
+        mock_get_request(
+            f"/v2/api/site/{site_id}/firewall-policies", firewall_policy_payload
+        )
+        mock_get_request(
+            f"/v2/api/site/{site_id}/object-oriented-network-configs",
+            object_oriented_network_config_payload,
+        )
         mock_get_request(f"/api/s/{site_id}/rest/portforward", port_forward_payload)
         mock_get_request(f"/api/s/{site_id}/stat/sysinfo", system_information_payload)
         mock_get_request(f"/api/s/{site_id}/rest/wlanconf", wlan_payload)
@@ -250,6 +265,18 @@ def fixture_dpi_app_data() -> list[dict[str, Any]]:
 @pytest.fixture(name="dpi_group_payload")
 def fixture_dpi_group_data() -> list[dict[str, Any]]:
     """DPI group data."""
+    return []
+
+
+@pytest.fixture(name="firewall_policy_payload")
+def firewall_policy_payload_data() -> list[dict[str, Any]]:
+    """Firewall policy data."""
+    return []
+
+
+@pytest.fixture(name="object_oriented_network_config_payload")
+def object_oriented_network_config_payload_data() -> list[dict[str, Any]]:
+    """Object-oriented network config data."""
     return []
 
 

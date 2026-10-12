@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from simplefin4py import Account
 
@@ -12,9 +13,9 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import SimpleFinConfigEntry
+from .coordinator import SimpleFinConfigEntry
 from .entity import SimpleFinEntity
 
 
@@ -39,7 +40,7 @@ SIMPLEFIN_BINARY_SENSORS: tuple[SimpleFinBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SimpleFinConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up SimpleFIN sensors for config entries."""
 
@@ -63,6 +64,7 @@ class SimpleFinBinarySensor(SimpleFinEntity, BinarySensorEntity):
     entity_description: SimpleFinBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool:
         """Use this to get the correct value."""
         return self.entity_description.value_fn(self.account_data)

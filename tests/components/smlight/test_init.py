@@ -8,10 +8,16 @@ from pysmlight.exceptions import SmlightAuthError, SmlightConnectionError, Smlig
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from homeassistant.components.smlight.const import DOMAIN, SCAN_INTERVAL
+from homeassistant.components.smlight.const import (
+    DOMAIN,
+    SCAN_FIRMWARE_INTERVAL,
+    SCAN_INTERVAL,
+)
+from homeassistant.components.update import ATTR_INSTALLED_VERSION
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.issue_registry import IssueRegistry
 
@@ -67,10 +73,50 @@ async def test_async_setup_missing_credentials(
 
     await setup_integration(hass, mock_config_entry_host)
 
-    progress = hass.config_entries.flow.async_progress()
+    progress = [
+        flow
+        for flow in hass.config_entries.flow.async_progress()
+        if flow["handler"] == DOMAIN and flow["context"].get("source") == "reauth"
+    ]
     assert len(progress) == 1
     assert progress[0]["step_id"] == "reauth_confirm"
     assert progress[0]["context"]["unique_id"] == "aa:bb:cc:dd:ee:ff"
+
+
+async def test_async_setup_no_internet(
+    hass: HomeAssistant,
+    mock_config_entry_host: MockConfigEntry,
+    mock_smlight_client: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test we still load integration when no internet is available."""
+    side_effect = mock_smlight_client.get_firmware_version.side_effect
+    mock_smlight_client.get_firmware_version.side_effect = SmlightConnectionError
+
+    await setup_integration(hass, mock_config_entry_host)
+
+    entity = hass.states.get("update.mock_title_core_firmware")
+    assert entity is not None
+    assert entity.state == STATE_UNKNOWN
+
+    freezer.tick(SCAN_FIRMWARE_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    entity = hass.states.get("update.mock_title_core_firmware")
+    assert entity is not None
+    assert entity.state == STATE_UNKNOWN
+
+    mock_smlight_client.get_firmware_version.side_effect = side_effect
+
+    freezer.tick(SCAN_FIRMWARE_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    entity = hass.states.get("update.mock_title_core_firmware")
+    assert entity is not None
+    assert entity.state == STATE_ON
+    assert entity.attributes[ATTR_INSTALLED_VERSION] == "v2.3.6"
 
 
 @pytest.mark.parametrize("error", [SmlightConnectionError, SmlightAuthError])
@@ -107,8 +153,8 @@ async def test_device_info(
     """Test device registry information."""
     entry = await setup_integration(hass, mock_config_entry)
 
-    device_entry = device_registry.async_get_device(
-        connections={(dr.CONNECTION_NETWORK_MAC, entry.unique_id)}
+    device_entry = device_registry.async_get_device_by_connection(
+        (dr.CONNECTION_NETWORK_MAC, entry.unique_id), entry.entry_id
     )
     assert device_entry is not None
     assert device_entry == snapshot
@@ -124,6 +170,7 @@ async def test_device_legacy_firmware(
     """Test device setup for old firmware version that dont support required API."""
     LEGACY_VERSION = "v0.9.9"
     mock_smlight_client.get_sensors.side_effect = SmlightError
+    mock_smlight_client.get_info.side_effect = None
     mock_smlight_client.get_info.return_value = Info(
         legacy_api=2, sw_version=LEGACY_VERSION, MAC="AA:BB:CC:DD:EE:FF"
     )
@@ -131,8 +178,8 @@ async def test_device_legacy_firmware(
 
     assert entry.unique_id == "aa:bb:cc:dd:ee:ff"
 
-    device_entry = device_registry.async_get_device(
-        connections={(dr.CONNECTION_NETWORK_MAC, entry.unique_id)}
+    device_entry = device_registry.async_get_device_by_connection(
+        (dr.CONNECTION_NETWORK_MAC, entry.unique_id), entry.entry_id
     )
     assert LEGACY_VERSION in device_entry.sw_version
 
@@ -142,3 +189,33 @@ async def test_device_legacy_firmware(
     assert issue is not None
     assert issue.domain == DOMAIN
     assert issue.issue_id == "unsupported_firmware"
+
+
+async def test_async_execute_command_auth_failed(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_ultima_client: MagicMock,
+) -> None:
+    """Test action handles authentication error."""
+    mock_ultima_client.actions.ambilight.side_effect = SmlightAuthError
+
+    await setup_integration(hass, mock_config_entry)
+
+    entity_id = "light.mock_title_ambilight"
+
+    with pytest.raises(ConfigEntryAuthFailed):
+        await hass.services.async_call(
+            "light",
+            "turn_on",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+
+    progress = [
+        flow
+        for flow in hass.config_entries.flow.async_progress()
+        if flow["handler"] == DOMAIN and flow["context"].get("source") == "reauth"
+    ]
+    assert len(progress) == 1
+    assert progress[0]["step_id"] == "reauth_confirm"
+    assert progress[0]["context"]["unique_id"] == "aa:bb:cc:dd:ee:ff"

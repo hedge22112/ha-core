@@ -39,7 +39,7 @@ async def test_form(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert result["type"] == FlowResultType.FORM
+    assert result["type"] is FlowResultType.FORM
     assert result["errors"] is None
 
     with patch(
@@ -55,7 +55,7 @@ async def test_form(hass: HomeAssistant) -> None:
         )
         await hass.async_block_till_done()
 
-    assert result2["type"] == FlowResultType.CREATE_ENTRY
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
     assert result2["result"].unique_id == f"freegames-{MOCK_LANGUAGE}-{MOCK_COUNTRY}"
     assert (
         result2["title"]
@@ -85,8 +85,29 @@ async def test_form_cannot_connect(hass: HomeAssistant) -> None:
             },
         )
 
-    assert result2["type"] == FlowResultType.FORM
+    assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {"base": "unknown"}
+
+    with (
+        patch(
+            "homeassistant.components.epic_games_store.config_flow.EpicGamesStoreAPI.get_free_games",
+            return_value=DATA_FREE_GAMES,
+        ),
+        patch(
+            "homeassistant.components.epic_games_store.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_LANGUAGE: MOCK_LANGUAGE,
+                CONF_COUNTRY: MOCK_COUNTRY,
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_form_cannot_connect_wrong_param(hass: HomeAssistant) -> None:
@@ -107,8 +128,29 @@ async def test_form_cannot_connect_wrong_param(hass: HomeAssistant) -> None:
             },
         )
 
-    assert result2["type"] == FlowResultType.FORM
+    assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {"base": "unknown"}
+
+    with (
+        patch(
+            "homeassistant.components.epic_games_store.config_flow.EpicGamesStoreAPI.get_free_games",
+            return_value=DATA_FREE_GAMES,
+        ),
+        patch(
+            "homeassistant.components.epic_games_store.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_LANGUAGE: MOCK_LANGUAGE,
+                CONF_COUNTRY: MOCK_COUNTRY,
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_form_service_error(hass: HomeAssistant) -> None:
@@ -130,7 +172,7 @@ async def test_form_service_error(hass: HomeAssistant) -> None:
         )
         await hass.async_block_till_done()
 
-    assert result2["type"] == FlowResultType.CREATE_ENTRY
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
     assert result2["result"].unique_id == f"freegames-{MOCK_LANGUAGE}-{MOCK_COUNTRY}"
     assert (
         result2["title"]

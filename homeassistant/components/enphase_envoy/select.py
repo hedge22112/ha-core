@@ -1,10 +1,8 @@
 """Select platform for Enphase Envoy solar energy monitor."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pyenphase import Envoy, EnvoyDryContactSettings
 from pyenphase.const import SupportedFeatures
@@ -12,13 +10,15 @@ from pyenphase.models.dry_contacts import DryContactAction, DryContactMode
 from pyenphase.models.tariff import EnvoyStorageMode, EnvoyStorageSettings
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
+from .const import ACB_SLEEP_SOC_BANDS, DOMAIN
 from .coordinator import EnphaseConfigEntry, EnphaseUpdateCoordinator
-from .entity import EnvoyBaseEntity
+from .entity import EnvoyACBAggregateControlEntity, EnvoyBaseEntity, exception_handler
 
 PARALLEL_UPDATES = 1
 
@@ -37,7 +37,7 @@ class EnvoyRelaySelectEntityDescription(SelectEntityDescription):
 class EnvoyStorageSettingsSelectEntityDescription(SelectEntityDescription):
     """Describes an Envoy storage settings select entity."""
 
-    value_fn: Callable[[EnvoyStorageSettings], str]
+    value_fn: Callable[[EnvoyStorageSettings], str | None]
     update_fn: Callable[[Envoy, str], Awaitable[dict[str, Any]]]
 
 
@@ -118,17 +118,26 @@ STORAGE_MODE_ENTITY = EnvoyStorageSettingsSelectEntityDescription(
     key="storage_mode",
     translation_key="storage_mode",
     options=STORAGE_MODE_OPTIONS,
-    value_fn=lambda storage_settings: STORAGE_MODE_MAP[storage_settings.mode],
+    value_fn=lambda storage_settings: (
+        None if not storage_settings.mode else STORAGE_MODE_MAP[storage_settings.mode]
+    ),
     update_fn=lambda envoy, value: envoy.set_storage_mode(
         REVERSE_STORAGE_MODE_MAP[value]
     ),
+)
+
+ACB_SLEEP_SOC_ENTITY = SelectEntityDescription(
+    key="acb_sleep_soc",
+    translation_key="acb_sleep_soc",
+    options=ACB_SLEEP_SOC_BANDS,
+    entity_category=EntityCategory.CONFIG,
 )
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EnphaseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Enphase Envoy select platform."""
     coordinator = config_entry.runtime_data
@@ -149,6 +158,8 @@ async def async_setup_entry(
         entities.append(
             EnvoyStorageSettingsSelectEntity(coordinator, STORAGE_MODE_ENTITY)
         )
+    if envoy_data.acb_inventory:
+        entities.append(EnvoyACBSleepSocSelectEntity(coordinator, ACB_SLEEP_SOC_ENTITY))
     async_add_entities(entities)
 
 
@@ -177,7 +188,11 @@ class EnvoyRelaySelectEntity(EnvoyBaseEntity, SelectEntity):
             model="Dry contact relay",
             name=self.relay.load_name,
             sw_version=str(enpower.firmware_version),
-            via_device=(DOMAIN, serial_number),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                coordinator.hass,
+                (DOMAIN, serial_number),
+                config_entry_id=coordinator.config_entry.entry_id,
+            ),
         )
 
     @property
@@ -186,10 +201,13 @@ class EnvoyRelaySelectEntity(EnvoyBaseEntity, SelectEntity):
         return self.data.dry_contact_settings[self._relay_id]
 
     @property
+    @override
     def current_option(self) -> str:
         """Return the state of the Enpower switch."""
         return self.entity_description.value_fn(self.relay)
 
+    @exception_handler
+    @override
     async def async_select_option(self, option: str) -> None:
         """Update the relay."""
         await self.entity_description.update_fn(self.envoy, self.relay, option)
@@ -219,7 +237,12 @@ class EnvoyStorageSettingsSelectEntity(EnvoyBaseEntity, SelectEntity):
                 model="Enpower",
                 name=f"Enpower {self._serial_number}",
                 sw_version=str(enpower.firmware_version),
-                via_device=(DOMAIN, self.envoy_serial_num),
+                via_device_id=dr.async_get_device_id_by_identifier(
+                    coordinator.hass,
+                    (DOMAIN, self.envoy_serial_num),
+                    config_entry_id=coordinator.config_entry.entry_id,
+                ),
+                serial_number=self._serial_number,
             )
         else:
             # If no enpower device assign selects to Envoy itself
@@ -235,13 +258,32 @@ class EnvoyStorageSettingsSelectEntity(EnvoyBaseEntity, SelectEntity):
             )
 
     @property
-    def current_option(self) -> str:
+    @override
+    def current_option(self) -> str | None:
         """Return the state of the select entity."""
         assert self.data.tariff is not None
         assert self.data.tariff.storage_settings is not None
         return self.entity_description.value_fn(self.data.tariff.storage_settings)
 
+    @exception_handler
+    @override
     async def async_select_option(self, option: str) -> None:
         """Update the relay."""
         await self.entity_description.update_fn(self.envoy, option)
         await self.coordinator.async_request_refresh()
+
+
+class EnvoyACBSleepSocSelectEntity(EnvoyACBAggregateControlEntity, SelectEntity):
+    """Select for the SOC band applied when putting ACB batteries to sleep."""
+
+    @property
+    @override
+    def current_option(self) -> str:
+        """Return the selected ACB sleep SOC band."""
+        return self.coordinator.acb_sleep_soc_band
+
+    @override
+    async def async_select_option(self, option: str) -> None:
+        """Store the selected ACB sleep SOC band."""
+        self.coordinator.acb_sleep_soc_band = option
+        self.async_write_ha_state()

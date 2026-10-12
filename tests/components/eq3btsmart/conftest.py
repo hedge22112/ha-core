@@ -1,6 +1,10 @@
 """Fixtures for eq3btsmart tests."""
 
+from collections.abc import Generator
+from unittest.mock import MagicMock, patch
+
 from bleak.backends.scanner import AdvertisementData
+from eq3btsmart.const import Eq3OperationMode
 import pytest
 
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
@@ -28,7 +32,7 @@ def fake_service_info():
         source="local",
         connectable=False,
         time=0,
-        device=generate_ble_device(address=MAC, name="CC-RT-BLE", rssi=0),
+        device=generate_ble_device(address=MAC, name="CC-RT-BLE"),
         advertisement=AdvertisementData(
             local_name="CC-RT-BLE",
             manufacturer_data={},
@@ -40,3 +44,23 @@ def fake_service_info():
         ),
         tx_power=-127,
     )
+
+
+@pytest.fixture
+def mock_thermostat() -> Generator[MagicMock]:
+    """Return a mocked eQ-3 thermostat."""
+    with patch(
+        "homeassistant.components.eq3btsmart.Thermostat", autospec=True
+    ) as thermostat_class:
+        thermostat = thermostat_class.return_value
+        thermostat.status = MagicMock(
+            target_temperature=20.0,
+            operation_mode=Eq3OperationMode.MANUAL,
+            is_window_open=False,
+            is_boost=False,
+            is_low_battery=False,
+            is_away=False,
+            presets=None,
+            valve=0,
+        )
+        yield thermostat

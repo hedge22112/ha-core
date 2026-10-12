@@ -1,14 +1,14 @@
 """Component to embed TP-Link smart home devices."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
+from typing import override
 
 from kasa import AuthenticationError, Credentials, Device, KasaException
 from kasa.iot import IotStrip
 
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -49,6 +49,12 @@ class TPLinkDataUpdateCoordinator(DataUpdateCoordinator[None]):
     ) -> None:
         """Initialize DataUpdateCoordinator to gather data for specific SmartPlug."""
         self.device = device
+
+        # The iot HS300 allows a limited number of concurrent requests and
+        # fetching the emeter information requires separate ones, so child
+        # coordinators are created below in get_child_coordinator.
+        self._update_children = not isinstance(device, IotStrip)
+
         super().__init__(
             hass,
             _LOGGER,
@@ -65,10 +71,11 @@ class TPLinkDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self.removed_child_device_ids: set[str] = set()
         self._child_coordinators: dict[str, TPLinkDataUpdateCoordinator] = {}
 
+    @override
     async def _async_update_data(self) -> None:
         """Fetch all device and sensor data from api."""
         try:
-            await self.device.update(update_children=False)
+            await self.device.update(update_children=self._update_children)
         except AuthenticationError as ex:
             raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN,
@@ -99,14 +106,11 @@ class TPLinkDataUpdateCoordinator(DataUpdateCoordinator[None]):
         ):
             device_registry = dr.async_get(self.hass)
             for device_id in stale_device_ids:
-                device = device_registry.async_get_device(
-                    identifiers={(DOMAIN, device_id)}
+                device = device_registry.async_get_device_by_identifier(
+                    (DOMAIN, device_id), self.config_entry.entry_id
                 )
                 if device:
-                    device_registry.async_update_device(
-                        device_id=device.id,
-                        remove_config_entry_id=self.config_entry.entry_id,
-                    )
+                    device_registry.async_remove_device(device.id)
                 child_coordinator = self._child_coordinators.pop(device_id, None)
                 if child_coordinator:
                     await child_coordinator.async_shutdown()
@@ -117,11 +121,14 @@ class TPLinkDataUpdateCoordinator(DataUpdateCoordinator[None]):
     def get_child_coordinator(
         self,
         child: Device,
+        platform_domain: str,
     ) -> TPLinkDataUpdateCoordinator:
         """Get separate child coordinator for a device or self if not needed."""
         # The iot HS300 allows a limited number of concurrent requests and fetching the
         # emeter information requires separate ones so create child coordinators here.
-        if isinstance(self.device, IotStrip):
+        # This does not happen for switches as the state is available on the
+        # parent device info.
+        if isinstance(self.device, IotStrip) and platform_domain != SWITCH_DOMAIN:
             if not (child_coordinator := self._child_coordinators.get(child.device_id)):
                 # The child coordinators only update energy data so we can
                 # set a longer update interval to avoid flooding the device

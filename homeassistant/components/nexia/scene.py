@@ -1,12 +1,12 @@
 """Support for Nexia Automations."""
 
-from typing import Any
+from typing import Any, override
 
 from nexia.automation import NexiaAutomation
 
 from homeassistant.components.scene import Scene
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 
 from .const import ATTR_DESCRIPTION
@@ -20,7 +20,7 @@ SCENE_ACTIVATION_TIME = 5
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: NexiaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up automations for a Nexia device."""
     coordinator = config_entry.runtime_data
@@ -42,11 +42,12 @@ class NexiaAutomationScene(NexiaEntity, Scene):
         self, coordinator: NexiaDataUpdateCoordinator, automation: NexiaAutomation
     ) -> None:
         """Initialize the automation scene."""
-        super().__init__(coordinator, automation.automation_id)
+        super().__init__(coordinator, automation.automation_id)  # type: ignore[arg-type] # until fix issue #139773
         self._attr_name = automation.name
         self._automation = automation
         self._attr_extra_state_attributes = {ATTR_DESCRIPTION: automation.description}
 
+    @override
     async def async_activate(self, **kwargs: Any) -> None:
         """Activate an automation scene."""
         await self._automation.activate()

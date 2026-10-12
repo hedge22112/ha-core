@@ -2,7 +2,8 @@
 # name: test_peblar_device_entry
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'http://127.0.0.127',
     'connections': set({
       tuple(
@@ -24,7 +25,6 @@
         '23-45-A4O-MOF',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Peblar',
@@ -32,9 +32,7 @@
     'model_id': '6004-2300-8002',
     'name': 'Peblar EV Charger',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': '23-45-A4O-MOF',
-    'suggested_area': None,
     'sw_version': '1.6.1+1+WL-1',
     'via_device_id': None,
   })

@@ -1,7 +1,5 @@
 """Auth models."""
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address
 import secrets
@@ -11,7 +9,7 @@ import uuid
 import attr
 from attr import Attribute
 from attr.setters import validate
-from propcache import cached_property
+from propcache.api import cached_property
 
 from homeassistant.const import __version__
 from homeassistant.data_entry_flow import FlowContext, FlowResult
@@ -28,12 +26,16 @@ TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN = "long_lived_access_token"
 class AuthFlowContext(FlowContext, total=False):
     """Typed context dict for auth flow."""
 
-    credential_only: bool
     ip_address: IPv4Address | IPv6Address
     redirect_uri: str
+    code_challenge: str
+    code_challenge_method: str
 
 
-AuthFlowResult = FlowResult[AuthFlowContext, tuple[str, str]]
+class AuthFlowResult(FlowResult[AuthFlowContext, tuple[str, str]], total=False):
+    """Typed result dict for auth flow."""
+
+    result: Credentials  # Only present if type is CREATE_ENTRY
 
 
 @attr.s(slots=True)

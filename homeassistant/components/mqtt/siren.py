@@ -1,21 +1,19 @@
 """Support for MQTT sirens."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 import logging
-from typing import Any, cast
+from typing import Any, cast, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import siren
 from homeassistant.components.siren import (
-    ATTR_AVAILABLE_TONES,
     ATTR_DURATION,
     ATTR_TONE,
     ATTR_VOLUME_LEVEL,
     TURN_ON_SCHEMA,
     SirenEntity,
+    SirenEntityCapabilityAttribute,
     SirenEntityFeature,
     SirenTurnOnServiceParameters,
     process_turn_on_params,
@@ -28,8 +26,8 @@ from homeassistant.const import (
     CONF_PAYLOAD_ON,
 )
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.json import json_dumps
 from homeassistant.helpers.service_info.mqtt import ReceivePayloadType
 from homeassistant.helpers.template import Template
@@ -39,10 +37,18 @@ from homeassistant.util.json import JSON_DECODE_EXCEPTIONS, json_loads_object
 from . import subscription
 from .config import MQTT_RW_SCHEMA
 from .const import (
+    CONF_AVAILABLE_TONES,
+    CONF_COMMAND_OFF_TEMPLATE,
     CONF_COMMAND_TEMPLATE,
     CONF_COMMAND_TOPIC,
+    CONF_STATE_OFF,
+    CONF_STATE_ON,
     CONF_STATE_TOPIC,
     CONF_STATE_VALUE_TEMPLATE,
+    CONF_SUPPORT_DURATION,
+    CONF_SUPPORT_VOLUME_SET,
+    DEFAULT_PAYLOAD_OFF,
+    DEFAULT_PAYLOAD_ON,
     PAYLOAD_EMPTY_JSON,
     PAYLOAD_NONE,
 )
@@ -58,44 +64,37 @@ from .schemas import MQTT_ENTITY_COMMON_SCHEMA
 PARALLEL_UPDATES = 0
 
 DEFAULT_NAME = "MQTT Siren"
-DEFAULT_PAYLOAD_ON = "ON"
-DEFAULT_PAYLOAD_OFF = "OFF"
 
 ENTITY_ID_FORMAT = siren.DOMAIN + ".{}"
-
-CONF_AVAILABLE_TONES = "available_tones"
-CONF_COMMAND_OFF_TEMPLATE = "command_off_template"
-CONF_STATE_ON = "state_on"
-CONF_STATE_OFF = "state_off"
-CONF_SUPPORT_DURATION = "support_duration"
-CONF_SUPPORT_VOLUME_SET = "support_volume_set"
 
 STATE = "state"
 
 PLATFORM_SCHEMA_MODERN = MQTT_RW_SCHEMA.extend(
     {
-        vol.Optional(CONF_AVAILABLE_TONES): cv.ensure_list,
-        vol.Optional(CONF_COMMAND_TEMPLATE): cv.template,
-        vol.Optional(CONF_COMMAND_OFF_TEMPLATE): cv.template,
-        vol.Optional(CONF_NAME): vol.Any(cv.string, None),
-        vol.Optional(CONF_PAYLOAD_OFF, default=DEFAULT_PAYLOAD_OFF): cv.string,
-        vol.Optional(CONF_PAYLOAD_ON, default=DEFAULT_PAYLOAD_ON): cv.string,
-        vol.Optional(CONF_STATE_OFF): cv.string,
-        vol.Optional(CONF_STATE_ON): cv.string,
-        vol.Optional(CONF_STATE_VALUE_TEMPLATE): cv.template,
-        vol.Optional(CONF_SUPPORT_DURATION, default=True): cv.boolean,
-        vol.Optional(CONF_SUPPORT_VOLUME_SET, default=True): cv.boolean,
+        probatio.Optional(CONF_AVAILABLE_TONES): probatio.EnsureList(),
+        probatio.Optional(CONF_COMMAND_TEMPLATE): cv.template,
+        probatio.Optional(CONF_COMMAND_OFF_TEMPLATE): cv.template,
+        probatio.Optional(CONF_NAME): probatio.Any(cv.string, None),
+        probatio.Optional(CONF_PAYLOAD_OFF, default=DEFAULT_PAYLOAD_OFF): cv.string,
+        probatio.Optional(CONF_PAYLOAD_ON, default=DEFAULT_PAYLOAD_ON): cv.string,
+        probatio.Optional(CONF_STATE_OFF): cv.string,
+        probatio.Optional(CONF_STATE_ON): cv.string,
+        probatio.Optional(CONF_STATE_VALUE_TEMPLATE): cv.template,
+        probatio.Optional(CONF_SUPPORT_DURATION, default=True): cv.boolean,
+        probatio.Optional(CONF_SUPPORT_VOLUME_SET, default=True): cv.boolean,
     },
 ).extend(MQTT_ENTITY_COMMON_SCHEMA.schema)
 
-DISCOVERY_SCHEMA = vol.All(PLATFORM_SCHEMA_MODERN.extend({}, extra=vol.REMOVE_EXTRA))
+DISCOVERY_SCHEMA = probatio.All(
+    PLATFORM_SCHEMA_MODERN.extend({}, extra=probatio.REMOVE_EXTRA)
+)
 
 MQTT_SIREN_ATTRIBUTES_BLOCKED = frozenset(
     {
-        ATTR_AVAILABLE_TONES,
         ATTR_DURATION,
         ATTR_TONE,
         ATTR_VOLUME_LEVEL,
+        SirenEntityCapabilityAttribute.AVAILABLE_TONES,
     }
 )
 
@@ -113,7 +112,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up MQTT siren through YAML and through MQTT discovery."""
     async_setup_entity_entry_helper(
@@ -144,18 +143,20 @@ class MqttSiren(MqttEntity, SirenEntity):
     _optimistic: bool
 
     @staticmethod
+    @override
     def config_schema() -> VolSchemaType:
         """Return the config schema."""
         return DISCOVERY_SCHEMA
 
+    @override
     def _setup_from_config(self, config: ConfigType) -> None:
         """(Re)Setup the entity."""
 
         state_on: str | None = config.get(CONF_STATE_ON)
-        self._state_on = state_on if state_on else config[CONF_PAYLOAD_ON]
+        self._state_on = state_on or config[CONF_PAYLOAD_ON]
 
         state_off: str | None = config.get(CONF_STATE_OFF)
-        self._state_off = state_off if state_off else config[CONF_PAYLOAD_OFF]
+        self._state_off = state_off or config[CONF_PAYLOAD_OFF]
 
         self._extra_attributes = {}
 
@@ -244,8 +245,8 @@ class MqttSiren(MqttEntity, SirenEntity):
             # process attributes
             try:
                 params: SirenTurnOnServiceParameters
-                params = vol.All(TURN_ON_SCHEMA)(json_payload)
-            except vol.MultipleInvalid as invalid_siren_parameters:
+                params = probatio.All(TURN_ON_SCHEMA)(json_payload)
+            except probatio.MultipleInvalid as invalid_siren_parameters:
                 _LOGGER.warning(
                     "Unable to update siren state attributes from payload '%s': %s",
                     json_payload,
@@ -258,6 +259,7 @@ class MqttSiren(MqttEntity, SirenEntity):
             self._update(process_turn_on_params(self, params))
 
     @callback
+    @override
     def _prepare_subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         if not self.add_subscription(
@@ -269,11 +271,13 @@ class MqttSiren(MqttEntity, SirenEntity):
             self._optimistic = True
             return
 
+    @override
     async def _subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         subscription.async_subscribe_topics_internal(self.hass, self._sub_state)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return the state attributes."""
         extra_attributes = (
@@ -303,6 +307,7 @@ class MqttSiren(MqttEntity, SirenEntity):
         if payload and str(payload) != PAYLOAD_NONE:
             await self.async_publish_with_config(self._config[topic], payload)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the siren on.
 
@@ -321,6 +326,7 @@ class MqttSiren(MqttEntity, SirenEntity):
             self._update(cast(SirenTurnOnServiceParameters, kwargs))
             self.async_write_ha_state()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the siren off.
 

@@ -1,9 +1,8 @@
 """Support for Balboa Spa binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from pybalboa import SpaClient
 
@@ -13,7 +12,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BalboaConfigEntry
 from .entity import BalboaEntity
@@ -22,7 +21,7 @@ from .entity import BalboaEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BalboaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the spa's binary sensors."""
     spa = entry.runtime_data
@@ -77,6 +76,7 @@ class BalboaBinarySensorEntity(BalboaEntity, BinarySensorEntity):
         self.entity_description = description
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return self.entity_description.is_on_fn(self._client)

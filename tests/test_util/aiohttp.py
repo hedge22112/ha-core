@@ -63,6 +63,8 @@ class AiohttpClientMocker:
         cookies=None,
         side_effect=None,
         closing=None,
+        timeout=None,
+        history=(),
     ):
         """Mock a request."""
         if not isinstance(url, RETYPE):
@@ -70,21 +72,22 @@ class AiohttpClientMocker:
         if params:
             url = url.with_query(params)
 
-        self._mocks.append(
-            AiohttpClientMockResponse(
-                method=method,
-                url=url,
-                status=status,
-                response=content,
-                json=json,
-                text=text,
-                cookies=cookies,
-                exc=exc,
-                headers=headers,
-                side_effect=side_effect,
-                closing=closing,
-            )
+        resp = AiohttpClientMockResponse(
+            method=method,
+            url=url,
+            status=status,
+            response=content,
+            json=json,
+            text=text,
+            cookies=cookies,
+            exc=exc,
+            headers=headers,
+            side_effect=side_effect,
+            closing=closing,
+            history=history,
         )
+        self._mocks.append(resp)
+        return resp
 
     def get(self, *args, **kwargs):
         """Register a mock get request."""
@@ -109,6 +112,10 @@ class AiohttpClientMocker:
     def patch(self, *args, **kwargs):
         """Register a mock patch request."""
         self.request("patch", *args, **kwargs)
+
+    def head(self, *args, **kwargs):
+        """Register a mock head request."""
+        self.request("head", *args, **kwargs)
 
     @property
     def call_count(self):
@@ -151,6 +158,9 @@ class AiohttpClientMocker:
 
         for response in self._mocks:
             if response.match_request(method, url, params):
+                # If auth is provided, try to encode it to trigger any encoding errors
+                if auth is not None:
+                    auth.encode()
                 self.mock_calls.append((method, url, data, headers))
                 if response.side_effect:
                     response = await response.side_effect(method, url, data)
@@ -177,6 +187,7 @@ class AiohttpClientMockResponse:
         headers=None,
         side_effect=None,
         closing=None,
+        history=(),
     ) -> None:
         """Initialize a fake response."""
         if json is not None:
@@ -186,10 +197,10 @@ class AiohttpClientMockResponse:
         if response is None:
             response = b""
 
-        self.charset = "utf-8"
         self.method = method
         self._url = url
         self.status = status
+        self.history = history
         self._response = response
         self.exc = exc
         self.side_effect = side_effect
@@ -214,8 +225,8 @@ class AiohttpClientMockResponse:
 
         if (
             self._url.scheme != url.scheme
-            or self._url.host != url.host
-            or self._url.path != url.path
+            or self._url.raw_host != url.raw_host
+            or self._url.raw_path != url.raw_path
         ):
             return False
 
@@ -256,16 +267,32 @@ class AiohttpClientMockResponse:
         """Return content."""
         return mock_stream(self.response)
 
+    @property
+    def charset(self):
+        """Return charset from Content-Type header."""
+        if (content_type := self._headers.get("content-type")) is None:
+            return None
+        content_type = content_type.lower()
+        if "charset=" in content_type:
+            return content_type.split("charset=")[1].split(";")[0].strip()
+        return None
+
     async def read(self):
         """Return mock response."""
         return self.response
 
-    async def text(self, encoding="utf-8", errors="strict"):
+    async def text(self, encoding=None, errors="strict") -> str:
         """Return mock response as a string."""
+        # Match real aiohttp behavior: encoding=None means auto-detect
+        if encoding is None:
+            encoding = self.charset or "utf-8"
         return self.response.decode(encoding, errors=errors)
 
-    async def json(self, encoding="utf-8", content_type=None, loads=json_loads):
+    async def json(self, encoding=None, content_type=None, loads=json_loads) -> Any:
         """Return mock response as a json."""
+        # Match real aiohttp behavior: encoding=None means auto-detect
+        if encoding is None:
+            encoding = self.charset or "utf-8"
         return loads(self.response.decode(encoding))
 
     def release(self):
@@ -309,6 +336,7 @@ class AiohttpClientMockResponse:
         exc_tb: TracebackType | None,
     ) -> None:
         """Exit the context manager."""
+        self.release()
 
 
 @contextmanager

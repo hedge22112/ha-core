@@ -1,6 +1,6 @@
 """Select entity for myUplink."""
 
-from typing import cast
+from typing import cast, override
 
 from aiohttp import ClientError
 from myuplink import DevicePoint
@@ -9,10 +9,10 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import MyUplinkConfigEntry, MyUplinkDataCoordinator
 from .const import DOMAIN
+from .coordinator import MyUplinkConfigEntry, MyUplinkDataCoordinator
 from .entity import MyUplinkEntity
 from .helpers import find_matching_platform, skip_entity
 
@@ -20,7 +20,7 @@ from .helpers import find_matching_platform, skip_entity
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MyUplinkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up myUplink select."""
     entities: list[SelectEntity] = []
@@ -66,24 +66,28 @@ class MyUplinkSelect(MyUplinkEntity, SelectEntity):
         self._attr_name = device_point.parameter_name
 
         self._attr_options = [x["text"].capitalize() for x in device_point.enum_values]
+        # enum values are numeric strings, with decimals on some devices ("0.3"),
+        # so match them as numbers and keep the raw string to write back
         self.options_map = {
-            str(int(x["value"])): x["text"].capitalize()
-            for x in device_point.enum_values
+            float(x["value"]): x["text"].capitalize() for x in device_point.enum_values
         }
-        self.options_rev = {value: key for key, value in self.options_map.items()}
+        self.options_rev = {
+            x["text"].capitalize(): x["value"] for x in device_point.enum_values
+        }
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Retrieve currently selected option."""
         device_point = self.coordinator.data.points[self.device_id][self.point_id]
-        value = int(cast(int, device_point.value_t))
-        return self.options_map.get(str(value))
+        return self.options_map.get(float(cast(float, device_point.value_t)))
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Set the current option."""
         try:
             await self.coordinator.api.async_set_device_points(
-                self.device_id, data={self.point_id: str(self.options_rev[option])}
+                self.device_id, data={self.point_id: self.options_rev[option]}
             )
         except ClientError as err:
             raise HomeAssistantError(

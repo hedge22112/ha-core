@@ -1,6 +1,7 @@
 """Binary sensors for key RainMachine data."""
 
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     DOMAIN as BINARY_SENSOR_DOMAIN,
@@ -9,7 +10,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import RainMachineConfigEntry
 from .const import DATA_PROVISION_SETTINGS, DATA_RESTRICTIONS_CURRENT
@@ -94,7 +95,7 @@ BINARY_SENSOR_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RainMachineConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up RainMachine binary sensors based on a config entry."""
     data = entry.runtime_data
@@ -142,6 +143,7 @@ class CurrentRestrictionsBinarySensor(RainMachineEntity, BinarySensorEntity):
     entity_description: RainMachineBinarySensorDescription
 
     @callback
+    @override
     def update_from_latest_data(self) -> None:
         """Update the state."""
         if self.entity_description.key == TYPE_FREEZE:
@@ -164,6 +166,7 @@ class ProvisionSettingsBinarySensor(RainMachineEntity, BinarySensorEntity):
     entity_description: RainMachineBinarySensorDescription
 
     @callback
+    @override
     def update_from_latest_data(self) -> None:
         """Update the state."""
         if self.entity_description.key == TYPE_FLOW_SENSOR:

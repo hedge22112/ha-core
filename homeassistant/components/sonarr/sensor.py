@@ -1,10 +1,8 @@
 """Support for Sonarr sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Generic
+from typing import Any, Generic, override
 
 from aiopyarr import (
     Command,
@@ -20,27 +18,25 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
-from .coordinator import SonarrDataT, SonarrDataUpdateCoordinator
+from .coordinator import SonarrConfigEntry, SonarrDataT, SonarrDataUpdateCoordinator
 from .entity import SonarrEntity
 
 
 @dataclass(frozen=True)
-class SonarrSensorEntityDescriptionMixIn(Generic[SonarrDataT]):
+class SonarrSensorEntityDescriptionMixIn(Generic[SonarrDataT]):  # noqa: UP046
     """Mixin for Sonarr sensor."""
 
     attributes_fn: Callable[[SonarrDataT], dict[str, str]]
     value_fn: Callable[[SonarrDataT], StateType]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class SonarrSensorEntityDescription(
     SensorEntityDescription, SonarrSensorEntityDescriptionMixIn[SonarrDataT]
 ):
@@ -67,9 +63,9 @@ def get_queue_attr(queue: SonarrQueue) -> dict[str, str]:
         remaining = 1 if item.size == 0 else item.sizeleft / item.size
         remaining_pct = 100 * (1 - remaining)
         identifier = (
-            f"S{item.episode.seasonNumber:02d}E{item.episode.episodeNumber:02d}"
+            f"S{item.episode.seasonNumber:02d}E{item.episode.episodeNumber:02d}"  # type: ignore[misc]
         )
-        attrs[f"{item.series.title} {identifier}"] = f"{remaining_pct:.2f}%"
+        attrs[f"{item.series.title} {identifier}"] = f"{remaining_pct:.2f}%"  # type: ignore[misc]
     return attrs
 
 
@@ -79,7 +75,7 @@ def get_wanted_attr(wanted: SonarrWantedMissing) -> dict[str, str]:
     for item in wanted.records:
         identifier = f"S{item.seasonNumber:02d}E{item.episodeNumber:02d}"
 
-        name = f"{item.series.title} {identifier}"
+        name = f"{item.series.title} {identifier}"  # type: ignore[misc]
         attrs[name] = dt_util.as_local(
             item.airDateUtc.replace(tzinfo=dt_util.UTC)
         ).isoformat()
@@ -90,7 +86,6 @@ SENSOR_TYPES: dict[str, SonarrSensorEntityDescription[Any]] = {
     "commands": SonarrSensorEntityDescription[list[Command]](
         key="commands",
         translation_key="commands",
-        native_unit_of_measurement="Commands",
         entity_registry_enabled_default=False,
         value_fn=len,
         attributes_fn=lambda data: {c.name: c.status for c in data},
@@ -107,7 +102,6 @@ SENSOR_TYPES: dict[str, SonarrSensorEntityDescription[Any]] = {
     "queue": SonarrSensorEntityDescription[SonarrQueue](
         key="queue",
         translation_key="queue",
-        native_unit_of_measurement="Episodes",
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.totalRecords,
         attributes_fn=get_queue_attr,
@@ -115,7 +109,6 @@ SENSOR_TYPES: dict[str, SonarrSensorEntityDescription[Any]] = {
     "series": SonarrSensorEntityDescription[list[SonarrSeries]](
         key="series",
         translation_key="series",
-        native_unit_of_measurement="Series",
         entity_registry_enabled_default=False,
         value_fn=len,
         attributes_fn=lambda data: {
@@ -129,16 +122,15 @@ SENSOR_TYPES: dict[str, SonarrSensorEntityDescription[Any]] = {
     "upcoming": SonarrSensorEntityDescription[list[SonarrCalendar]](
         key="upcoming",
         translation_key="upcoming",
-        native_unit_of_measurement="Episodes",
         value_fn=len,
         attributes_fn=lambda data: {
-            e.series.title: f"S{e.seasonNumber:02d}E{e.episodeNumber:02d}" for e in data
+            e.series.title: f"S{e.seasonNumber:02d}E{e.episodeNumber:02d}"  # type: ignore[misc]
+            for e in data
         },
     ),
     "wanted": SonarrSensorEntityDescription[SonarrWantedMissing](
         key="wanted",
         translation_key="wanted",
-        native_unit_of_measurement="Episodes",
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.totalRecords,
         attributes_fn=get_wanted_attr,
@@ -148,15 +140,12 @@ SENSOR_TYPES: dict[str, SonarrSensorEntityDescription[Any]] = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: SonarrConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Sonarr sensors based on a config entry."""
-    coordinators: dict[str, SonarrDataUpdateCoordinator[Any]] = hass.data[DOMAIN][
-        entry.entry_id
-    ]
     async_add_entities(
-        SonarrSensor(coordinators[coordinator_type], description)
+        SonarrSensor(getattr(entry.runtime_data, coordinator_type), description)
         for coordinator_type, description in SENSOR_TYPES.items()
     )
 
@@ -167,12 +156,15 @@ class SonarrSensor(SonarrEntity[SonarrDataT], SensorEntity):
     coordinator: SonarrDataUpdateCoordinator[SonarrDataT]
     entity_description: SonarrSensorEntityDescription[SonarrDataT]
 
+    # Note: Sensor extra_state_attributes are deprecated and will be removed in 2026.9
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, str]:
         """Return the state attributes of the entity."""
         return self.entity_description.attributes_fn(self.coordinator.data)
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

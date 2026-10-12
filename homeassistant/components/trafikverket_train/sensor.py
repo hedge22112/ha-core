@@ -1,11 +1,9 @@
 """Train information for departures and delays, provided by Trafikverket."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -15,7 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import CONF_NAME, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -110,7 +108,7 @@ SENSOR_TYPES: tuple[TrafikverketSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TVTrainConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Trafikverket sensor entry."""
 
@@ -158,11 +156,13 @@ class TrainSensor(CoordinatorEntity[TVDataUpdateCoordinator], SensorEntity):
         )
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         self._update_attr()
         return super()._handle_coordinator_update()
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return additional attributes for Trafikverket Train sensor."""
         if self.coordinator.data.product_filter:

@@ -1,22 +1,22 @@
 """Support for monitoring pyLoad."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, override
 
-from pyloadapi.api import CannotConnect, InvalidAuth, PyLoadAPI
+from pyloadapi import CannotConnect, InvalidAuth, ParserError, PyLoadAPI
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import PyLoadConfigEntry
 from .const import DOMAIN
+from .coordinator import PyLoadConfigEntry
 from .entity import BasePyLoadEntity
+
+PARALLEL_UPDATES = 1
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -63,7 +63,7 @@ SENSOR_DESCRIPTIONS: tuple[PyLoadButtonEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PyLoadConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up buttons from a config entry."""
 
@@ -80,17 +80,23 @@ class PyLoadBinarySensor(BasePyLoadEntity, ButtonEntity):
 
     entity_description: PyLoadButtonEntityDescription
 
+    @override
     async def async_press(self) -> None:
         """Handle the button press."""
         try:
             await self.entity_description.press_fn(self.coordinator.pyload)
         except CannotConnect as e:
-            raise ServiceValidationError(
+            raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="service_call_exception",
             ) from e
         except InvalidAuth as e:
-            raise ServiceValidationError(
+            raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="service_call_auth_exception",
+            ) from e
+        except ParserError as e:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="setup_parse_exception",
             ) from e

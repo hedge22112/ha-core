@@ -1,11 +1,12 @@
 """Tests for the TechnoVE sensor platform."""
 
+from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import MagicMock
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 from technove import Station, Status, TechnoVEError
 
 from homeassistant.components.technove.const import DOMAIN
@@ -18,7 +19,7 @@ from . import setup_with_selected_platforms
 from tests.common import (
     MockConfigEntry,
     async_fire_time_changed,
-    load_json_object_fixture,
+    async_load_json_object_fixture,
 )
 
 
@@ -71,7 +72,7 @@ async def test_no_wifi_support(
     """Test missing Wi-Fi information from TechnoVE device."""
     # Remove Wi-Fi info
     device = mock_technove.update.return_value
-    device.info.network_ssid = None
+    device.info = replace(device.info, network_ssid=None)
 
     # Setup
     mock_config_entry.add_to_hass(hass)
@@ -113,7 +114,7 @@ async def test_sensor_unknown_status(
     assert hass.states.get(entity_id).state == Status.PLUGGED_CHARGING.value
 
     mock_technove.update.return_value = Station(
-        load_json_object_fixture("station_bad_status.json", DOMAIN)
+        await async_load_json_object_fixture(hass, "station_bad_status.json", DOMAIN)
     )
 
     freezer.tick(timedelta(minutes=5, seconds=1))

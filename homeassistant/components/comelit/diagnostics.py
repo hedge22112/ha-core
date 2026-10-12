@@ -1,33 +1,25 @@
 """Diagnostics support for Comelit integration."""
 
-from __future__ import annotations
-
 from typing import Any
 
-from aiocomelit import (
-    ComelitSerialBridgeObject,
-    ComelitVedoAreaObject,
-    ComelitVedoZoneObject,
-)
+from aiocomelit import ComelitDeviceObject, ComelitVedoAreaObject, ComelitVedoZoneObject
 from aiocomelit.const import BRIDGE
 
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PIN, CONF_TYPE
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-from .coordinator import ComelitBaseCoordinator
+from .coordinator import ComelitConfigEntry
 
 TO_REDACT = {CONF_PIN}
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: ComelitConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
 
-    coordinator: ComelitBaseCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     dev_list: list[dict[str, Any]] = []
     dev_type_list: list[dict[int, Any]] = []
@@ -35,7 +27,7 @@ async def async_get_config_entry_diagnostics(
     for dev_type in coordinator.data:
         dev_type_list = []
         for sensor_data in coordinator.data[dev_type].values():
-            if isinstance(sensor_data, ComelitSerialBridgeObject):
+            if isinstance(sensor_data, ComelitDeviceObject):
                 dev_type_list.append(
                     {
                         sensor_data.index: {

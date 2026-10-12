@@ -3,6 +3,9 @@
     "_": {
       "default": "mdi:ray-vertex"
     },
+    "absolute_humidity": {
+      "default": "mdi:water-opacity"
+    },
     "apparent_power": {
       "default": "mdi:flash"
     },
@@ -111,6 +114,12 @@
     "pressure": {
       "default": "mdi:gauge"
     },
+    "radon": {
+      "default": "mdi:radioactive"
+    },
+    "reactive_energy": {
+      "default": "mdi:lightning-bolt"
+    },
     "reactive_power": {
       "default": "mdi:flash"
     },
@@ -129,6 +138,9 @@
     "temperature": {
       "default": "mdi:thermometer"
     },
+    "temperature_delta": {
+      "default": "mdi:thermometer"
+    },
     "volatile_organic_compounds": {
       "default": "mdi:molecule"
     },
@@ -141,6 +153,9 @@
     "volume": {
       "default": "mdi:car-coolant-level"
     },
+    "volume_flow_rate": {
+      "default": "mdi:pipe-valve"
+    },
     "volume_storage": {
       "default": "mdi:storage-tank"
     },
@@ -149,6 +164,9 @@
     },
     "weight": {
       "default": "mdi:weight"
+    },
+    "wind_direction": {
+      "default": "mdi:compass-rose"
     },
     "wind_speed": {
       "default": "mdi:weather-windy"

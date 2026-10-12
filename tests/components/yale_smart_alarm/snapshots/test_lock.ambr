@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_lock[load_platforms0][lock.device1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': None,
     'platform': 'yale_smart_alarm',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '1111',
@@ -35,9 +39,9 @@
 # name: test_lock[load_platforms0][lock.device1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'code_format': '^\\d{6}$',
-      'friendly_name': 'Device1',
-      'supported_features': <LockEntityFeature: 0>,
+      <LockEntityStateAttribute.CODE_FORMAT: 'code_format'>: '^\\d{6}$',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Device1',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <LockEntityFeature: 0>,
     }),
     'context': <ANY>,
     'entity_id': 'lock.device1',
@@ -49,11 +53,13 @@
 # ---
 # name: test_lock[load_platforms0][lock.device2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -67,6 +73,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -74,6 +81,7 @@
     'original_name': None,
     'platform': 'yale_smart_alarm',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '2222',
@@ -83,9 +91,9 @@
 # name: test_lock[load_platforms0][lock.device2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'code_format': '^\\d{6}$',
-      'friendly_name': 'Device2',
-      'supported_features': <LockEntityFeature: 0>,
+      <LockEntityStateAttribute.CODE_FORMAT: 'code_format'>: '^\\d{6}$',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Device2',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <LockEntityFeature: 0>,
     }),
     'context': <ANY>,
     'entity_id': 'lock.device2',
@@ -97,11 +105,13 @@
 # ---
 # name: test_lock[load_platforms0][lock.device3-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -115,6 +125,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -122,6 +133,7 @@
     'original_name': None,
     'platform': 'yale_smart_alarm',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '3333',
@@ -131,9 +143,9 @@
 # name: test_lock[load_platforms0][lock.device3-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'code_format': '^\\d{6}$',
-      'friendly_name': 'Device3',
-      'supported_features': <LockEntityFeature: 0>,
+      <LockEntityStateAttribute.CODE_FORMAT: 'code_format'>: '^\\d{6}$',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Device3',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <LockEntityFeature: 0>,
     }),
     'context': <ANY>,
     'entity_id': 'lock.device3',
@@ -145,11 +157,13 @@
 # ---
 # name: test_lock[load_platforms0][lock.device7-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -163,6 +177,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -170,6 +185,7 @@
     'original_name': None,
     'platform': 'yale_smart_alarm',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '7777',
@@ -179,9 +195,9 @@
 # name: test_lock[load_platforms0][lock.device7-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'code_format': '^\\d{6}$',
-      'friendly_name': 'Device7',
-      'supported_features': <LockEntityFeature: 0>,
+      <LockEntityStateAttribute.CODE_FORMAT: 'code_format'>: '^\\d{6}$',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Device7',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <LockEntityFeature: 0>,
     }),
     'context': <ANY>,
     'entity_id': 'lock.device7',
@@ -193,11 +209,13 @@
 # ---
 # name: test_lock[load_platforms0][lock.device8-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -211,6 +229,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -218,6 +237,7 @@
     'original_name': None,
     'platform': 'yale_smart_alarm',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '8888',
@@ -227,9 +247,9 @@
 # name: test_lock[load_platforms0][lock.device8-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'code_format': '^\\d{6}$',
-      'friendly_name': 'Device8',
-      'supported_features': <LockEntityFeature: 0>,
+      <LockEntityStateAttribute.CODE_FORMAT: 'code_format'>: '^\\d{6}$',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Device8',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <LockEntityFeature: 0>,
     }),
     'context': <ANY>,
     'entity_id': 'lock.device8',
@@ -241,11 +261,13 @@
 # ---
 # name: test_lock[load_platforms0][lock.device9-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -259,6 +281,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': None,
     'options': dict({
     }),
     'original_device_class': None,
@@ -266,6 +289,7 @@
     'original_name': None,
     'platform': 'yale_smart_alarm',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '9999',
@@ -275,9 +299,9 @@
 # name: test_lock[load_platforms0][lock.device9-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'code_format': '^\\d{6}$',
-      'friendly_name': 'Device9',
-      'supported_features': <LockEntityFeature: 0>,
+      <LockEntityStateAttribute.CODE_FORMAT: 'code_format'>: '^\\d{6}$',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Device9',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <LockEntityFeature: 0>,
     }),
     'context': <ANY>,
     'entity_id': 'lock.device9',

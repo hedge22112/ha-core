@@ -1,8 +1,7 @@
 """Plugwise Sensor component for Home Assistant."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import override
 
 from plugwise.constants import SensorType
 
@@ -25,10 +24,9 @@ from homeassistant.const import (
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import PlugwiseConfigEntry
-from .coordinator import PlugwiseDataUpdateCoordinator
+from .coordinator import PlugwiseConfigEntry, PlugwiseDataUpdateCoordinator
 from .entity import PlugwiseEntity
 
 # Coordinator is used to centralize the data updates
@@ -49,7 +47,6 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     PlugwiseSensorEntityDescription(
         key="setpoint_high",
@@ -57,7 +54,6 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     PlugwiseSensorEntityDescription(
         key="setpoint_low",
@@ -65,13 +61,11 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     PlugwiseSensorEntityDescription(
         key="temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
-        entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     PlugwiseSensorEntityDescription(
@@ -95,6 +89,7 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
         translation_key="outdoor_temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
+        entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     PlugwiseSensorEntityDescription(
@@ -353,8 +348,8 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
         key="illuminance",
         native_unit_of_measurement=LIGHT_LUX,
         device_class=SensorDeviceClass.ILLUMINANCE,
-        state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
     ),
     PlugwiseSensorEntityDescription(
         key="modulation_level",
@@ -366,8 +361,8 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
     PlugwiseSensorEntityDescription(
         key="valve_position",
         translation_key="valve_position",
-        entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=PERCENTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     PlugwiseSensorEntityDescription(
@@ -406,7 +401,7 @@ SENSORS: tuple[PlugwiseSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PlugwiseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smile sensors from a config entry."""
     coordinator = entry.runtime_data
@@ -420,7 +415,7 @@ async def async_setup_entry(
         async_add_entities(
             PlugwiseSensorEntity(coordinator, device_id, description)
             for device_id in coordinator.new_devices
-            if (sensors := coordinator.data.devices[device_id].get("sensors"))
+            if (sensors := coordinator.data[device_id].get("sensors"))
             for description in SENSORS
             if description.key in sensors
         )
@@ -446,6 +441,7 @@ class PlugwiseSensorEntity(PlugwiseEntity, SensorEntity):
         self.entity_description = description
 
     @property
+    @override
     def native_value(self) -> int | float:
         """Return the value reported by the sensor."""
         return self.device["sensors"][self.entity_description.key]

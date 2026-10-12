@@ -1,50 +1,39 @@
 """Component to interface with locks that can be controlled remotely."""
 
-from __future__ import annotations
-
 from datetime import timedelta
-from enum import IntFlag
 import functools as ft
 import logging
 import re
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, final, override
 
-from propcache import cached_property
-import voluptuous as vol
+from propcache.api import cached_property
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (  # noqa: F401
-    _DEPRECATED_STATE_JAMMED,
-    _DEPRECATED_STATE_LOCKED,
-    _DEPRECATED_STATE_LOCKING,
-    _DEPRECATED_STATE_UNLOCKED,
-    _DEPRECATED_STATE_UNLOCKING,
     ATTR_CODE,
     ATTR_CODE_FORMAT,
     SERVICE_LOCK,
     SERVICE_OPEN,
     SERVICE_UNLOCK,
-    STATE_OPEN,
-    STATE_OPENING,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.deprecation import (
-    all_with_deprecated_constants,
-    check_if_deprecated_constant,
-    dir_with_deprecated_constants,
-)
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity import Entity, EntityDescription
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.helpers.typing import ConfigType, StateType
-from homeassistant.util.hass_dict import HassKey
 
-from .const import DOMAIN, LockState
+from .const import (
+    DATA_COMPONENT,
+    DOMAIN,
+    LockEntityFeature,
+    LockEntityStateAttribute,
+    LockState,
+)
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
-DATA_COMPONENT: HassKey[EntityComponent[LockEntity]] = HassKey(DOMAIN)
 ENTITY_ID_FORMAT = DOMAIN + ".{}"
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA
 PLATFORM_SCHEMA_BASE = cv.PLATFORM_SCHEMA_BASE
@@ -55,18 +44,11 @@ CONF_DEFAULT_CODE = "default_code"
 
 MIN_TIME_BETWEEN_SCANS = timedelta(seconds=10)
 
-LOCK_SERVICE_SCHEMA = cv.make_entity_service_schema(
-    {vol.Optional(ATTR_CODE): cv.string}
-)
 
-
-class LockEntityFeature(IntFlag):
-    """Supported features of the lock entity."""
-
-    OPEN = 1
-
-
-PROP_TO_ATTR = {"changed_by": ATTR_CHANGED_BY, "code_format": ATTR_CODE_FORMAT}
+PROP_TO_ATTR = {
+    "changed_by": LockEntityStateAttribute.CHANGED_BY,
+    "code_format": LockEntityStateAttribute.CODE_FORMAT,
+}
 
 # mypy: disallow-any-generics
 
@@ -79,18 +61,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     await component.async_setup(config)
 
-    component.async_register_entity_service(
-        SERVICE_UNLOCK, LOCK_SERVICE_SCHEMA, "async_handle_unlock_service"
-    )
-    component.async_register_entity_service(
-        SERVICE_LOCK, LOCK_SERVICE_SCHEMA, "async_handle_lock_service"
-    )
-    component.async_register_entity_service(
-        SERVICE_OPEN,
-        LOCK_SERVICE_SCHEMA,
-        "async_handle_open_service",
-        [LockEntityFeature.OPEN],
-    )
+    async_setup_services(hass)
 
     return True
 
@@ -256,9 +227,10 @@ class LockEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_ATTR_):
 
     @final
     @property
+    @override
     def state_attributes(self) -> dict[str, StateType]:
         """Return the state attributes."""
-        state_attr = {}
+        state_attr: dict[str, StateType] = {}
         for prop, attr in PROP_TO_ATTR.items():
             if (value := getattr(self, prop)) is not None:
                 state_attr[attr] = value
@@ -266,6 +238,7 @@ class LockEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_ATTR_):
 
     @final
     @property
+    @override
     def state(self) -> str | None:
         """Return the state."""
         if self.is_jammed:
@@ -283,10 +256,12 @@ class LockEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_ATTR_):
         return LockState.LOCKED if locked else LockState.UNLOCKED
 
     @cached_property
+    @override
     def supported_features(self) -> LockEntityFeature:
         """Return the list of supported features."""
         return self._attr_supported_features
 
+    @override
     async def async_internal_added_to_hass(self) -> None:
         """Call when the sensor entity is added to hass."""
         await super().async_internal_added_to_hass()
@@ -295,6 +270,7 @@ class LockEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_ATTR_):
         self._async_read_entity_options()
 
     @callback
+    @override
     def async_registry_entry_updated(self) -> None:
         """Run when the entity registry entry has been updated."""
         self._async_read_entity_options()
@@ -317,11 +293,3 @@ class LockEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_ATTR_):
             return
 
         self._lock_option_default_code = ""
-
-
-# These can be removed if no deprecated constant are in this module anymore
-__getattr__ = ft.partial(check_if_deprecated_constant, module_globals=globals())
-__dir__ = ft.partial(
-    dir_with_deprecated_constants, module_globals_keys=[*globals().keys()]
-)
-__all__ = all_with_deprecated_constants(globals())

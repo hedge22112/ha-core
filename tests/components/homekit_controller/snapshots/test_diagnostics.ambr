@@ -3,7 +3,10 @@
   dict({
     'config-entry': dict({
       'data': dict({
+        'AccessoryIP': '**REDACTED**',
+        'AccessoryIPs': '**REDACTED**',
         'AccessoryPairingID': '00:00:00:00:00:00',
+        'AccessoryPort': 51826,
       }),
       'title': 'test',
       'version': 1,
@@ -20,7 +23,7 @@
             'icon': None,
             'original_device_class': 'identify',
             'original_icon': None,
-            'original_name': 'Koogeek-LS1-20833F Identify',
+            'original_name': 'Identify',
             'state': dict({
               'attributes': dict({
                 'device_class': 'identify',
@@ -44,14 +47,11 @@
               'attributes': dict({
                 'brightness': None,
                 'color_mode': None,
-                'color_temp': None,
                 'color_temp_kelvin': None,
                 'friendly_name': 'Koogeek-LS1-20833F Light Strip',
                 'hs_color': None,
                 'max_color_temp_kelvin': 6535,
-                'max_mireds': 500,
                 'min_color_temp_kelvin': 2000,
-                'min_mireds': 153,
                 'rgb_color': None,
                 'supported_color_modes': list([
                   'color_temp',
@@ -329,7 +329,10 @@
   dict({
     'config-entry': dict({
       'data': dict({
+        'AccessoryIP': '**REDACTED**',
+        'AccessoryIPs': '**REDACTED**',
         'AccessoryPairingID': '00:00:00:00:00:00',
+        'AccessoryPort': 51826,
       }),
       'title': 'test',
       'version': 1,
@@ -345,7 +348,7 @@
           'icon': None,
           'original_device_class': 'identify',
           'original_icon': None,
-          'original_name': 'Koogeek-LS1-20833F Identify',
+          'original_name': 'Identify',
           'state': dict({
             'attributes': dict({
               'device_class': 'identify',
@@ -369,14 +372,11 @@
             'attributes': dict({
               'brightness': None,
               'color_mode': None,
-              'color_temp': None,
               'color_temp_kelvin': None,
               'friendly_name': 'Koogeek-LS1-20833F Light Strip',
               'hs_color': None,
               'max_color_temp_kelvin': 6535,
-              'max_mireds': 500,
               'min_color_temp_kelvin': 2000,
-              'min_mireds': 153,
               'rgb_color': None,
               'supported_color_modes': list([
                 'color_temp',

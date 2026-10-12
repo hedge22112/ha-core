@@ -1,30 +1,31 @@
 """Provide common tests tools for tts."""
 
-from __future__ import annotations
-
 from collections.abc import Generator
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import probatio
 import pytest
-import voluptuous as vol
 
 from homeassistant.components import media_source
 from homeassistant.components.tts import (
     CONF_LANG,
-    DOMAIN as TTS_DOMAIN,
+    DATA_TTS_MANAGER,
+    DOMAIN,
     PLATFORM_SCHEMA as TTS_PLATFORM_SCHEMA,
     Provider,
+    ResultStream,
     TextToSpeechEntity,
     TtsAudioType,
     Voice,
     _get_cache_files,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.setup import async_setup_component
 
@@ -40,6 +41,7 @@ from tests.typing import ClientSessionGenerator
 DEFAULT_LANG = "en_US"
 SUPPORT_LANGUAGES = ["de_CH", "de_DE", "en_GB", "en_US"]
 TEST_DOMAIN = "test"
+MOCK_DATA = b"123"
 
 
 def mock_tts_get_cache_files_fixture_helper() -> Generator[MagicMock]:
@@ -121,6 +123,11 @@ async def retrieve_media(
     client = await hass_client()
     req = await client.get(url)
 
+    # The HTTP response returns once the audio is streamed, but the
+    # background task that loads the cache (and writes it to disk) may
+    # still be in flight. Wait for it to avoid lingering tasks.
+    await hass.async_block_till_done(wait_background_tasks=True)
+
     return req.status
 
 
@@ -162,7 +169,7 @@ class BaseProvider:
         self, message: str, language: str, options: dict[str, Any]
     ) -> TtsAudioType:
         """Load TTS dat."""
-        return ("mp3", b"")
+        return ("mp3", MOCK_DATA)
 
 
 class MockTTSProvider(BaseProvider, Provider):
@@ -184,7 +191,11 @@ class MockTTS(MockPlatform):
     """A mock TTS platform."""
 
     PLATFORM_SCHEMA = TTS_PLATFORM_SCHEMA.extend(
-        {vol.Optional(CONF_LANG, default=DEFAULT_LANG): vol.In(SUPPORT_LANGUAGES)}
+        {
+            probatio.Optional(CONF_LANG, default=DEFAULT_LANG): probatio.In(
+                SUPPORT_LANGUAGES
+            )
+        }
     )
 
     def __init__(self, provider: MockTTSProvider, **kwargs: Any) -> None:
@@ -208,11 +219,9 @@ async def mock_setup(
 ) -> None:
     """Set up a test provider."""
     mock_integration(hass, MockModule(domain=TEST_DOMAIN))
-    mock_platform(hass, f"{TEST_DOMAIN}.{TTS_DOMAIN}", MockTTS(mock_provider))
+    mock_platform(hass, f"{TEST_DOMAIN}.{DOMAIN}", MockTTS(mock_provider))
 
-    await async_setup_component(
-        hass, TTS_DOMAIN, {TTS_DOMAIN: {"platform": TEST_DOMAIN}}
-    )
+    await async_setup_component(hass, DOMAIN, {DOMAIN: {"platform": TEST_DOMAIN}})
     await hass.async_block_till_done()
 
 
@@ -227,14 +236,16 @@ async def mock_config_entry_setup(
         hass: HomeAssistant, config_entry: ConfigEntry
     ) -> bool:
         """Set up test config entry."""
-        await hass.config_entries.async_forward_entry_setups(config_entry, [TTS_DOMAIN])
+        await hass.config_entries.async_forward_entry_setups(
+            config_entry, [Platform.TTS]
+        )
         return True
 
     async def async_unload_entry_init(
         hass: HomeAssistant, config_entry: ConfigEntry
     ) -> bool:
         """Unload test config entry."""
-        await hass.config_entries.async_forward_entry_unload(config_entry, TTS_DOMAIN)
+        await hass.config_entries.async_forward_entry_unload(config_entry, Platform.TTS)
         return True
 
     mock_integration(
@@ -249,13 +260,13 @@ async def mock_config_entry_setup(
     async def async_setup_entry_platform(
         hass: HomeAssistant,
         config_entry: ConfigEntry,
-        async_add_entities: AddEntitiesCallback,
+        async_add_entities: AddConfigEntryEntitiesCallback,
     ) -> None:
         """Set up test tts platform via config entry."""
         async_add_entities([tts_entity])
 
     loaded_platform = MockPlatform(async_setup_entry=async_setup_entry_platform)
-    mock_platform(hass, f"{test_domain}.{TTS_DOMAIN}", loaded_platform)
+    mock_platform(hass, f"{test_domain}.{DOMAIN}", loaded_platform)
 
     config_entry = MockConfigEntry(domain=test_domain)
     config_entry.add_to_hass(hass)
@@ -263,3 +274,35 @@ async def mock_config_entry_setup(
     await hass.async_block_till_done()
 
     return config_entry
+
+
+class MockResultStream(ResultStream):
+    """Mock result stream."""
+
+    test_set_message: str | None = None
+
+    def __init__(self, hass: HomeAssistant, extension: str, data: bytes) -> None:
+        """Initialize the result stream."""
+        super().__init__(
+            token="test-token",
+            extension=extension,
+            content_type=f"audio/mock-{extension}",
+            engine="test-engine",
+            use_file_cache=True,
+            supports_streaming_input=True,
+            language="en",
+            options={},
+            hass=hass,
+            _manager=hass.data[DATA_TTS_MANAGER],
+        )
+        hass.data[DATA_TTS_MANAGER].token_to_stream[self.token] = self
+        self._mock_data = data
+
+    @callback
+    def async_set_message(self, message: str) -> None:
+        """Set message to be generated."""
+        self.test_set_message = message
+
+    async def async_stream_result(self):
+        """Stream the result."""
+        yield self._mock_data

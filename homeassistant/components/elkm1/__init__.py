@@ -1,17 +1,14 @@
 """Support the ElkM1 Gold and ElkM1 EZ8 alarm/integration panels."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import re
-from types import MappingProxyType
 from typing import Any
 
 from elkm1_lib.elements import Element
-from elkm1_lib.elk import Elk, Panel
+from elkm1_lib.elk import Elk
 from elkm1_lib.util import parse_url
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
@@ -27,12 +24,11 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
-import homeassistant.util.dt as dt_util
 from homeassistant.util.network import is_ip_address
 
 from .const import (
@@ -62,7 +58,9 @@ from .discovery import (
     async_trigger_discovery,
     async_update_entry_from_discovery,
 )
+from .entity import create_elk_system_device_info
 from .models import ELKM1Data
+from .services import async_setup_services
 
 type ElkM1ConfigEntry = ConfigEntry[ELKM1Data]
 
@@ -75,23 +73,12 @@ PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
     Platform.LIGHT,
+    Platform.NUMBER,
     Platform.SCENE,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.TIME,
 ]
-
-SPEAK_SERVICE_SCHEMA = vol.Schema(
-    {
-        vol.Required("number"): vol.All(vol.Coerce(int), vol.Range(min=0, max=999)),
-        vol.Optional("prefix", default=""): cv.string,
-    }
-)
-
-SET_TIME_SERVICE_SCHEMA = vol.Schema(
-    {
-        vol.Optional("prefix", default=""): cv.string,
-    }
-)
 
 
 def hostname_from_url(url: str) -> str:
@@ -101,13 +88,15 @@ def hostname_from_url(url: str) -> str:
 
 def _host_validator(config: dict[str, str]) -> dict[str, str]:
     """Validate that a host is properly configured."""
-    if config[CONF_HOST].startswith("elks://"):
+    if config[CONF_HOST].startswith(("elks://", "elksv1_2://")):
         if CONF_USERNAME not in config or CONF_PASSWORD not in config:
-            raise vol.Invalid("Specify username and password for elks://")
+            raise probatio.Invalid(
+                "Specify username and password for elks:// or elksv1_2://"
+            )
     elif not config[CONF_HOST].startswith("elk://") and not config[
         CONF_HOST
     ].startswith("serial://"):
-        raise vol.Invalid("Invalid host URL")
+        raise probatio.Invalid("Invalid host URL")
     return config
 
 
@@ -116,7 +105,7 @@ def _elk_range_validator(rng: str) -> tuple[int, int]:
         match = re.search(r"^([a-p])(0[1-9]|1[0-6]|[1-9])$", val.lower())
         if match:
             return (ord(match.group(1)) - ord("a")) * 16 + int(match.group(2))
-        raise vol.Invalid("Invalid range")
+        raise probatio.Invalid("Invalid range")
 
     def _elk_value(val: str) -> int:
         return int(val) if val.isdigit() else _housecode_to_int(val)
@@ -133,52 +122,58 @@ def _has_all_unique_prefixes(value: list[dict[str, str]]) -> list[dict[str, str]
     Uniqueness is determined case-independently.
     """
     prefixes = [device[CONF_PREFIX] for device in value]
-    schema = vol.Schema(vol.Unique())
+    schema = probatio.Schema(probatio.Unique())
     schema(prefixes)
     return value
 
 
-DEVICE_SCHEMA_SUBDOMAIN = vol.Schema(
+DEVICE_SCHEMA_SUBDOMAIN = probatio.Schema(
     {
-        vol.Optional(CONF_ENABLED, default=True): cv.boolean,
-        vol.Optional(CONF_INCLUDE, default=[]): [_elk_range_validator],
-        vol.Optional(CONF_EXCLUDE, default=[]): [_elk_range_validator],
+        probatio.Optional(CONF_ENABLED, default=True): cv.boolean,
+        probatio.Optional(CONF_INCLUDE, default=[]): [_elk_range_validator],
+        probatio.Optional(CONF_EXCLUDE, default=[]): [_elk_range_validator],
     }
 )
 
-DEVICE_SCHEMA = vol.All(
+DEVICE_SCHEMA = probatio.All(
     cv.deprecated(CONF_TEMPERATURE_UNIT),
-    vol.Schema(
+    probatio.Schema(
         {
-            vol.Required(CONF_HOST): cv.string,
-            vol.Optional(CONF_PREFIX, default=""): vol.All(cv.string, vol.Lower),
-            vol.Optional(CONF_USERNAME, default=""): cv.string,
-            vol.Optional(CONF_PASSWORD, default=""): cv.string,
-            vol.Optional(CONF_AUTO_CONFIGURE, default=False): cv.boolean,
-            vol.Optional(CONF_TEMPERATURE_UNIT, default="F"): cv.temperature_unit,
-            vol.Optional(CONF_AREA, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_COUNTER, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_KEYPAD, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_OUTPUT, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_PLC, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_SETTING, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_TASK, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_THERMOSTAT, default={}): DEVICE_SCHEMA_SUBDOMAIN,
-            vol.Optional(CONF_ZONE, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Required(CONF_HOST): cv.string,
+            probatio.Optional(CONF_PREFIX, default=""): probatio.All(
+                cv.string, probatio.Lower
+            ),
+            probatio.Optional(CONF_USERNAME, default=""): cv.string,
+            probatio.Optional(probatio.Secret(CONF_PASSWORD), default=""): cv.string,
+            probatio.Optional(CONF_AUTO_CONFIGURE, default=False): cv.boolean,
+            probatio.Optional(CONF_TEMPERATURE_UNIT, default="F"): cv.temperature_unit,
+            probatio.Optional(CONF_AREA, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_COUNTER, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_KEYPAD, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_OUTPUT, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_PLC, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_SETTING, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_TASK, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_THERMOSTAT, default={}): DEVICE_SCHEMA_SUBDOMAIN,
+            probatio.Optional(CONF_ZONE, default={}): DEVICE_SCHEMA_SUBDOMAIN,
         },
     ),
     _host_validator,
 )
 
-CONFIG_SCHEMA = vol.Schema(
-    {DOMAIN: vol.All(cv.ensure_list, [DEVICE_SCHEMA], _has_all_unique_prefixes)},
-    extra=vol.ALLOW_EXTRA,
+CONFIG_SCHEMA = probatio.Schema(
+    {
+        DOMAIN: probatio.All(
+            probatio.EnsureList(), [DEVICE_SCHEMA], _has_all_unique_prefixes
+        )
+    },
+    extra=probatio.ALLOW_EXTRA,
 )
 
 
 async def async_setup(hass: HomeAssistant, hass_config: ConfigType) -> bool:
     """Set up the Elk M1 platform."""
-    _create_elk_services(hass)
+    async_setup_services(hass)
 
     async def _async_discovery(*_: Any) -> None:
         async_trigger_discovery(
@@ -233,7 +228,7 @@ def _async_find_matching_config_entry(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> bool:
     """Set up Elk-M1 Control from a config entry."""
-    conf: MappingProxyType[str, Any] = entry.data
+    conf = entry.data
 
     host = hostname_from_url(entry.data[CONF_HOST])
 
@@ -260,9 +255,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> boo
             try:
                 _included(conf[item]["include"], True, config[item]["included"])
                 _included(conf[item]["exclude"], False, config[item]["included"])
-            except (ValueError, vol.Invalid) as err:
-                _LOGGER.error("Config item: %s; %s", item, err)
-                return False
+            except (ValueError, probatio.Invalid) as err:
+                raise ConfigEntryError(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_config_item",
+                    translation_placeholders={"item": item},
+                ) from err
 
     elk = Elk(
         {
@@ -290,15 +288,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> boo
     for keypad in elk.keypads:
         keypad.add_callback(_keypad_changed)
 
+    sync_success = False
     try:
-        if not await async_wait_for_elk_to_sync(elk, LOGIN_TIMEOUT, SYNC_TIMEOUT):
-            return False
+        await ElkSyncWaiter(elk, LOGIN_TIMEOUT, SYNC_TIMEOUT).async_wait()
+        sync_success = True
+    except LoginFailed as exc:
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="login_failed",
+            translation_placeholders={"host": conf[CONF_HOST]},
+        ) from exc
     except TimeoutError as exc:
         raise ConfigEntryNotReady(f"Timed out connecting to {conf[CONF_HOST]}") from exc
+    finally:
+        if not sync_success:
+            elk.disconnect()
 
     elk_temp_unit = elk.panel.temperature_units
     if elk_temp_unit == "C":
-        temperature_unit = UnitOfTemperature.CELSIUS
+        temperature_unit = UnitOfTemperature.CELSIUS  # type: ignore[unreachable]
     else:
         temperature_unit = UnitOfTemperature.FAHRENHEIT
     config["temperature_unit"] = temperature_unit
@@ -313,6 +321,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> boo
         keypads={},
     )
 
+    # Register the ElkM1 system device before forwarding platforms so entities
+    # on any platform can deterministically resolve it as their via_device.
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        **create_elk_system_device_info(elk, prefix, entry.unique_id),
+    )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
@@ -321,19 +336,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> boo
 def _included(ranges: list[tuple[int, int]], set_to: bool, values: list[bool]) -> None:
     for rng in ranges:
         if not rng[0] <= rng[1] <= len(values):
-            raise vol.Invalid(f"Invalid range {rng}")
+            raise probatio.Invalid(f"Invalid range {rng}")
         values[rng[0] - 1 : rng[1]] = [set_to] * (rng[1] - rng[0] + 1)
-
-
-def _find_elk_by_prefix(hass: HomeAssistant, prefix: str) -> Elk | None:
-    """Search all config entries for a given prefix."""
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if not entry.runtime_data:
-            continue
-        elk_data: ELKM1Data = entry.runtime_data
-        if elk_data.prefix == prefix:
-            return elk_data.elk
-    return None
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> bool:
@@ -344,84 +348,75 @@ async def async_unload_entry(hass: HomeAssistant, entry: ElkM1ConfigEntry) -> bo
     return unload_ok
 
 
-async def async_wait_for_elk_to_sync(
-    elk: Elk,
-    login_timeout: int,
-    sync_timeout: int,
-) -> bool:
-    """Wait until the elk has finished sync. Can fail login or timeout."""
+class LoginFailed(Exception):
+    """Raised when login to ElkM1 fails."""
 
-    sync_event = asyncio.Event()
-    login_event = asyncio.Event()
 
-    success = True
+class ElkSyncWaiter:
+    """Wait for ElkM1 to sync."""
 
-    def login_status(succeeded: bool) -> None:
-        nonlocal success
+    def __init__(self, elk: Elk, login_timeout: int, sync_timeout: int) -> None:
+        """Initialize the sync waiter."""
+        self._elk = elk
+        self._login_timeout = login_timeout
+        self._sync_timeout = sync_timeout
+        self._loop = asyncio.get_running_loop()
+        self._sync_future: asyncio.Future[None] = self._loop.create_future()
+        self._login_future: asyncio.Future[None] = self._loop.create_future()
 
-        success = succeeded
+    @callback
+    def _async_set_future_if_not_done(self, future: asyncio.Future[None]) -> None:
+        """Set the future result if not already done."""
+        if not future.done():
+            future.set_result(None)
+
+    @callback
+    def _async_login_status(self, succeeded: bool) -> None:
+        """Handle login status callback."""
         if succeeded:
             _LOGGER.debug("ElkM1 login succeeded")
-            login_event.set()
+            self._async_set_future_if_not_done(self._login_future)
         else:
-            elk.disconnect()
             _LOGGER.error("ElkM1 login failed; invalid username or password")
-            login_event.set()
-            sync_event.set()
+            self._async_set_exception_if_not_done(self._login_future, LoginFailed)
 
-    def sync_complete() -> None:
-        sync_event.set()
+    @callback
+    def _async_set_exception_if_not_done(
+        self, future: asyncio.Future[None], exception: type[Exception]
+    ) -> None:
+        """Set an exception on the future if not already done."""
+        if not future.done():
+            future.set_exception(exception())
 
-    elk.add_handler("login", login_status)
-    elk.add_handler("sync_complete", sync_complete)
-    for name, event, timeout in (
-        ("login", login_event, login_timeout),
-        ("sync_complete", sync_event, sync_timeout),
-    ):
-        _LOGGER.debug("Waiting for %s event for %s seconds", name, timeout)
+    @callback
+    def _async_sync_complete(self) -> None:
+        """Handle sync complete callback."""
+        self._async_set_future_if_not_done(self._sync_future)
+
+    async def async_wait(self) -> None:
+        """Wait for login and sync to complete.
+
+        Raises LoginFailed if login fails.
+        Raises TimeoutError if login or sync times out.
+        """
+        self._elk.add_handler("login", self._async_login_status)
+        self._elk.add_handler("sync_complete", self._async_sync_complete)
+
         try:
-            async with asyncio.timeout(timeout):
-                await event.wait()
-        except TimeoutError:
-            _LOGGER.debug("Timed out waiting for %s event", name)
-            elk.disconnect()
-            raise
-        _LOGGER.debug("Received %s event", name)
+            for name, future, timeout in (
+                ("login", self._login_future, self._login_timeout),
+                ("sync_complete", self._sync_future, self._sync_timeout),
+            ):
+                _LOGGER.debug("Waiting for %s event for %s seconds", name, timeout)
+                handle = self._loop.call_later(
+                    timeout, self._async_set_exception_if_not_done, future, TimeoutError
+                )
+                try:
+                    await future
+                finally:
+                    handle.cancel()
 
-    return success
-
-
-@callback
-def _async_get_elk_panel(hass: HomeAssistant, service: ServiceCall) -> Panel:
-    """Get the ElkM1 panel from a service call."""
-    prefix = service.data["prefix"]
-    elk = _find_elk_by_prefix(hass, prefix)
-    if elk is None:
-        raise HomeAssistantError(f"No ElkM1 with prefix '{prefix}' found")
-    return elk.panel
-
-
-def _create_elk_services(hass: HomeAssistant) -> None:
-    """Create ElkM1 services."""
-
-    @callback
-    def _speak_word_service(service: ServiceCall) -> None:
-        _async_get_elk_panel(hass, service).speak_word(service.data["number"])
-
-    @callback
-    def _speak_phrase_service(service: ServiceCall) -> None:
-        _async_get_elk_panel(hass, service).speak_phrase(service.data["number"])
-
-    @callback
-    def _set_time_service(service: ServiceCall) -> None:
-        _async_get_elk_panel(hass, service).set_time(dt_util.now())
-
-    hass.services.async_register(
-        DOMAIN, "speak_word", _speak_word_service, SPEAK_SERVICE_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, "speak_phrase", _speak_phrase_service, SPEAK_SERVICE_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, "set_time", _set_time_service, SET_TIME_SERVICE_SCHEMA
-    )
+                _LOGGER.debug("Received %s event", name)
+        finally:
+            self._elk.remove_handler("login", self._async_login_status)
+            self._elk.remove_handler("sync_complete", self._async_sync_complete)

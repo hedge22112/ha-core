@@ -1,10 +1,8 @@
 """The Epic Games Store integration data coordinator."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 from epicstore_api import EpicGamesStoreAPI
 
@@ -20,13 +18,15 @@ SCAN_INTERVAL = timedelta(days=1)
 
 _LOGGER = logging.getLogger(__name__)
 
+type EGSConfigEntry = ConfigEntry[EGSCalendarUpdateCoordinator]
+
 
 class EGSCalendarUpdateCoordinator(
     DataUpdateCoordinator[dict[str, list[dict[str, Any]]]]
 ):
     """Class to manage fetching data from the Epic Game Store."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: EGSConfigEntry) -> None:
         """Initialize."""
         self._api = EpicGamesStoreAPI(
             entry.data[CONF_LANGUAGE],
@@ -37,10 +37,12 @@ class EGSCalendarUpdateCoordinator(
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
 
+    @override
     async def _async_update_data(self) -> dict[str, list[dict[str, Any]]]:
         """Update data via library."""
         raw_data = await self.hass.async_add_executor_job(self._api.get_free_games)
@@ -48,13 +50,15 @@ class EGSCalendarUpdateCoordinator(
         data = raw_data["data"]["Catalog"]["searchStore"]["elements"]
 
         discount_games = filter(
-            lambda game: game.get("promotions")
-            and (
-                # Current discount(s)
-                game["promotions"]["promotionalOffers"]
-                or
-                # Upcoming discount(s)
-                game["promotions"]["upcomingPromotionalOffers"]
+            lambda game: (
+                game.get("promotions")
+                and (
+                    # Current discount(s)
+                    game["promotions"]["promotionalOffers"]
+                    or
+                    # Upcoming discount(s)
+                    game["promotions"]["upcomingPromotionalOffers"]
+                )
             ),
             data,
         )

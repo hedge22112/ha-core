@@ -1,7 +1,5 @@
 """Tests for light platform."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import re
 from unittest.mock import MagicMock, PropertyMock
@@ -45,7 +43,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.components.scene import DOMAIN as SCENE_DOMAIN
 from homeassistant.components.tplink.const import DOMAIN
-from homeassistant.components.tplink.light import (
+from homeassistant.components.tplink.services import (
     SERVICE_RANDOM_EFFECT,
     SERVICE_SEQUENCE_EFFECT,
 )
@@ -61,7 +59,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from . import (
     _mocked_device,
@@ -891,8 +889,16 @@ async def test_smart_strip_custom_random_effect(hass: HomeAssistant) -> None:
         domain=DOMAIN, data={CONF_HOST: "127.0.0.1"}, unique_id=MAC_ADDRESS
     )
     already_migrated_config_entry.add_to_hass(hass)
+
+    features = [
+        _mocked_feature("brightness", value=50),
+        _mocked_feature("hsv", value=(10, 30, 5)),
+        _mocked_feature(
+            "color_temp", value=4000, minimum_value=4000, maximum_value=9000
+        ),
+    ]
     device = _mocked_device(
-        modules=[Module.Light, Module.LightEffect], alias="my_light"
+        modules=[Module.Light, Module.LightEffect], alias="my_light", features=features
     )
     light = device.modules[Module.Light]
     light_effect = device.modules[Module.LightEffect]
@@ -1075,8 +1081,15 @@ async def test_smart_strip_effect_service_error(
         domain=DOMAIN, data={CONF_HOST: "127.0.0.1"}, unique_id=MAC_ADDRESS
     )
     already_migrated_config_entry.add_to_hass(hass)
+    features = [
+        _mocked_feature("brightness", value=50),
+        _mocked_feature("hsv", value=(10, 30, 5)),
+        _mocked_feature(
+            "color_temp", value=4000, minimum_value=4000, maximum_value=9000
+        ),
+    ]
     device = _mocked_device(
-        modules=[Module.Light, Module.LightEffect], alias="my_light"
+        modules=[Module.Light, Module.LightEffect], alias="my_light", features=features
     )
     light_effect = device.modules[Module.LightEffect]
 
@@ -1154,8 +1167,15 @@ async def test_smart_strip_custom_sequence_effect(hass: HomeAssistant) -> None:
         domain=DOMAIN, data={CONF_HOST: "127.0.0.1"}, unique_id=MAC_ADDRESS
     )
     already_migrated_config_entry.add_to_hass(hass)
+    features = [
+        _mocked_feature("brightness", value=50),
+        _mocked_feature("hsv", value=(10, 30, 5)),
+        _mocked_feature(
+            "color_temp", value=4000, minimum_value=4000, maximum_value=9000
+        ),
+    ]
     device = _mocked_device(
-        modules=[Module.Light, Module.LightEffect], alias="my_light"
+        modules=[Module.Light, Module.LightEffect], alias="my_light", features=features
     )
     light_effect = device.modules[Module.LightEffect]
 

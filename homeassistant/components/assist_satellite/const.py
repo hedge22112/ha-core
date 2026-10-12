@@ -1,10 +1,8 @@
 """Constants for assist satellite."""
 
-from __future__ import annotations
-
 import asyncio
 from enum import IntFlag
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from homeassistant.util.hass_dict import HassKey
 
@@ -13,12 +11,15 @@ if TYPE_CHECKING:
 
     from .entity import AssistSatelliteEntity
 
-DOMAIN = "assist_satellite"
+DOMAIN: Final = "assist_satellite"
 
 DATA_COMPONENT: HassKey[EntityComponent[AssistSatelliteEntity]] = HassKey(DOMAIN)
 CONNECTION_TEST_DATA: HassKey[dict[str, asyncio.Event]] = HassKey(
     f"{DOMAIN}_connection_tests"
 )
+
+PREANNOUNCE_FILENAME = "preannounce.mp3"
+PREANNOUNCE_URL = f"/api/assist_satellite/static/{PREANNOUNCE_FILENAME}"
 
 
 class AssistSatelliteEntityFeature(IntFlag):
@@ -26,3 +27,6 @@ class AssistSatelliteEntityFeature(IntFlag):
 
     ANNOUNCE = 1
     """Device supports remotely triggered announcements."""
+
+    START_CONVERSATION = 2
+    """Device supports starting conversations."""

@@ -1,17 +1,15 @@
 """Platform to control a Salda Smarty XP/XV ventilation unit."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, override
 
 from pysmarty2 import Smarty
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import SmartyConfigEntry, SmartyCoordinator
 from .entity import SmartyEntity
@@ -42,7 +40,7 @@ ENTITIES: tuple[SmartySwitchDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SmartyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smarty Switch Platform."""
 
@@ -71,10 +69,12 @@ class SmartySwitch(SmartyEntity, SwitchEntity):
         )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state of the switch."""
         return self.entity_description.is_on_fn(self.coordinator.client)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self.hass.async_add_executor_job(
@@ -82,6 +82,7 @@ class SmartySwitch(SmartyEntity, SwitchEntity):
         )
         await self.coordinator.async_refresh()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self.hass.async_add_executor_job(

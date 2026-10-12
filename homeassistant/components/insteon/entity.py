@@ -1,11 +1,14 @@
 """Insteon base entity."""
 
+from collections.abc import Callable
 import functools
 import logging
+from typing import Any, override
 
 from pyinsteon import devices
 
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
@@ -36,7 +39,9 @@ class InsteonEntity(Entity):
         """Initialize the INSTEON binary sensor."""
         self._insteon_device_group = device.groups[group]
         self._insteon_device = device
+        self._unsub_entity_id_signals: list[Callable[[], None]] = []
 
+    @override
     def __hash__(self):
         """Return the hash of the Insteon Entity."""
         return hash(self._insteon_device)
@@ -47,11 +52,12 @@ class InsteonEntity(Entity):
         return str(self._insteon_device.address)
 
     @property
-    def group(self):
+    def insteon_group(self):
         """Return the INSTEON group that the entity responds to."""
         return self._insteon_device_group.group
 
     @property
+    @override
     def unique_id(self) -> str:
         """Return a unique ID."""
         if self._insteon_device_group.group == 0x01:
@@ -61,6 +67,7 @@ class InsteonEntity(Entity):
         return uid
 
     @property
+    @override
     def name(self):
         """Return the name of the node (used for Entity_ID)."""
         # Set a base description
@@ -72,16 +79,20 @@ class InsteonEntity(Entity):
         return f"{description} {self._insteon_device.address}{extension}"
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Provide attributes for display on device card."""
         return {
             "insteon_address": self.address,
-            "insteon_group": self.group,
+            "insteon_group": self.insteon_group,
         }
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Return device information."""
+        config_entry = self.platform.config_entry
+        assert config_entry
         return DeviceInfo(
             identifiers={(DOMAIN, str(self._insteon_device.address))},
             manufacturer="SmartLabs, Inc",
@@ -94,7 +105,11 @@ class InsteonEntity(Entity):
                 f"{self._insteon_device.firmware:02x} Engine Version:"
                 f" {self._insteon_device.engine_version}"
             ),
-            via_device=(DOMAIN, str(devices.modem.address)),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                self.hass,
+                (DOMAIN, str(devices.modem.address)),
+                config_entry_id=config_entry.entry_id,
+            ),
             configuration_url=f"homeassistant://insteon/device/config/{self._insteon_device.id}",
         )
 
@@ -109,25 +124,18 @@ class InsteonEntity(Entity):
         )
         self.async_write_ha_state()
 
-    async def async_added_to_hass(self):
+    @override
+    async def async_added_to_hass(self) -> None:
         """Register INSTEON update events."""
         _LOGGER.debug(
             "Tracking updates for device %s group %d name %s",
             self.address,
-            self.group,
+            self.insteon_group,
             self._insteon_device_group.name,
         )
         self._insteon_device_group.subscribe(self.async_entity_update)
-        load_signal = f"{self.entity_id}_{SIGNAL_LOAD_ALDB}"
-        self.async_on_remove(
-            async_dispatcher_connect(self.hass, load_signal, self._async_read_aldb)
-        )
-        print_signal = f"{self.entity_id}_{SIGNAL_PRINT_ALDB}"
-        async_dispatcher_connect(self.hass, print_signal, self._print_aldb)
-        default_links_signal = f"{self.entity_id}_{SIGNAL_ADD_DEFAULT_LINKS}"
-        async_dispatcher_connect(
-            self.hass, default_links_signal, self._async_add_default_links
-        )
+        self._async_connect_entity_id_signals()
+        self.async_on_remove(self._async_disconnect_entity_id_signals)
         remove_signal = f"{self._insteon_device.address.id}_{SIGNAL_REMOVE_ENTITY}"
         self.async_on_remove(
             async_dispatcher_connect(
@@ -137,12 +145,45 @@ class InsteonEntity(Entity):
             )
         )
 
-    async def async_will_remove_from_hass(self):
+    @callback
+    def _async_connect_entity_id_signals(self) -> None:
+        """Connect the service signals, which are keyed on the entity_id."""
+        self._unsub_entity_id_signals = [
+            async_dispatcher_connect(
+                self.hass, f"{self.entity_id}_{SIGNAL_LOAD_ALDB}", self._async_read_aldb
+            ),
+            async_dispatcher_connect(
+                self.hass, f"{self.entity_id}_{SIGNAL_PRINT_ALDB}", self._print_aldb
+            ),
+            async_dispatcher_connect(
+                self.hass,
+                f"{self.entity_id}_{SIGNAL_ADD_DEFAULT_LINKS}",
+                self._async_add_default_links,
+            ),
+        ]
+
+    @callback
+    def _async_disconnect_entity_id_signals(self) -> None:
+        """Disconnect the service signals."""
+        for unsub in self._unsub_entity_id_signals:
+            unsub()
+        self._unsub_entity_id_signals = []
+
+    @callback
+    @override
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Reconnect the service signals for the new entity_id."""
+        super().async_entity_id_changed(old_entity_id)
+        self._async_disconnect_entity_id_signals()
+        self._async_connect_entity_id_signals()
+
+    @override
+    async def async_will_remove_from_hass(self) -> None:
         """Unsubscribe to INSTEON update events."""
         _LOGGER.debug(
             "Remove tracking updates for device %s group %d name %s",
             self.address,
-            self.group,
+            self.insteon_group,
             self._insteon_device_group.name,
         )
         self._insteon_device_group.unsubscribe(self.async_entity_update)
@@ -170,7 +211,7 @@ class InsteonEntity(Entity):
             if self._insteon_device_group.name in STATE_NAME_LABEL_MAP:
                 label = STATE_NAME_LABEL_MAP[self._insteon_device_group.name]
             else:
-                label = f"Group {self.group:d}"
+                label = f"Group {self.insteon_group:d}"
         return label
 
     async def _async_add_default_links(self):

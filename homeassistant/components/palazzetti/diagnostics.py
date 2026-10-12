@@ -1,12 +1,10 @@
 """Provides diagnostics for Palazzetti."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from . import PalazzettiConfigEntry
+from .coordinator import PalazzettiConfigEntry
 
 
 async def async_get_config_entry_diagnostics(

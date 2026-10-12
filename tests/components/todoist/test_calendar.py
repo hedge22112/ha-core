@@ -1,12 +1,13 @@
 """Unit tests for the Todoist calendar platform."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from typing import Any
 from unittest.mock import AsyncMock, patch
 import urllib
 import zoneinfo
 
+from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from todoist_api_python.models import Due
@@ -28,7 +29,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import async_update_entity
 from homeassistant.util import dt as dt_util
 
-from .conftest import PROJECT_ID, SECTION_ID, SUMMARY
+from .conftest import PROJECT_ID, SECTION_ID, SUMMARY, make_api_due
 
 from tests.typing import ClientSessionGenerator
 
@@ -36,6 +37,13 @@ from tests.typing import ClientSessionGenerator
 # This keeps UTC-6 all year round
 TZ_NAME = "America/Regina"
 TIMEZONE = zoneinfo.ZoneInfo(TZ_NAME)
+
+
+@pytest.fixture(autouse=True)
+def freeze_the_time():
+    """Freeze the time."""
+    with freeze_time("2024-05-24 12:00:00"):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +60,11 @@ async def set_time_zone(hass: HomeAssistant):
 
 def get_events_url(entity: str, start: str, end: str) -> str:
     """Create a url to get events during the specified time range."""
-    return f"/api/calendars/{entity}?start={urllib.parse.quote(start)}&end={urllib.parse.quote(end)}"
+    return (
+        f"/api/calendars/{entity}"
+        f"?start={urllib.parse.quote(start)}"
+        f"&end={urllib.parse.quote(end)}"
+    )
 
 
 def get_events_response(start: dict[str, str], end: dict[str, str]) -> dict[str, Any]:
@@ -66,6 +78,7 @@ def get_events_response(start: dict[str, str], end: dict[str, str]) -> dict[str,
         "uid": None,
         "recurrence_id": None,
         "rrule": None,
+        "status": None,
     }
 
 
@@ -130,7 +143,7 @@ async def test_update_entity_for_custom_project_no_due_date_on(
     hass: HomeAssistant,
     api: AsyncMock,
 ) -> None:
-    """Test that a task without an explicit due date is considered to be in an on state."""
+    """Test that a task without an explicit due date is in an on state."""
     await async_update_entity(hass, "calendar.name")
     state = hass.states.get("calendar.name")
     assert state.state == "on"
@@ -139,9 +152,14 @@ async def test_update_entity_for_custom_project_no_due_date_on(
 @pytest.mark.parametrize(
     "due",
     [
-        Due(
+        make_api_due(
             # Note: This runs before the test fixture that sets the timezone
-            date=(dt_util.now(TIMEZONE) + timedelta(days=3)).strftime("%Y-%m-%d"),
+            date=(
+                datetime(
+                    day=15, month=10, year=2025, hour=23, minute=45, tzinfo=TIMEZONE
+                )
+                + timedelta(days=3)
+            ).strftime("%Y-%m-%d"),
             is_recurring=False,
             string="3 days from today",
         )
@@ -151,16 +169,17 @@ async def test_update_entity_for_calendar_with_due_date_in_the_future(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
     api: AsyncMock,
+    due: Due,
 ) -> None:
-    """Test that a task with a due date in the future has on state and correct end_time."""
+    """Test that a task with a future due date has on state and correct end_time."""
     await async_update_entity(hass, "calendar.name")
     state = hass.states.get("calendar.name")
     assert state.state == "on"
 
     # The end time should be in the user's timezone
-    expected_end_time = (dt_util.now() + timedelta(days=3)).strftime(
-        "%Y-%m-%d 00:00:00"
-    )
+    expected_end_time = (
+        datetime(day=15, month=10, year=2025, hour=23, minute=45) + timedelta(days=3)
+    ).strftime("%Y-%m-%d 00:00:00")
     assert state.attributes["end_time"] == expected_end_time
 
 
@@ -169,18 +188,21 @@ async def test_failed_coordinator_update(hass: HomeAssistant, api: AsyncMock) ->
     """Test a failed data coordinator update is handled correctly."""
     api.get_tasks.side_effect = Exception("API error")
 
-    assert await setup.async_setup_component(
-        hass,
-        "calendar",
-        {
-            "calendar": {
-                "platform": DOMAIN,
-                CONF_TOKEN: "token",
-                "custom_projects": [{"name": "All projects", "labels": ["Label1"]}],
-            }
-        },
-    )
-    await hass.async_block_till_done()
+    with patch(
+        "homeassistant.components.todoist.calendar.TodoistAPIAsync", return_value=api
+    ):
+        assert await setup.async_setup_component(
+            hass,
+            "calendar",
+            {
+                "calendar": {
+                    "platform": DOMAIN,
+                    CONF_TOKEN: "token",
+                    "custom_projects": [{"name": "All projects", "labels": ["Label1"]}],
+                }
+            },
+        )
+        await hass.async_block_till_done()
 
     await async_update_entity(hass, "calendar.all_projects")
     state = hass.states.get("calendar.all_projects")
@@ -200,46 +222,93 @@ async def test_calendar_custom_project_unique_id(
 
 
 @pytest.mark.parametrize(
+    ("due", "expected_start", "expected_end"),
+    [
+        (
+            make_api_due(date="2023-03-30", string="Mar 30"),
+            {"date": "2023-03-30"},
+            {"date": "2023-03-31"},
+        ),
+        (
+            make_api_due(date="2023-03-30T18:00:00", string="Mar 30 6:00 PM"),
+            {"dateTime": "2023-03-30T18:00:00-06:00"},
+            {"dateTime": "2023-03-30T18:30:00-06:00"},
+        ),
+    ],
+    ids=("all_day", "timed"),
+)
+async def test_event_duration(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    expected_start: dict[str, str],
+    expected_end: dict[str, str],
+) -> None:
+    """Test date-only tasks last one day and timed tasks last 30 minutes."""
+    client = await hass_client()
+    response = await client.get(
+        get_events_url(
+            "calendar.name", "2023-03-30T00:00:00.000Z", "2023-04-01T00:00:00.000Z"
+        )
+    )
+    assert response.status == HTTPStatus.OK
+    assert await response.json() == [get_events_response(expected_start, expected_end)]
+
+
+@pytest.mark.parametrize(
     ("due", "start", "end", "expected_response"),
     [
         (
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-28T00:00:00.000Z",
             "2023-04-01T00:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-30T06:00:00.000Z",
             "2023-03-31T06:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-29T08:00:00.000Z",
             "2023-03-30T08:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-30T08:00:00.000Z",
             "2023-03-31T08:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-31T08:00:00.000Z",
             "2023-04-01T08:00:00.000Z",
             [],
         ),
         (
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            "2023-03-31T06:00:00.000Z",
+            "2023-04-01T06:00:00.000Z",
+            [],
+        ),
+        (
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-29T06:00:00.000Z",
             "2023-03-30T06:00:00.000Z",
             [],
         ),
     ],
-    ids=("included", "exact", "overlap_start", "overlap_end", "after", "before"),
+    ids=(
+        "included",
+        "exact",
+        "overlap_start",
+        "overlap_end",
+        "after",
+        "end_boundary",
+        "before",
+    ),
 )
 async def test_all_day_event(
     hass: HomeAssistant,
@@ -276,7 +345,7 @@ async def test_create_task_service_call_raises(
 ) -> None:
     """Test adding an item to an invalid project raises an error."""
 
-    with pytest.raises(ServiceValidationError, match="project_invalid"):
+    with pytest.raises(ServiceValidationError) as exc:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_NEW_TASK,
@@ -288,6 +357,7 @@ async def test_create_task_service_call_raises(
             },
             blocking=True,
         )
+    assert exc.value.translation_key == "project_invalid"
 
 
 async def test_create_task_service_call_with_section(
@@ -321,25 +391,22 @@ async def test_create_task_service_call_with_section(
     [
         # These are all equivalent due dates for the same time in different
         # timezone formats.
-        Due(
-            date="2023-03-30",
+        make_api_due(
+            date="2023-03-31T00:00:00Z",
             is_recurring=False,
             string="Mar 30 6:00 PM",
-            datetime="2023-03-31T00:00:00Z",
             timezone="America/Regina",
         ),
-        Due(
-            date="2023-03-30",
+        make_api_due(
+            date="2023-03-31T00:00:00Z",
             is_recurring=False,
             string="Mar 30 7:00 PM",
-            datetime="2023-03-31T00:00:00Z",
             timezone="America/Los_Angeles",
         ),
-        Due(
-            date="2023-03-30",
+        make_api_due(
+            date="2023-03-30T18:00:00",
             is_recurring=False,
             string="Mar 30 6:00 PM",
-            datetime="2023-03-30T18:00:00",
         ),
     ],
     ids=("in_local_timezone", "in_other_timezone", "floating"),
@@ -354,14 +421,14 @@ async def test_task_due_datetime(
     has_task_response = [
         get_events_response(
             {"dateTime": "2023-03-30T18:00:00-06:00"},
-            {"dateTime": "2023-03-31T18:00:00-06:00"},
+            {"dateTime": "2023-03-30T18:30:00-06:00"},
         )
     ]
 
     # Completely includes the start/end of the task
     response = await client.get(
         get_events_url(
-            "calendar.name", "2023-03-30T08:00:00.000Z", "2023-03-31T08:00:00.000Z"
+            "calendar.name", "2023-03-30T23:00:00.000Z", "2023-03-31T01:00:00.000Z"
         ),
     )
     assert response.status == HTTPStatus.OK
@@ -370,7 +437,7 @@ async def test_task_due_datetime(
     # Overlap with the start of the event
     response = await client.get(
         get_events_url(
-            "calendar.name", "2023-03-29T20:00:00.000Z", "2023-03-31T02:00:00.000Z"
+            "calendar.name", "2023-03-30T23:30:00.000Z", "2023-03-31T00:15:00.000Z"
         ),
     )
     assert response.status == HTTPStatus.OK
@@ -379,7 +446,7 @@ async def test_task_due_datetime(
     # Overlap with the end of the event
     response = await client.get(
         get_events_url(
-            "calendar.name", "2023-03-31T20:00:00.000Z", "2023-04-01T02:00:00.000Z"
+            "calendar.name", "2023-03-31T00:15:00.000Z", "2023-03-31T01:00:00.000Z"
         ),
     )
     assert response.status == HTTPStatus.OK
@@ -388,7 +455,7 @@ async def test_task_due_datetime(
     # Task is active, but range does not include start/end
     response = await client.get(
         get_events_url(
-            "calendar.name", "2023-03-31T10:00:00.000Z", "2023-03-31T11:00:00.000Z"
+            "calendar.name", "2023-03-31T00:10:00.000Z", "2023-03-31T00:20:00.000Z"
         ),
     )
     assert response.status == HTTPStatus.OK
@@ -397,7 +464,16 @@ async def test_task_due_datetime(
     # Query is before the task starts (no results)
     response = await client.get(
         get_events_url(
-            "calendar.name", "2023-03-28T00:00:00.000Z", "2023-03-29T00:00:00.000Z"
+            "calendar.name", "2023-03-30T22:00:00.000Z", "2023-03-30T23:00:00.000Z"
+        ),
+    )
+    assert response.status == HTTPStatus.OK
+    assert await response.json() == []
+
+    # Query starts exactly when the task ends (no results)
+    response = await client.get(
+        get_events_url(
+            "calendar.name", "2023-03-31T00:30:00.000Z", "2023-03-31T01:00:00.000Z"
         ),
     )
     assert response.status == HTTPStatus.OK
@@ -406,7 +482,7 @@ async def test_task_due_datetime(
     # Query is after the task ends (no results)
     response = await client.get(
         get_events_url(
-            "calendar.name", "2023-04-01T07:00:00.000Z", "2023-04-02T07:00:00.000Z"
+            "calendar.name", "2023-03-31T01:00:00.000Z", "2023-03-31T02:00:00.000Z"
         ),
     )
     assert response.status == HTTPStatus.OK
@@ -418,35 +494,35 @@ async def test_task_due_datetime(
     [
         (
             {"custom_projects": [{"name": "Test", "labels": ["Label1"]}]},
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-28T00:00:00.000Z",
             "2023-04-01T00:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
             {"custom_projects": [{"name": "Test", "labels": ["custom"]}]},
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-28T00:00:00.000Z",
             "2023-04-01T00:00:00.000Z",
             [],
         ),
         (
             {"custom_projects": [{"name": "Test", "include_projects": ["Name"]}]},
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-28T00:00:00.000Z",
             "2023-04-01T00:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
             {"custom_projects": [{"name": "Test", "due_date_days": 1}]},
-            Due(date="2023-03-30", is_recurring=False, string="Mar 30"),
+            make_api_due(date="2023-03-30", is_recurring=False, string="Mar 30"),
             "2023-03-28T00:00:00.000Z",
             "2023-04-01T00:00:00.000Z",
             [get_events_response({"date": "2023-03-30"}, {"date": "2023-03-31"})],
         ),
         (
             {"custom_projects": [{"name": "Test", "due_date_days": 1}]},
-            Due(
+            make_api_due(
                 date=(dt_util.now() + timedelta(days=2)).strftime("%Y-%m-%d"),
                 is_recurring=False,
                 string="Mar 30",
@@ -484,11 +560,10 @@ async def test_events_filtered_for_custom_projects(
     ("due", "setup_platform"),
     [
         (
-            Due(
-                date="2023-03-30",
+            make_api_due(
+                date="2023-03-31T00:00:00Z",
                 is_recurring=False,
                 string="Mar 30 6:00 PM",
-                datetime="2023-03-31T00:00:00Z",
                 timezone="America/Regina",
             ),
             None,
@@ -516,6 +591,6 @@ async def test_config_entry(
     assert await response.json() == [
         get_events_response(
             {"dateTime": "2023-03-30T18:00:00-06:00"},
-            {"dateTime": "2023-03-31T18:00:00-06:00"},
+            {"dateTime": "2023-03-30T18:30:00-06:00"},
         )
     ]

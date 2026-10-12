@@ -1,18 +1,20 @@
 """Support for Xiaomi aqara binary sensors."""
 
 import logging
+from typing import Any, override
+
+from xiaomi_gateway import XiaomiGateway
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, GATEWAYS_KEY
+from . import XiaomiAqaraConfigEntry
 from .entity import XiaomiDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,12 +33,12 @@ ATTR_DENSITY = "Density"
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: XiaomiAqaraConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Perform the setup for Xiaomi devices."""
     entities: list[XiaomiBinarySensor] = []
-    gateway = hass.data[DOMAIN][GATEWAYS_KEY][config_entry.entry_id]
+    gateway = config_entry.runtime_data
     for entity in gateway.devices["binary_sensor"]:
         model = entity["model"]
         if model in ("motion", "sensor_motion", "sensor_motion.aq2"):
@@ -137,22 +139,19 @@ async def async_setup_entry(
 class XiaomiBinarySensor(XiaomiDevice, BinarySensorEntity):
     """Representation of a base XiaomiBinarySensor."""
 
-    def __init__(self, device, name, xiaomi_hub, data_key, device_class, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        name: str,
+        xiaomi_hub: XiaomiGateway,
+        data_key: str,
+        device_class: BinarySensorDeviceClass | None,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiSmokeSensor."""
         self._data_key = data_key
-        self._device_class = device_class
-        self._density = 0
+        self._attr_device_class = device_class
         super().__init__(device, name, xiaomi_hub, config_entry)
-
-    @property
-    def is_on(self):
-        """Return true if sensor is on."""
-        return self._state
-
-    @property
-    def device_class(self):
-        """Return the class of binary sensor."""
-        return self._device_class
 
     def update(self) -> None:
         """Update the sensor state."""
@@ -163,25 +162,39 @@ class XiaomiBinarySensor(XiaomiDevice, BinarySensorEntity):
 class XiaomiNatgasSensor(XiaomiBinarySensor):
     """Representation of a XiaomiNatgasSensor."""
 
-    def __init__(self, device, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiSmokeSensor."""
         self._density = None
         super().__init__(
-            device, "Natgas Sensor", xiaomi_hub, "alarm", "gas", config_entry
+            device,
+            "Natgas Sensor",
+            xiaomi_hub,
+            "alarm",
+            BinarySensorDeviceClass.GAS,
+            config_entry,
         )
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_DENSITY: self._density}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_DENSITY: self._density,
+            **self._attr_extra_state_attributes,
+        }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         if DENSITY in data:
@@ -192,13 +205,13 @@ class XiaomiNatgasSensor(XiaomiBinarySensor):
             return False
 
         if value in ("1", "2"):
-            if self._state:
+            if self._attr_is_on:
                 return False
-            self._state = True
+            self._attr_is_on = True
             return True
         if value == "0":
-            if self._state:
-                self._state = False
+            if self._attr_is_on:
+                self._attr_is_on = False
                 return True
             return False
 
@@ -208,7 +221,13 @@ class XiaomiNatgasSensor(XiaomiBinarySensor):
 class XiaomiMotionSensor(XiaomiBinarySensor):
     """Representation of a XiaomiMotionSensor."""
 
-    def __init__(self, device, hass, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        hass: HomeAssistant,
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiMotionSensor."""
         self._hass = hass
         self._no_motion_since = 0
@@ -218,28 +237,37 @@ class XiaomiMotionSensor(XiaomiBinarySensor):
         else:
             data_key = "motion_status"
         super().__init__(
-            device, "Motion Sensor", xiaomi_hub, data_key, "motion", config_entry
+            device,
+            "Motion Sensor",
+            xiaomi_hub,
+            data_key,
+            BinarySensorDeviceClass.MOTION,
+            config_entry,
         )
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_NO_MOTION_SINCE: self._no_motion_since}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_NO_MOTION_SINCE: self._no_motion_since,
+            **self._attr_extra_state_attributes,
+        }
 
     @callback
     def _async_set_no_motion(self, now):
         """Set state to False."""
         self._unsub_set_no_motion = None
-        self._state = False
+        self._attr_is_on = False
         self.async_write_ha_state()
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway.
 
@@ -274,7 +302,7 @@ class XiaomiMotionSensor(XiaomiBinarySensor):
 
         if NO_MOTION in data:
             self._no_motion_since = data[NO_MOTION]
-            self._state = False
+            self._attr_is_on = False
             return True
 
         value = data.get(self._data_key)
@@ -295,9 +323,9 @@ class XiaomiMotionSensor(XiaomiBinarySensor):
                 )
 
             self._no_motion_since = 0
-            if self._state:
+            if self._attr_is_on:
                 return False
-            self._state = True
+            self._attr_is_on = True
             return True
 
         return False
@@ -306,7 +334,12 @@ class XiaomiMotionSensor(XiaomiBinarySensor):
 class XiaomiDoorSensor(XiaomiBinarySensor, RestoreEntity):
     """Representation of a XiaomiDoorSensor."""
 
-    def __init__(self, device, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiDoorSensor."""
         self._open_since = 0
         if "proto" not in device or int(device["proto"][0:1]) == 1:
@@ -323,20 +356,24 @@ class XiaomiDoorSensor(XiaomiBinarySensor, RestoreEntity):
         )
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_OPEN_SINCE: self._open_since}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_OPEN_SINCE: self._open_since,
+            **self._attr_extra_state_attributes,
+        }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
         if (state := await self.async_get_last_state()) is None:
             return
 
-        self._state = state.state == "on"
+        self._attr_is_on = state.state == "on"
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         self._attr_should_poll = False
@@ -350,14 +387,14 @@ class XiaomiDoorSensor(XiaomiBinarySensor, RestoreEntity):
 
         if value == "open":
             self._attr_should_poll = True
-            if self._state:
+            if self._attr_is_on:
                 return False
-            self._state = True
+            self._attr_is_on = True
             return True
         if value == "close":
             self._open_since = 0
-            if self._state:
-                self._state = False
+            if self._attr_is_on:
+                self._attr_is_on = False
                 return True
             return False
 
@@ -367,7 +404,12 @@ class XiaomiDoorSensor(XiaomiBinarySensor, RestoreEntity):
 class XiaomiWaterLeakSensor(XiaomiBinarySensor):
     """Representation of a XiaomiWaterLeakSensor."""
 
-    def __init__(self, device, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiWaterLeakSensor."""
         if "proto" not in device or int(device["proto"][0:1]) == 1:
             data_key = "status"
@@ -382,11 +424,13 @@ class XiaomiWaterLeakSensor(XiaomiBinarySensor):
             config_entry,
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         self._attr_should_poll = False
@@ -397,13 +441,13 @@ class XiaomiWaterLeakSensor(XiaomiBinarySensor):
 
         if value == "leak":
             self._attr_should_poll = True
-            if self._state:
+            if self._attr_is_on:
                 return False
-            self._state = True
+            self._attr_is_on = True
             return True
         if value == "no_leak":
-            if self._state:
-                self._state = False
+            if self._attr_is_on:
+                self._attr_is_on = False
                 return True
             return False
 
@@ -413,25 +457,39 @@ class XiaomiWaterLeakSensor(XiaomiBinarySensor):
 class XiaomiSmokeSensor(XiaomiBinarySensor):
     """Representation of a XiaomiSmokeSensor."""
 
-    def __init__(self, device, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiSmokeSensor."""
         self._density = 0
         super().__init__(
-            device, "Smoke Sensor", xiaomi_hub, "alarm", "smoke", config_entry
+            device,
+            "Smoke Sensor",
+            xiaomi_hub,
+            "alarm",
+            BinarySensorDeviceClass.SMOKE,
+            config_entry,
         )
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_DENSITY: self._density}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_DENSITY: self._density,
+            **self._attr_extra_state_attributes,
+        }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         if DENSITY in data:
@@ -441,13 +499,13 @@ class XiaomiSmokeSensor(XiaomiBinarySensor):
             return False
 
         if value in ("1", "2"):
-            if self._state:
+            if self._attr_is_on:
                 return False
-            self._state = True
+            self._attr_is_on = True
             return True
         if value == "0":
-            if self._state:
-                self._state = False
+            if self._attr_is_on:
+                self._attr_is_on = False
                 return True
             return False
 
@@ -457,23 +515,34 @@ class XiaomiSmokeSensor(XiaomiBinarySensor):
 class XiaomiVibration(XiaomiBinarySensor):
     """Representation of a Xiaomi Vibration Sensor."""
 
-    def __init__(self, device, name, data_key, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        name: str,
+        data_key: str,
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiVibration."""
         self._last_action = None
         super().__init__(device, name, xiaomi_hub, data_key, None, config_entry)
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_LAST_ACTION: self._last_action}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_LAST_ACTION: self._last_action,
+            **self._attr_extra_state_attributes,
+        }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         value = data.get(self._data_key)
@@ -496,24 +565,36 @@ class XiaomiVibration(XiaomiBinarySensor):
 class XiaomiButton(XiaomiBinarySensor):
     """Representation of a Xiaomi Button."""
 
-    def __init__(self, device, name, data_key, hass, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        name: str,
+        data_key: str,
+        hass: HomeAssistant,
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the XiaomiButton."""
         self._hass = hass
         self._last_action = None
         super().__init__(device, name, xiaomi_hub, data_key, None, config_entry)
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_LAST_ACTION: self._last_action}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_LAST_ACTION: self._last_action,
+            **self._attr_extra_state_attributes,
+        }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         value = data.get(self._data_key)
@@ -521,10 +602,10 @@ class XiaomiButton(XiaomiBinarySensor):
             return False
 
         if value == "long_click_press":
-            self._state = True
+            self._attr_is_on = True
             click_type = "long_click_press"
         elif value == "long_click_release":
-            self._state = False
+            self._attr_is_on = False
             click_type = "hold"
         elif value == "click":
             click_type = "single"
@@ -556,7 +637,13 @@ class XiaomiButton(XiaomiBinarySensor):
 class XiaomiCube(XiaomiBinarySensor):
     """Representation of a Xiaomi Cube."""
 
-    def __init__(self, device, hass, xiaomi_hub, config_entry):
+    def __init__(
+        self,
+        device: dict[str, Any],
+        hass: HomeAssistant,
+        xiaomi_hub: XiaomiGateway,
+        config_entry: XiaomiAqaraConfigEntry,
+    ) -> None:
         """Initialize the Xiaomi Cube."""
         self._hass = hass
         self._last_action = None
@@ -567,17 +654,21 @@ class XiaomiCube(XiaomiBinarySensor):
         super().__init__(device, "Cube", xiaomi_hub, data_key, None, config_entry)
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        attrs = {ATTR_LAST_ACTION: self._last_action}
-        attrs.update(super().extra_state_attributes)
-        return attrs
+        return {
+            ATTR_LAST_ACTION: self._last_action,
+            **self._attr_extra_state_attributes,
+        }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
-        self._state = False
+        self._attr_is_on = False
 
+    @override
     def parse_data(self, data, raw_data):
         """Parse data sent by gateway."""
         if self._data_key in data:

@@ -1,37 +1,37 @@
 """Support for xiaomi ble sensors."""
 
-from __future__ import annotations
-
-from typing import cast
+from typing import cast, override
 
 from xiaomi_ble import DeviceClass, SensorUpdate, Units
 from xiaomi_ble.parser import ExtendedSensorDeviceClass
 
 from homeassistant.components.bluetooth.passive_update_processor import (
     PassiveBluetoothDataUpdate,
+    PassiveBluetoothEntityKey,
     PassiveBluetoothProcessorEntity,
 )
 from homeassistant.components.sensor import (
+    EntityDescription,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
     LIGHT_LUX,
-    PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
     UnitOfConductivity,
+    UnitOfDensity,
     UnitOfElectricPotential,
     UnitOfMass,
     UnitOfPressure,
+    UnitOfRatio,
     UnitOfTemperature,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 
 from .coordinator import XiaomiPassiveBluetoothDataProcessor
@@ -42,7 +42,7 @@ SENSOR_DESCRIPTIONS = {
     (DeviceClass.BATTERY, Units.PERCENTAGE): SensorEntityDescription(
         key=f"{DeviceClass.BATTERY}_{Units.PERCENTAGE}",
         device_class=SensorDeviceClass.BATTERY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -57,13 +57,13 @@ SENSOR_DESCRIPTIONS = {
         Units.CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
     ): SensorEntityDescription(
         key=f"{DeviceClass.FORMALDEHYDE}_{Units.CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER}",
-        native_unit_of_measurement=CONCENTRATION_MILLIGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MILLIGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     (DeviceClass.HUMIDITY, Units.PERCENTAGE): SensorEntityDescription(
         key=f"{DeviceClass.HUMIDITY}_{Units.PERCENTAGE}",
         device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     (DeviceClass.ILLUMINANCE, Units.LIGHT_LUX): SensorEntityDescription(
@@ -78,6 +78,7 @@ SENSOR_DESCRIPTIONS = {
         icon="mdi:omega",
         native_unit_of_measurement=Units.OHM,
         state_class=SensorStateClass.MEASUREMENT,
+        translation_key="impedance",
     ),
     # Mass sensor (kg)
     (DeviceClass.MASS, Units.MASS_KILOGRAMS): SensorEntityDescription(
@@ -93,11 +94,12 @@ SENSOR_DESCRIPTIONS = {
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
+        translation_key="weight_non_stabilized",
     ),
     (DeviceClass.MOISTURE, Units.PERCENTAGE): SensorEntityDescription(
         key=f"{DeviceClass.MOISTURE}_{Units.PERCENTAGE}",
         device_class=SensorDeviceClass.MOISTURE,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     (DeviceClass.PRESSURE, Units.PRESSURE_MBAR): SensorEntityDescription(
@@ -133,7 +135,7 @@ SENSOR_DESCRIPTIONS = {
     # E.g. consumable sensor on WX08ZM and M1S-T500
     (ExtendedSensorDeviceClass.CONSUMABLE, Units.PERCENTAGE): SensorEntityDescription(
         key=str(ExtendedSensorDeviceClass.CONSUMABLE),
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     # Score after brushing with a toothbrush
@@ -141,10 +143,9 @@ SENSOR_DESCRIPTIONS = {
         key=str(ExtendedSensorDeviceClass.SCORE),
         state_class=SensorStateClass.MEASUREMENT,
     ),
-    # Counting during brushing
-    (ExtendedSensorDeviceClass.COUNTER, Units.TIME_SECONDS): SensorEntityDescription(
+    # Counter of brushing
+    (ExtendedSensorDeviceClass.COUNTER, None): SensorEntityDescription(
         key=str(ExtendedSensorDeviceClass.COUNTER),
-        native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     # Key id for locks and fingerprint readers
@@ -173,6 +174,50 @@ SENSOR_DESCRIPTIONS = {
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
     ),
+    # Pressure present duration (in seconds) for Pressure Sensor
+    (
+        ExtendedSensorDeviceClass.PRESSURE_PRESENT_DURATION,
+        Units.TIME_SECONDS,
+    ): SensorEntityDescription(
+        key=str(ExtendedSensorDeviceClass.PRESSURE_PRESENT_DURATION),
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    # Pressure not present duration (in seconds) for Pressure Sensor
+    (
+        ExtendedSensorDeviceClass.PRESSURE_NOT_PRESENT_DURATION,
+        Units.TIME_SECONDS,
+    ): SensorEntityDescription(
+        key=str(ExtendedSensorDeviceClass.PRESSURE_NOT_PRESENT_DURATION),
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    # High frequency impedance sensor (ohm)
+    (ExtendedSensorDeviceClass.IMPEDANCE_HIGH, Units.OHM): SensorEntityDescription(
+        key=str(ExtendedSensorDeviceClass.IMPEDANCE_HIGH),
+        native_unit_of_measurement=Units.OHM,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:omega",
+    ),
+    # Low frequency impedance sensor (ohm)
+    (ExtendedSensorDeviceClass.IMPEDANCE_LOW, Units.OHM): SensorEntityDescription(
+        key=str(ExtendedSensorDeviceClass.IMPEDANCE_LOW),
+        native_unit_of_measurement=Units.OHM,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:omega",
+    ),
+    # Heart rate sensor (bpm)
+    (ExtendedSensorDeviceClass.HEART_RATE, "bpm"): SensorEntityDescription(
+        key=str(ExtendedSensorDeviceClass.HEART_RATE),
+        native_unit_of_measurement="bpm",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:heart-pulse",
+    ),
+    # User profile ID sensor
+    (ExtendedSensorDeviceClass.PROFILE_ID, None): SensorEntityDescription(
+        key=str(ExtendedSensorDeviceClass.PROFILE_ID),
+        icon="mdi:identifier",
+    ),
 }
 
 
@@ -180,18 +225,20 @@ def sensor_update_to_bluetooth_data_update(
     sensor_update: SensorUpdate,
 ) -> PassiveBluetoothDataUpdate[float | None]:
     """Convert a sensor update to a bluetooth data update."""
+    entity_descriptions: dict[PassiveBluetoothEntityKey, EntityDescription] = {
+        device_key_to_bluetooth_entity_key(device_key): SENSOR_DESCRIPTIONS[
+            (description.device_class, description.native_unit_of_measurement)
+        ]
+        for device_key, description in sensor_update.entity_descriptions.items()
+        if description.device_class
+    }
+
     return PassiveBluetoothDataUpdate(
         devices={
             device_id: sensor_device_info_to_hass_device_info(device_info)
             for device_id, device_info in sensor_update.devices.items()
         },
-        entity_descriptions={
-            device_key_to_bluetooth_entity_key(device_key): SENSOR_DESCRIPTIONS[
-                (description.device_class, description.native_unit_of_measurement)
-            ]
-            for device_key, description in sensor_update.entity_descriptions.items()
-            if description.device_class
-        },
+        entity_descriptions=entity_descriptions,
         entity_data={
             device_key_to_bluetooth_entity_key(device_key): cast(
                 float | None, sensor_values.native_value
@@ -201,6 +248,17 @@ def sensor_update_to_bluetooth_data_update(
         entity_names={
             device_key_to_bluetooth_entity_key(device_key): sensor_values.name
             for device_key, sensor_values in sensor_update.entity_values.items()
+            # Add names where the entity description has neither a translation_key nor
+            # a device_class
+            if (
+                description := entity_descriptions.get(
+                    device_key_to_bluetooth_entity_key(device_key)
+                )
+            )
+            is None
+            or (
+                description.translation_key is None and description.device_class is None
+            )
         },
     )
 
@@ -208,7 +266,7 @@ def sensor_update_to_bluetooth_data_update(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: XiaomiBLEConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Xiaomi BLE sensors."""
     coordinator = entry.runtime_data
@@ -232,11 +290,13 @@ class XiaomiBluetoothSensorEntity(
     """Representation of a xiaomi ble sensor."""
 
     @property
+    @override
     def native_value(self) -> int | float | None:
         """Return the native value."""
         return self.processor.entity_data.get(self.entity_key)
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return self.processor.coordinator.sleepy_device or super().available

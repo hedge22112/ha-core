@@ -1,13 +1,11 @@
 """Diagnostics support for APCUPSD."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from . import APCUPSdConfigEntry
+from .coordinator import APCUPSdConfigEntry
 
 TO_REDACT = {"SERIALNO", "HOSTNAME"}
 

@@ -1,9 +1,16 @@
 """Test the UptimeRobot config flow."""
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
-from pyuptimerobot import UptimeRobotAuthenticationException, UptimeRobotException
+from pyuptimerobot import (
+    UptimeRobotAuthenticationException,
+    UptimeRobotConnectionException,
+    UptimeRobotException,
+)
+from pyuptimerobot.const import API_PATH_USER_ME
 
 from homeassistant import config_entries
 from homeassistant.components.uptimerobot.const import DOMAIN
@@ -16,16 +23,33 @@ from .common import (
     MOCK_UPTIMEROBOT_API_KEY,
     MOCK_UPTIMEROBOT_API_KEY_READ_ONLY,
     MOCK_UPTIMEROBOT_CONFIG_ENTRY_DATA,
-    MOCK_UPTIMEROBOT_UNIQUE_ID,
-    MockApiResponseKey,
+    MOCK_UPTIMEROBOT_EMAIL,
     mock_uptimerobot_api_response,
 )
 
 from tests.common import MockConfigEntry
 
 
-async def test_form(hass: HomeAssistant) -> None:
-    """Test we get the form."""
+@contextmanager
+def _patch_success() -> Generator[None]:
+    """Patch a successful account lookup without setting up the entry."""
+    with (
+        patch(
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME, data=MOCK_UPTIMEROBOT_ACCOUNT
+            ),
+        ),
+        patch(
+            "homeassistant.components.uptimerobot.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        yield
+
+
+async def test_user(hass: HomeAssistant) -> None:
+    """Test user flow."""
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -35,8 +59,10 @@ async def test_form(hass: HomeAssistant) -> None:
 
     with (
         patch(
-            "pyuptimerobot.UptimeRobot.async_get_account_details",
-            return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ACCOUNT),
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME, data=MOCK_UPTIMEROBOT_ACCOUNT
+            ),
         ),
         patch(
             "homeassistant.components.uptimerobot.async_setup_entry",
@@ -49,15 +75,15 @@ async def test_form(hass: HomeAssistant) -> None:
         )
         await hass.async_block_till_done()
 
-    assert result2["result"].unique_id == MOCK_UPTIMEROBOT_UNIQUE_ID
+    assert result2["result"].unique_id == MOCK_UPTIMEROBOT_EMAIL
     assert result2["type"] is FlowResultType.CREATE_ENTRY
     assert result2["title"] == MOCK_UPTIMEROBOT_ACCOUNT["email"]
     assert result2["data"] == {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY}
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_form_read_only(hass: HomeAssistant) -> None:
-    """Test we get the form."""
+async def test_user_key_read_only(hass: HomeAssistant) -> None:
+    """Test user flow with read only key."""
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -66,8 +92,11 @@ async def test_form_read_only(hass: HomeAssistant) -> None:
     assert result["errors"] is None
 
     with patch(
-        "pyuptimerobot.UptimeRobot.async_get_account_details",
-        return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ACCOUNT),
+        "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+        return_value=mock_uptimerobot_api_response(
+            api_path=API_PATH_USER_ME,
+            data=MOCK_UPTIMEROBOT_ACCOUNT,
+        ),
     ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -76,7 +105,16 @@ async def test_form_read_only(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"]
     assert result2["errors"]["base"] == "not_main_key"
+
+    with _patch_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY},
+        )
+        await hass.async_block_till_done()
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
 @pytest.mark.parametrize(
@@ -87,14 +125,16 @@ async def test_form_read_only(hass: HomeAssistant) -> None:
         (UptimeRobotAuthenticationException, "invalid_api_key"),
     ],
 )
-async def test_form_exception_thrown(hass: HomeAssistant, exception, error_key) -> None:
-    """Test that we handle exceptions."""
+async def test_exception_thrown(
+    hass: HomeAssistant, exception: type[Exception], error_key: str
+) -> None:
+    """Test user flow throwing exceptions."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
     with patch(
-        "pyuptimerobot.UptimeRobot.async_get_account_details",
+        "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
         side_effect=exception,
     ):
         result2 = await hass.config_entries.flow.async_configure(
@@ -103,28 +143,43 @@ async def test_form_exception_thrown(hass: HomeAssistant, exception, error_key) 
         )
 
     assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"]
     assert result2["errors"]["base"] == error_key
 
+    with _patch_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY},
+        )
+        await hass.async_block_till_done()
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
-async def test_form_api_error(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Test we handle unexpected error."""
+
+async def test_api_error(hass: HomeAssistant, caplog: pytest.LogCaptureFixture) -> None:
+    """Test expected API error is catch."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
     with patch(
-        "pyuptimerobot.UptimeRobot.async_get_account_details",
-        return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ERROR),
+        "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+        side_effect=UptimeRobotConnectionException,
     ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY},
         )
 
-    assert result2["errors"]["base"] == "unknown"
-    assert "test error from API." in caplog.text
+    assert result2["errors"]
+    assert result2["errors"]["base"] == "cannot_connect"
+
+    with _patch_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY},
+        )
+        await hass.async_block_till_done()
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_user_unique_id_already_exists(
@@ -142,8 +197,11 @@ async def test_user_unique_id_already_exists(
 
     with (
         patch(
-            "pyuptimerobot.UptimeRobot.async_get_account_details",
-            return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ACCOUNT),
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME,
+                data=MOCK_UPTIMEROBOT_ACCOUNT,
+            ),
         ),
         patch(
             "homeassistant.components.uptimerobot.async_setup_entry",
@@ -176,8 +234,11 @@ async def test_reauthentication(
 
     with (
         patch(
-            "pyuptimerobot.UptimeRobot.async_get_account_details",
-            return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ACCOUNT),
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME,
+                data=MOCK_UPTIMEROBOT_ACCOUNT,
+            ),
         ),
         patch(
             "homeassistant.components.uptimerobot.async_setup_entry",
@@ -209,8 +270,8 @@ async def test_reauthentication_failure(
 
     with (
         patch(
-            "pyuptimerobot.UptimeRobot.async_get_account_details",
-            return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ERROR),
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            side_effect=UptimeRobotException,
         ),
         patch(
             "homeassistant.components.uptimerobot.async_setup_entry",
@@ -225,7 +286,17 @@ async def test_reauthentication_failure(
 
     assert result2["step_id"] == "reauth_confirm"
     assert result2["type"] is FlowResultType.FORM
-    assert result2["errors"]["base"] == "unknown"
+    assert result2["errors"]
+    assert result2["errors"]["base"] == "cannot_connect"
+
+    with _patch_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY},
+        )
+        await hass.async_block_till_done()
+    assert result3["type"] is FlowResultType.ABORT
+    assert result3["reason"] == "reauth_successful"
 
 
 async def test_reauthentication_failure_no_existing_entry(
@@ -245,8 +316,11 @@ async def test_reauthentication_failure_no_existing_entry(
 
     with (
         patch(
-            "pyuptimerobot.UptimeRobot.async_get_account_details",
-            return_value=mock_uptimerobot_api_response(key=MockApiResponseKey.ACCOUNT),
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME,
+                data=MOCK_UPTIMEROBOT_ACCOUNT,
+            ),
         ),
         patch(
             "homeassistant.components.uptimerobot.async_setup_entry",
@@ -278,10 +352,13 @@ async def test_reauthentication_failure_account_not_matching(
 
     with (
         patch(
-            "pyuptimerobot.UptimeRobot.async_get_account_details",
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
             return_value=mock_uptimerobot_api_response(
-                key=MockApiResponseKey.ACCOUNT,
-                data={**MOCK_UPTIMEROBOT_ACCOUNT, "user_id": 1234567891},
+                api_path=API_PATH_USER_ME,
+                data={
+                    "email": "wrong_account",
+                    "monitorsCount": 1,
+                },
             ),
         ),
         patch(
@@ -297,4 +374,117 @@ async def test_reauthentication_failure_account_not_matching(
 
     assert result2["step_id"] == "reauth_confirm"
     assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"]
     assert result2["errors"]["base"] == "reauth_failed_matching_account"
+
+    with _patch_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_KEY: MOCK_UPTIMEROBOT_API_KEY},
+        )
+        await hass.async_block_till_done()
+    assert result3["type"] is FlowResultType.ABORT
+    assert result3["reason"] == "reauth_successful"
+
+
+async def test_reconfigure_successful(
+    hass: HomeAssistant,
+) -> None:
+    """Test that the entry can be reconfigured."""
+    config_entry = MockConfigEntry(
+        **{**MOCK_UPTIMEROBOT_CONFIG_ENTRY_DATA, "unique_id": None}
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await config_entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] is None
+    assert result["step_id"] == "reconfigure"
+
+    new_key = "u0242ac120003-new"
+
+    with (
+        patch(
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME, data=MOCK_UPTIMEROBOT_ACCOUNT
+            ),
+        ),
+        patch(
+            "homeassistant.components.uptimerobot.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: new_key},
+        )
+
+    assert result2["type"] is FlowResultType.ABORT
+    assert result2["reason"] == "reconfigure_successful"
+
+    # changed entry
+    assert config_entry.data[CONF_API_KEY] == new_key
+
+
+async def test_reconfigure_failed(
+    hass: HomeAssistant,
+) -> None:
+    """Test that the entry reconfigure fails with a wrong key."""
+    config_entry = MockConfigEntry(
+        **{**MOCK_UPTIMEROBOT_CONFIG_ENTRY_DATA, "unique_id": None}
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await config_entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] is None
+    assert result["step_id"] == "reconfigure"
+
+    wrong_key = "u0242ac120003-wrong"
+
+    with (
+        patch(
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            side_effect=UptimeRobotAuthenticationException,
+        ),
+        patch(
+            "homeassistant.components.uptimerobot.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: wrong_key},
+        )
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"]
+    assert result2["errors"]["base"] == "invalid_api_key"
+
+    new_key = "u0242ac120003-new"
+
+    with (
+        patch(
+            "homeassistant.components.uptimerobot.config_flow.UptimeRobot.async_get_account_details",
+            return_value=mock_uptimerobot_api_response(
+                api_path=API_PATH_USER_ME, data=MOCK_UPTIMEROBOT_ACCOUNT
+            ),
+        ),
+        patch(
+            "homeassistant.components.uptimerobot.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            user_input={CONF_API_KEY: new_key},
+        )
+
+    assert result3["type"] is FlowResultType.ABORT
+    assert result3["reason"] == "reconfigure_successful"
+
+    # changed entry
+    assert config_entry.data[CONF_API_KEY] == new_key

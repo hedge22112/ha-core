@@ -1,28 +1,27 @@
 """Vodafone Station sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Final, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfDataRate
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import _LOGGER, DOMAIN, LINE_TYPES
-from .coordinator import VodafoneStationRouter
+from .const import LINE_TYPES, LOGGER
+from .coordinator import VodafoneConfigEntry, VodafoneStationRouter
+
+# Coordinator is used to centralize the data updates
+PARALLEL_UPDATES = 0
 
 NOT_AVAILABLE: list = ["", "N/A", "0.0.0.0"]
-UPTIME_DEVIATION = 60
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -34,24 +33,6 @@ class VodafoneStationEntityDescription(SensorEntityDescription):
         str | datetime | float | None,
     ] = lambda coordinator, last_value, key: coordinator.data.sensors[key]
     is_suitable: Callable[[dict], bool] = lambda val: True
-
-
-def _calculate_uptime(
-    coordinator: VodafoneStationRouter,
-    last_value: str | datetime | float | None,
-    key: str,
-) -> datetime:
-    """Calculate device uptime."""
-
-    delta_uptime = coordinator.api.convert_uptime(coordinator.data.sensors[key])
-
-    if (
-        not isinstance(last_value, datetime)
-        or abs((delta_uptime - last_value).total_seconds()) > UPTIME_DEVIATION
-    ):
-        return delta_uptime
-
-    return last_value
 
 
 def _line_connection(
@@ -133,10 +114,11 @@ SENSOR_TYPES: Final = (
     ),
     VodafoneStationEntityDescription(
         key="sys_uptime",
-        translation_key="sys_uptime",
-        device_class=SensorDeviceClass.TIMESTAMP,
+        device_class=SensorDeviceClass.UPTIME,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value=_calculate_uptime,
+        value=lambda coordinator, last_value, key: coordinator.api.convert_uptime(
+            coordinator.data.sensors[key]
+        ),
     ),
     VodafoneStationEntityDescription(
         key="sys_cpu_usage",
@@ -165,12 +147,14 @@ SENSOR_TYPES: Final = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: VodafoneConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
-    _LOGGER.debug("Setting up Vodafone Station sensors")
+    LOGGER.debug("Setting up Vodafone Station sensors")
 
-    coordinator: VodafoneStationRouter = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     sensors_data = coordinator.data.sensors
 
@@ -202,6 +186,7 @@ class VodafoneStationSensorEntity(
         self._old_state: str | datetime | float | None = None
 
     @property
+    @override
     def native_value(self) -> str | datetime | float | None:
         """Sensor value."""
         self._old_state = self.entity_description.value(

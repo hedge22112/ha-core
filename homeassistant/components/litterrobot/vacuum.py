@@ -1,13 +1,10 @@
 """Support for Litter-Robot "Vacuum"."""
 
-from __future__ import annotations
-
 from datetime import time
-from typing import Any
+from typing import Any, override
 
 from pylitterbot import LitterRobot
 from pylitterbot.enums import LitterBoxStatus
-import voluptuous as vol
 
 from homeassistant.components.vacuum import (
     StateVacuumEntity,
@@ -16,14 +13,13 @@ from homeassistant.components.vacuum import (
     VacuumEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, entity_platform
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import homeassistant.util.dt as dt_util
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
-from . import LitterRobotConfigEntry
-from .entity import LitterRobotEntity
+from .coordinator import LitterRobotConfigEntry
+from .entity import LitterRobotEntity, whisker_command
 
-SERVICE_SET_SLEEP_MODE = "set_sleep_mode"
+PARALLEL_UPDATES = 1
 
 LITTER_BOX_STATUS_STATE_MAP = {
     LitterBoxStatus.CLEAN_CYCLE: VacuumActivity.CLEANING,
@@ -46,25 +42,28 @@ LITTER_BOX_ENTITY = StateVacuumEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: LitterRobotConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Litter-Robot cleaner using config entry."""
-    hub = entry.runtime_data
-    entities = [
-        LitterRobotCleaner(robot=robot, hub=hub, description=LITTER_BOX_ENTITY)
-        for robot in hub.litter_robots()
-    ]
-    async_add_entities(entities)
+    coordinator = entry.runtime_data
+    known_robots: set[str] = set()
 
-    platform = entity_platform.async_get_current_platform()
-    platform.async_register_entity_service(
-        SERVICE_SET_SLEEP_MODE,
-        {
-            vol.Required("enabled"): cv.boolean,
-            vol.Optional("start_time"): cv.time,
-        },
-        "async_set_sleep_mode",
-    )
+    def _check_robots() -> None:
+        all_robots = list(coordinator.litter_robots())
+        current_robots = {robot.serial for robot in all_robots}
+        new_robots = current_robots - known_robots
+        if new_robots:
+            known_robots.update(new_robots)
+            async_add_entities(
+                LitterRobotCleaner(
+                    robot=robot, coordinator=coordinator, description=LITTER_BOX_ENTITY
+                )
+                for robot in all_robots
+                if robot.serial in new_robots
+            )
+
+    _check_robots()
+    entry.async_on_unload(coordinator.async_add_listener(_check_robots))
 
 
 class LitterRobotCleaner(LitterRobotEntity[LitterRobot], StateVacuumEntity):
@@ -75,26 +74,25 @@ class LitterRobotCleaner(LitterRobotEntity[LitterRobot], StateVacuumEntity):
     )
 
     @property
+    @override
     def activity(self) -> VacuumActivity:
         """Return the state of the cleaner."""
         return LITTER_BOX_STATUS_STATE_MAP.get(self.robot.status, VacuumActivity.ERROR)
 
-    @property
-    def status(self) -> str:
-        """Return the status of the cleaner."""
-        return (
-            f"{self.robot.status.text}{' (Sleeping)' if self.robot.is_sleeping else ''}"
-        )
-
+    @whisker_command
+    @override
     async def async_start(self) -> None:
         """Start a clean cycle."""
         await self.robot.set_power_status(True)
         await self.robot.start_cleaning()
 
+    @whisker_command
+    @override
     async def async_stop(self, **kwargs: Any) -> None:
         """Stop the vacuum cleaner."""
         await self.robot.set_power_status(False)
 
+    @whisker_command
     async def async_set_sleep_mode(
         self, enabled: bool, start_time: str | None = None
     ) -> None:
@@ -121,13 +119,3 @@ class LitterRobotCleaner(LitterRobotEntity[LitterRobot], StateVacuumEntity):
             )
             .timetz()
         )
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return device specific state attributes."""
-        return {
-            "is_sleeping": self.robot.is_sleeping,
-            "sleep_mode_enabled": self.robot.sleep_mode_enabled,
-            "power_status": self.robot.power_status,
-            "status": self.status,
-        }

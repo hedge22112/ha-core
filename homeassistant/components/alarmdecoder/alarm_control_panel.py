@@ -1,8 +1,6 @@
 """Support for AlarmDecoder-based alarm control panels (Honeywell/DSC)."""
 
-from __future__ import annotations
-
-import voluptuous as vol
+from typing import override
 
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
@@ -10,12 +8,9 @@ from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelState,
     CodeFormat,
 )
-from homeassistant.const import ATTR_CODE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_platform
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AlarmDecoderConfigEntry
 from .const import (
@@ -28,16 +23,11 @@ from .const import (
 )
 from .entity import AlarmDecoderEntity
 
-SERVICE_ALARM_TOGGLE_CHIME = "alarm_toggle_chime"
-
-SERVICE_ALARM_KEYPRESS = "alarm_keypress"
-ATTR_KEYPRESS = "keypress"
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AlarmDecoderConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up for AlarmDecoder alarm panels."""
     options = entry.options
@@ -50,23 +40,6 @@ async def async_setup_entry(
         alt_night_mode=arm_options[CONF_ALT_NIGHT_MODE],
     )
     async_add_entities([entity])
-
-    platform = entity_platform.async_get_current_platform()
-    platform.async_register_entity_service(
-        SERVICE_ALARM_TOGGLE_CHIME,
-        {
-            vol.Required(ATTR_CODE): cv.string,
-        },
-        "alarm_toggle_chime",
-    )
-
-    platform.async_register_entity_service(
-        SERVICE_ALARM_KEYPRESS,
-        {
-            vol.Required(ATTR_KEYPRESS): cv.string,
-        },
-        "alarm_keypress",
-    )
 
 
 class AlarmDecoderAlarmPanel(AlarmDecoderEntity, AlarmControlPanelEntity):
@@ -89,6 +62,7 @@ class AlarmDecoderAlarmPanel(AlarmDecoderEntity, AlarmControlPanelEntity):
         self._attr_code_arm_required = code_arm_required
         self._alt_night_mode = alt_night_mode
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         self.async_on_remove(
@@ -124,11 +98,13 @@ class AlarmDecoderAlarmPanel(AlarmDecoderEntity, AlarmControlPanelEntity):
         }
         self.schedule_update_ha_state()
 
+    @override
     def alarm_disarm(self, code: str | None = None) -> None:
         """Send disarm command."""
         if code:
             self._client.send(f"{code!s}1")
 
+    @override
     def alarm_arm_away(self, code: str | None = None) -> None:
         """Send arm away command."""
         self._client.arm_away(
@@ -137,6 +113,7 @@ class AlarmDecoderAlarmPanel(AlarmDecoderEntity, AlarmControlPanelEntity):
             auto_bypass=self._auto_bypass,
         )
 
+    @override
     def alarm_arm_home(self, code: str | None = None) -> None:
         """Send arm home command."""
         self._client.arm_home(
@@ -145,6 +122,7 @@ class AlarmDecoderAlarmPanel(AlarmDecoderEntity, AlarmControlPanelEntity):
             auto_bypass=self._auto_bypass,
         )
 
+    @override
     def alarm_arm_night(self, code: str | None = None) -> None:
         """Send arm night command."""
         self._client.arm_night(

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from cookidoo_api import CookidooRequestException
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.config_entries import ConfigEntryState
@@ -50,7 +50,9 @@ async def test_pressing_button(
         BUTTON_DOMAIN,
         SERVICE_PRESS,
         {
-            ATTR_ENTITY_ID: "button.cookidoo_clear_shopping_list_and_additional_purchases",
+            ATTR_ENTITY_ID: (
+                "button.cookidoo_clear_shopping_list_and_additional_purchases"
+            ),
         },
         blocking=True,
     )
@@ -78,7 +80,9 @@ async def test_pressing_button_exception(
             BUTTON_DOMAIN,
             SERVICE_PRESS,
             {
-                ATTR_ENTITY_ID: "button.cookidoo_clear_shopping_list_and_additional_purchases",
+                ATTR_ENTITY_ID: (
+                    "button.cookidoo_clear_shopping_list_and_additional_purchases"
+                ),
             },
             blocking=True,
         )

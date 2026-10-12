@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_cloud_all_sensors[sensor.geniushub_errors-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'GeniusHub Errors',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'GeniusHub Errors',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_Errors',
@@ -37,7 +41,7 @@
     'attributes': ReadOnlyDict({
       'error_list': list([
       ]),
-      'friendly_name': 'GeniusHub Errors',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GeniusHub Errors',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.geniushub_errors',
@@ -49,11 +53,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.geniushub_information-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -67,6 +73,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'GeniusHub Information',
     'options': dict({
     }),
     'original_device_class': None,
@@ -74,6 +81,7 @@
     'original_name': 'GeniusHub Information',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_Information',
@@ -83,7 +91,7 @@
 # name: test_cloud_all_sensors[sensor.geniushub_information-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GeniusHub Information',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GeniusHub Information',
       'information_list': list([
       ]),
     }),
@@ -97,11 +105,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.geniushub_warnings-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -115,6 +125,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'GeniusHub Warnings',
     'options': dict({
     }),
     'original_device_class': None,
@@ -122,6 +133,7 @@
     'original_name': 'GeniusHub Warnings',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_Warnings',
@@ -131,7 +143,7 @@
 # name: test_cloud_all_sensors[sensor.geniushub_warnings-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'GeniusHub Warnings',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'GeniusHub Warnings',
       'warning_list': list([
       ]),
     }),
@@ -145,11 +157,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_11-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -163,6 +177,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 11',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -170,6 +185,7 @@
     'original_name': 'Radiator Valve 11',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_11',
@@ -180,13 +196,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Lounge',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 11',
-      'icon': 'mdi:battery-40',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 11',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-40',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_11',
@@ -198,11 +214,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_56-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -216,6 +234,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 56',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -223,6 +242,7 @@
     'original_name': 'Radiator Valve 56',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_56',
@@ -233,13 +253,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Kitchen',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 56',
-      'icon': 'mdi:battery-50',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 56',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-50',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_56',
@@ -251,11 +271,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_68-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -269,6 +291,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 68',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -276,6 +299,7 @@
     'original_name': 'Radiator Valve 68',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_68',
@@ -286,13 +310,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Hall',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 68',
-      'icon': 'mdi:battery-90',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 68',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-90',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_68',
@@ -304,11 +328,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_78-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -322,6 +348,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 78',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -329,6 +356,7 @@
     'original_name': 'Radiator Valve 78',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_78',
@@ -339,13 +367,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Bedroom',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 78',
-      'icon': 'mdi:battery-40',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 78',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-40',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_78',
@@ -357,11 +385,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_85-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -375,6 +405,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 85',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -382,6 +413,7 @@
     'original_name': 'Radiator Valve 85',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_85',
@@ -392,13 +424,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Study',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 85',
-      'icon': 'mdi:battery-60',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 85',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-60',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_85',
@@ -410,11 +442,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_88-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -428,6 +462,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 88',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -435,6 +470,7 @@
     'original_name': 'Radiator Valve 88',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_88',
@@ -445,13 +481,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Ensuite',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 88',
-      'icon': 'mdi:battery-50',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 88',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-50',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_88',
@@ -463,11 +499,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_89-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -481,6 +519,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 89',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -488,6 +527,7 @@
     'original_name': 'Radiator Valve 89',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_89',
@@ -498,13 +538,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Kitchen',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 89',
-      'icon': 'mdi:battery-50',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 89',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-50',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_89',
@@ -516,11 +556,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.radiator_valve_90-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -534,6 +576,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Radiator Valve 90',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -541,6 +584,7 @@
     'original_name': 'Radiator Valve 90',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_90',
@@ -551,13 +595,13 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Guest room',
-      'device_class': 'battery',
-      'friendly_name': 'Radiator Valve 90',
-      'icon': 'mdi:battery-90',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Radiator Valve 90',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-90',
       'state': dict({
         'set_temperature': 4,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.radiator_valve_90',
@@ -569,11 +613,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_16-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -587,6 +633,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 16',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -594,6 +641,7 @@
     'original_name': 'Room Sensor 16',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_16',
@@ -604,15 +652,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Guest room',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 16',
-      'icon': 'mdi:battery',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 16',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery',
       'state': dict({
         'luminance': 29,
         'measured_temperature': 21,
         'occupancy_trigger': 255,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_16',
@@ -624,11 +672,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_17-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -642,6 +692,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 17',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -649,6 +700,7 @@
     'original_name': 'Room Sensor 17',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_17',
@@ -659,15 +711,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Ensuite',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 17',
-      'icon': 'mdi:battery',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 17',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery',
       'state': dict({
         'luminance': 32,
         'measured_temperature': 21,
         'occupancy_trigger': 0,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_17',
@@ -679,11 +731,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_18-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -697,6 +751,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 18',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -704,6 +759,7 @@
     'original_name': 'Room Sensor 18',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_18',
@@ -714,15 +770,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Bedroom',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 18',
-      'icon': 'mdi:battery-alert',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 18',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-alert',
       'state': dict({
         'luminance': 1,
         'measured_temperature': 21.5,
         'occupancy_trigger': 0,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_18',
@@ -734,11 +790,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_20-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -752,6 +810,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 20',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -759,6 +818,7 @@
     'original_name': 'Room Sensor 20',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_20',
@@ -769,15 +829,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Kitchen',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 20',
-      'icon': 'mdi:battery',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 20',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery',
       'state': dict({
         'luminance': 1,
         'measured_temperature': 21.5,
         'occupancy_trigger': 0,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_20',
@@ -789,11 +849,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_21-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -807,6 +869,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 21',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -814,6 +877,7 @@
     'original_name': 'Room Sensor 21',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_21',
@@ -824,15 +888,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Hall',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 21',
-      'icon': 'mdi:battery',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 21',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery',
       'state': dict({
         'luminance': 33,
         'measured_temperature': 21,
         'occupancy_trigger': 0,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_21',
@@ -844,11 +908,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_50-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -862,6 +928,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 50',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -869,6 +936,7 @@
     'original_name': 'Room Sensor 50',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_50',
@@ -879,15 +947,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Study',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 50',
-      'icon': 'mdi:battery',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 50',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery',
       'state': dict({
         'luminance': 34,
         'measured_temperature': 22,
         'occupancy_trigger': 0,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_50',
@@ -899,11 +967,13 @@
 # ---
 # name: test_cloud_all_sensors[sensor.room_sensor_53-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -917,6 +987,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room Sensor 53',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.BATTERY: 'battery'>,
@@ -924,6 +995,7 @@
     'original_name': 'Room Sensor 53',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_device_53',
@@ -934,15 +1006,15 @@
   StateSnapshot({
     'attributes': ReadOnlyDict({
       'assigned_zone': 'Lounge',
-      'device_class': 'battery',
-      'friendly_name': 'Room Sensor 53',
-      'icon': 'mdi:battery-alert',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Room Sensor 53',
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:battery-alert',
       'state': dict({
         'luminance': 0,
         'measured_temperature': 0,
         'occupancy_trigger': 0,
       }),
-      'unit_of_measurement': '%',
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: '%',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.room_sensor_53',

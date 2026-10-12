@@ -1,11 +1,10 @@
 """The Fjäråskupan data update coordinator."""
 
-from __future__ import annotations
-
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import timedelta
 import logging
+from typing import override
 
 from fjaraskupan import (
     Device,
@@ -21,12 +20,15 @@ from homeassistant.components.bluetooth import (
     async_address_present,
     async_ble_device_from_address,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
+
+type FjaraskupanConfigEntry = ConfigEntry[dict[str, FjaraskupanCoordinator]]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,8 +66,14 @@ class UnableToConnect(HomeAssistantError):
 class FjaraskupanCoordinator(DataUpdateCoordinator[State]):
     """Update coordinator for each device."""
 
+    config_entry: FjaraskupanConfigEntry
+
     def __init__(
-        self, hass: HomeAssistant, device: Device, device_info: DeviceInfo
+        self,
+        hass: HomeAssistant,
+        config_entry: FjaraskupanConfigEntry,
+        device: Device,
+        device_info: DeviceInfo,
     ) -> None:
         """Initialize the coordinator."""
         self.device = device
@@ -73,9 +81,14 @@ class FjaraskupanCoordinator(DataUpdateCoordinator[State]):
         self._refresh_was_scheduled = False
 
         super().__init__(
-            hass, _LOGGER, name="Fjäråskupan", update_interval=timedelta(seconds=120)
+            hass,
+            _LOGGER,
+            config_entry=config_entry,
+            name="Fjäråskupan",
+            update_interval=timedelta(seconds=120),
         )
 
+    @override
     async def _async_refresh(
         self,
         log_failures: bool = True,
@@ -91,6 +104,7 @@ class FjaraskupanCoordinator(DataUpdateCoordinator[State]):
             raise_on_entry_error=raise_on_entry_error,
         )
 
+    @override
     async def _async_update_data(self) -> State:
         """Handle an explicit update request."""
         if self._refresh_was_scheduled:
@@ -119,7 +133,7 @@ class FjaraskupanCoordinator(DataUpdateCoordinator[State]):
         self.async_set_updated_data(self.device.state)
 
     @asynccontextmanager
-    async def async_connect_and_update(self) -> AsyncIterator[Device]:
+    async def async_connect_and_update(self) -> AsyncGenerator[Device]:
         """Provide an up-to-date device for use during connections."""
         if (
             ble_device := async_ble_device_from_address(

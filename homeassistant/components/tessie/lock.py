@@ -1,15 +1,13 @@
 """Lock platform for Tessie integration."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from tessie_api import lock, open_unlock_charge_port, unlock
 
 from homeassistant.components.lock import LockEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TessieConfigEntry
 from .const import DOMAIN, TessieChargeCableLockStates
@@ -22,7 +20,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TessieConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tessie sensor platform from a config entry."""
     data = entry.runtime_data
@@ -45,15 +43,18 @@ class TessieLockEntity(TessieEntity, LockEntity):
         super().__init__(vehicle, "vehicle_state_locked")
 
     @property
+    @override
     def is_locked(self) -> bool | None:
         """Return the state of the Lock."""
         return self._value
 
+    @override
     async def async_lock(self, **kwargs: Any) -> None:
         """Set new value."""
         await self.run(lock)
         self.set((self.key, True))
 
+    @override
     async def async_unlock(self, **kwargs: Any) -> None:
         """Set new value."""
         await self.run(unlock)
@@ -71,10 +72,12 @@ class TessieCableLockEntity(TessieEntity, LockEntity):
         super().__init__(vehicle, "charge_state_charge_port_latch")
 
     @property
+    @override
     def is_locked(self) -> bool | None:
         """Return the state of the Lock."""
         return self._value == TessieChargeCableLockStates.ENGAGED
 
+    @override
     async def async_lock(self, **kwargs: Any) -> None:
         """Charge cable Lock cannot be manually locked."""
         raise ServiceValidationError(
@@ -82,6 +85,7 @@ class TessieCableLockEntity(TessieEntity, LockEntity):
             translation_key="no_cable",
         )
 
+    @override
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock charge cable lock."""
         await self.run(open_unlock_charge_port)

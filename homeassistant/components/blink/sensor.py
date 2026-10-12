@@ -1,8 +1,7 @@
 """Support for Blink system camera sensors."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -17,7 +16,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_BRAND, DOMAIN, TYPE_TEMPERATURE, TYPE_WIFI_STRENGTH
@@ -47,7 +46,7 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: BlinkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize a Blink sensor."""
 
@@ -94,6 +93,7 @@ class BlinkSensor(CoordinatorEntity[BlinkUpdateCoordinator], SensorEntity):
         self._update_attr()
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle coordinator update."""
         self._update_attr()

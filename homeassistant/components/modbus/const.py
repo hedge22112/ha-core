@@ -1,6 +1,8 @@
 """Constants used in modbus integration."""
 
-from enum import Enum
+from enum import StrEnum
+import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.const import (
     CONF_ADDRESS,
@@ -11,11 +13,19 @@ from homeassistant.const import (
     CONF_SWITCHES,
     Platform,
 )
+from homeassistant.util.hass_dict import HassKey
+
+if TYPE_CHECKING:
+    from .modbus import ModbusHub
 
 # configuration names
 CONF_BAUDRATE = "baudrate"
 CONF_BYTESIZE = "bytesize"
 CONF_CLIMATES = "climates"
+CONF_BRIGHTNESS_REGISTER = "brightness_address"
+CONF_COLOR_TEMP_REGISTER = "color_temp_address"
+CONF_CURRENT_TEMP_OFFSET = "current_temp_offset"
+CONF_CURRENT_TEMP_SCALE = "current_temp_scale"
 CONF_DATA_TYPE = "data_type"
 CONF_DEVICE_ADDRESS = "device_address"
 CONF_FANS = "fans"
@@ -45,6 +55,8 @@ CONF_SWAP_BYTE = "byte"
 CONF_SWAP_WORD = "word"
 CONF_SWAP_WORD_BYTE = "word_byte"
 CONF_TARGET_TEMP = "target_temp_register"
+CONF_TARGET_TEMP_OFFSET = "target_temp_offset"
+CONF_TARGET_TEMP_SCALE = "target_temp_scale"
 CONF_TARGET_TEMP_WRITE_REGISTERS = "target_temp_write_registers"
 CONF_FAN_MODE_REGISTER = "fan_mode_register"
 CONF_FAN_MODE_ON = "state_fan_on"
@@ -62,6 +74,17 @@ CONF_HVAC_MODE_REGISTER = "hvac_mode_register"
 CONF_HVAC_ONOFF_REGISTER = "hvac_onoff_register"
 CONF_HVAC_ON_VALUE = "hvac_on_value"
 CONF_HVAC_OFF_VALUE = "hvac_off_value"
+CONF_HVAC_ONOFF_COIL = "hvac_onoff_coil"
+CONF_HVAC_ACTION_REGISTER = "hvac_action_register"
+CONF_HVAC_ACTION_COOLING = "action_cooling"
+CONF_HVAC_ACTION_DEFROSTING = "action_defrosting"
+CONF_HVAC_ACTION_DRYING = "action_drying"
+CONF_HVAC_ACTION_FAN = "action_fan"
+CONF_HVAC_ACTION_HEATING = "action_heating"
+CONF_HVAC_ACTION_IDLE = "action_idle"
+CONF_HVAC_ACTION_OFF = "action_off"
+CONF_HVAC_ACTION_PREHEATING = "action_preheating"
+CONF_HVAC_ACTION_VALUES = "values"
 CONF_HVAC_MODE_OFF = "state_off"
 CONF_HVAC_MODE_HEAT = "state_heat"
 CONF_HVAC_MODE_COOL = "state_cool"
@@ -83,6 +106,7 @@ CONF_VIRTUAL_COUNT = "virtual_count"
 CONF_WRITE_TYPE = "write_type"
 CONF_ZERO_SUPPRESS = "zero_suppress"
 
+DEVICE_ID = "device_id"
 RTUOVERTCP = "rtuovertcp"
 SERIAL = "serial"
 TCP = "tcp"
@@ -97,7 +121,7 @@ ATTR_SLAVE = "slave"
 ATTR_VALUE = "value"
 
 
-class DataType(str, Enum):
+class DataType(StrEnum):
     """Data types used by sensor etc."""
 
     CUSTOM = "custom"
@@ -129,11 +153,9 @@ CALL_TYPE_X_REGISTER_HOLDINGS = "holdings"
 SERVICE_WRITE_COIL = "write_coil"
 SERVICE_WRITE_REGISTER = "write_register"
 SERVICE_STOP = "stop"
-SERVICE_RESTART = "restart"
 
 # dispatcher signals
-SIGNAL_STOP_ENTITY = "modbus.stop"
-SIGNAL_START_ENTITY = "modbus.start"
+SIGNAL_STOP_ENTITY = "modbus.stop_{}"
 
 # integration names
 DEFAULT_HUB = "modbus_hub"
@@ -144,6 +166,9 @@ DEFAULT_TEMP_UNIT = "C"
 DEFAULT_HVAC_ON_VALUE = 1
 DEFAULT_HVAC_OFF_VALUE = 0
 MODBUS_DOMAIN = "modbus"
+DOMAIN = "modbus"
+
+DATA_MODBUS_HUBS: HassKey[dict[str, ModbusHub]] = HassKey(DOMAIN)
 
 ACTIVE_SCAN_INTERVAL = 2  # limit to force an extra update
 
@@ -156,3 +181,16 @@ PLATFORMS = (
     (Platform.SENSOR, CONF_SENSORS),
     (Platform.SWITCH, CONF_SWITCHES),
 )
+
+LIGHT_DEFAULT_MIN_KELVIN = 2000
+LIGHT_DEFAULT_MAX_KELVIN = 7000
+LIGHT_MIN_BRIGHTNESS = 0
+LIGHT_MAX_BRIGHTNESS = 255
+LIGHT_MODBUS_SCALE_MIN = 0
+LIGHT_MODBUS_SCALE_MAX = 100
+LIGHT_MODBUS_INVALID_VALUE = 0xFFFF
+
+DEFAULT_SCALE = 1.0
+DEFAULT_OFFSET = 0
+
+LOGGER = logging.getLogger(__package__)

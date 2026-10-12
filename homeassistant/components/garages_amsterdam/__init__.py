@@ -1,19 +1,17 @@
 """The Garages Amsterdam integration."""
 
-from __future__ import annotations
-
 from odp_amsterdam import ODPAmsterdam
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .coordinator import GaragesAmsterdamDataUpdateCoordinator
+from .coordinator import (
+    GaragesAmsterdamConfigEntry,
+    GaragesAmsterdamDataUpdateCoordinator,
+)
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
-
-type GaragesAmsterdamConfigEntry = ConfigEntry[GaragesAmsterdamDataUpdateCoordinator]
 
 
 async def async_setup_entry(
@@ -21,7 +19,7 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Garages Amsterdam from a config entry."""
     client = ODPAmsterdam(session=async_get_clientsession(hass))
-    coordinator = GaragesAmsterdamDataUpdateCoordinator(hass, client)
+    coordinator = GaragesAmsterdamDataUpdateCoordinator(hass, entry, client)
 
     await coordinator.async_config_entry_first_refresh()
 

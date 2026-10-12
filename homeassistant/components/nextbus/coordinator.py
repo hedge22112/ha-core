@@ -2,21 +2,28 @@
 
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 from py_nextbus import NextBusClient
 from py_nextbus.client import NextBusFormatError, NextBusHTTPError
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .util import RouteStop
 
 _LOGGER = logging.getLogger(__name__)
 
+# At what percentage of the request limit should the coordinator pause making requests
+UPDATE_INTERVAL_SECONDS = 30
+THROTTLE_PRECENTAGE = 80
 
-class NextBusDataUpdateCoordinator(DataUpdateCoordinator):
+
+class NextBusDataUpdateCoordinator(
+    DataUpdateCoordinator[dict[RouteStop, dict[str, Any]]]
+):
     """Class to manage fetching NextBus data."""
 
     def __init__(self, hass: HomeAssistant, agency: str) -> None:
@@ -26,7 +33,7 @@ class NextBusDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER,
             config_entry=None,  # It is shared between multiple entries
             name=DOMAIN,
-            update_interval=timedelta(seconds=30),
+            update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
         )
         self.client = NextBusClient(agency_id=agency)
         self._agency = agency
@@ -49,8 +56,25 @@ class NextBusDataUpdateCoordinator(DataUpdateCoordinator):
         """Check if this coordinator is tracking any routes."""
         return len(self._route_stops) > 0
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    @override
+    async def _async_update_data(self) -> dict[RouteStop, dict[str, Any]]:
         """Fetch data from NextBus."""
+
+        if (
+            # If we have predictions, check the rate limit
+            self._predictions
+            # If are over our rate limit percentage, we should throttle
+            and self.client.rate_limit_percent >= THROTTLE_PRECENTAGE
+            # But only if we have a reset time to unthrottle
+            and self.client.rate_limit_reset is not None
+            # Unless we are after the reset time
+            and dt_util.naive_now() < self.client.rate_limit_reset
+        ):
+            self.logger.debug(
+                "Rate limit threshold reached. Skipping updates for. Routes: %s",
+                str(self._route_stops),
+            )
+            return self._predictions
 
         _stops_to_route_stops: dict[str, set[RouteStop]] = {}
         for route_stop in self._route_stops:
@@ -60,7 +84,7 @@ class NextBusDataUpdateCoordinator(DataUpdateCoordinator):
             "Updating data from API. Routes: %s", str(_stops_to_route_stops)
         )
 
-        def _update_data() -> dict:
+        def _update_data() -> dict[RouteStop, dict[str, Any]]:
             """Fetch data from NextBus."""
             self.logger.debug("Updating data from API (executor)")
             predictions: dict[RouteStop, dict[str, Any]] = {}
@@ -70,13 +94,9 @@ class NextBusDataUpdateCoordinator(DataUpdateCoordinator):
                 try:
                     prediction_results = self.client.predictions_for_stop(stop_id)
                 except NextBusHTTPError as ex:
-                    self.logger.error(
-                        "Error updating %s (executor): %s %s",
-                        str(stop_id),
-                        ex,
-                        getattr(ex, "response", None),
-                    )
-                    raise UpdateFailed("Failed updating nextbus data", ex) from ex
+                    raise UpdateFailed(
+                        f"Failed updating nextbus data for stop {stop_id}: {ex.message}"
+                    ) from ex
                 except NextBusFormatError as ex:
                     raise UpdateFailed("Failed updating nextbus data", ex) from ex
 

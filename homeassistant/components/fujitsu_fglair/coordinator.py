@@ -1,10 +1,12 @@
 """Coordinator for Fujitsu HVAC integration."""
 
 import logging
+from typing import override
 
 from ayla_iot_unofficial import AylaApi, AylaAuthError
 from ayla_iot_unofficial.fujitsu_hvac import FujitsuHVAC
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -13,26 +15,35 @@ from .const import API_REFRESH
 
 _LOGGER = logging.getLogger(__name__)
 
+type FGLairConfigEntry = ConfigEntry[FGLairCoordinator]
+
 
 class FGLairCoordinator(DataUpdateCoordinator[dict[str, FujitsuHVAC]]):
     """Coordinator for Fujitsu HVAC integration."""
 
-    def __init__(self, hass: HomeAssistant, api: AylaApi) -> None:
+    config_entry: FGLairConfigEntry
+
+    def __init__(
+        self, hass: HomeAssistant, config_entry: FGLairConfigEntry, api: AylaApi
+    ) -> None:
         """Initialize coordinator for Fujitsu HVAC integration."""
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name="Fujitsu HVAC data",
             update_interval=API_REFRESH,
         )
         self.api = api
 
+    @override
     async def _async_setup(self) -> None:
         try:
             await self.api.async_sign_in()
         except AylaAuthError as e:
             raise ConfigEntryAuthFailed("Credentials expired for Ayla IoT API") from e
 
+    @override
     async def _async_update_data(self) -> dict[str, FujitsuHVAC]:
         """Fetch data from api endpoint."""
         listening_entities = set(self.async_contexts())

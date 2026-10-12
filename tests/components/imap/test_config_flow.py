@@ -1,11 +1,13 @@
 """Test the imap config flow."""
 
+from collections.abc import Generator
+from contextlib import contextmanager
 import ssl
 from unittest.mock import AsyncMock, patch
 
 from aioimaplib import AioImapException
+import probatio
 import pytest
-import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.imap.const import (
@@ -30,6 +32,8 @@ MOCK_CONFIG = {
     "folder": "INBOX",
     "search": "UnSeen UnDeleted",
     "event_message_data": ["text", "headers"],
+    "ssl_cipher_list": "python_default",
+    "verify_ssl": True,
 }
 
 MOCK_OPTIONS = {
@@ -39,6 +43,16 @@ MOCK_OPTIONS = {
 }
 
 pytestmark = pytest.mark.usefixtures("mock_setup_entry")
+
+
+@contextmanager
+def _patch_imap_success() -> Generator[None]:
+    """Patch a successful connection to the IMAP server."""
+    with patch(
+        "homeassistant.components.imap.config_flow.connect_to_server"
+    ) as mock_client:
+        mock_client.return_value.search.return_value = ("OK", [b""])
+        yield
 
 
 async def test_form(hass: HomeAssistant, mock_setup_entry: AsyncMock) -> None:
@@ -115,6 +129,14 @@ async def test_form_invalid_auth(hass: HomeAssistant) -> None:
         CONF_PASSWORD: "invalid_auth",
     }
 
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], MOCK_CONFIG
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+
 
 @pytest.mark.parametrize(
     ("exc", "error"),
@@ -149,6 +171,14 @@ async def test_form_cannot_connect(
         for key in result2["data_schema"].schema
     } == MOCK_CONFIG
 
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], MOCK_CONFIG
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+
 
 async def test_form_invalid_charset(hass: HomeAssistant) -> None:
     """Test we handle invalid charset."""
@@ -170,6 +200,14 @@ async def test_form_invalid_charset(hass: HomeAssistant) -> None:
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {CONF_CHARSET: "invalid_charset"}
 
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], MOCK_CONFIG
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+
 
 async def test_form_invalid_folder(hass: HomeAssistant) -> None:
     """Test we handle invalid folder selection."""
@@ -188,6 +226,14 @@ async def test_form_invalid_folder(hass: HomeAssistant) -> None:
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {CONF_FOLDER: "invalid_folder"}
 
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], MOCK_CONFIG
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+
 
 async def test_form_invalid_search(hass: HomeAssistant) -> None:
     """Test we handle invalid search."""
@@ -205,6 +251,14 @@ async def test_form_invalid_search(hass: HomeAssistant) -> None:
 
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {CONF_SEARCH: "invalid_search"}
+
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], MOCK_CONFIG
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_reauth_success(hass: HomeAssistant, mock_setup_entry: AsyncMock) -> None:
@@ -272,6 +326,18 @@ async def test_reauth_failed(hass: HomeAssistant) -> None:
             CONF_PASSWORD: "invalid_auth",
         }
 
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_PASSWORD: "test-password",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.ABORT
+    assert result3["reason"] == "reauth_successful"
+
 
 async def test_reauth_failed_conn_error(hass: HomeAssistant) -> None:
     """Test we can reauth."""
@@ -299,9 +365,21 @@ async def test_reauth_failed_conn_error(hass: HomeAssistant) -> None:
         assert result2["type"] is FlowResultType.FORM
         assert result2["errors"] == {"base": "cannot_connect"}
 
+    with _patch_imap_success():
+        result3 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_PASSWORD: "test-password",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.ABORT
+    assert result3["reason"] == "reauth_successful"
+
 
 async def test_options_form(hass: HomeAssistant) -> None:
-    """Test we show the options form."""
+    """Test the options form."""
 
     entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
     entry.add_to_hass(hass)
@@ -345,6 +423,87 @@ async def test_options_form(hass: HomeAssistant) -> None:
         assert entry.data[key] == value
 
 
+async def test_options_form_reset_template(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Test resetting the custom_event_data_template option."""
+
+    # Set up an entry
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] is None
+
+    with patch(
+        "homeassistant.components.imap.config_flow.connect_to_server"
+    ) as mock_client:
+        mock_client.return_value.search.return_value = (
+            "OK",
+            [b""],
+        )
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"], MOCK_CONFIG
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
+    assert result2["title"] == "email@email.com"
+    assert result2["data"] == MOCK_CONFIG
+    assert len(mock_setup_entry.mock_calls) == 1
+
+    entry = result2["result"]
+
+    # Set the custom_event_data_template option via the options flow
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    new_config = MOCK_OPTIONS.copy()
+    new_config["custom_event_data_template"] = "{{ subject }}"
+
+    with patch(
+        "homeassistant.components.imap.config_flow.connect_to_server"
+    ) as mock_client:
+        mock_client.return_value.search.return_value = ("OK", [b""])
+        result2 = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            new_config,
+        )
+        await hass.async_block_till_done()
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
+    assert result2["data"] == {}
+    for key, value in new_config.items():
+        assert entry.data[key] == value
+
+    assert "custom_event_data_template" in entry.data
+
+    # Reset custom_event_data_template option
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    new_config = MOCK_OPTIONS
+
+    with patch(
+        "homeassistant.components.imap.config_flow.connect_to_server"
+    ) as mock_client:
+        mock_client.return_value.search.return_value = ("OK", [b""])
+        result2 = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            new_config,
+        )
+        await hass.async_block_till_done()
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
+    assert result2["data"] == {}
+    for key, value in new_config.items():
+        assert entry.data[key] == value
+
+    assert "custom_event_data_template" not in entry.data
+
+
 async def test_key_options_in_options_form(hass: HomeAssistant) -> None:
     """Test we cannot change options if that would cause duplicates."""
 
@@ -379,9 +538,19 @@ async def test_key_options_in_options_form(hass: HomeAssistant) -> None:
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {"base": "already_configured"}
 
+    new_config["folder"] = "INBOX.Other"
+
+    with _patch_imap_success():
+        result3 = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            new_config,
+        )
+        await hass.async_block_till_done()
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+
 
 @pytest.mark.parametrize(
-    ("advanced_options", "assert_result"),
+    ("test_options", "assert_result"),
     [
         ({"max_message_size": 8192}, FlowResultType.CREATE_ENTRY),
         ({"max_message_size": 1024}, FlowResultType.FORM),
@@ -407,12 +576,12 @@ async def test_key_options_in_options_form(hass: HomeAssistant) -> None:
         "enable_push_false",
     ],
 )
-async def test_advanced_options_form(
+async def test_options_flow_when_connection_fails(
     hass: HomeAssistant,
-    advanced_options: dict[str, str],
+    test_options: dict[str, str],
     assert_result: FlowResultType,
 ) -> None:
-    """Test we show the advanced options."""
+    """Test the options flow when the connection fails."""
 
     entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
     entry.add_to_hass(hass)
@@ -420,14 +589,14 @@ async def test_advanced_options_form(
 
     result = await hass.config_entries.options.async_init(
         entry.entry_id,
-        context={"source": config_entries.SOURCE_USER, "show_advanced_options": True},
+        context={"source": config_entries.SOURCE_USER},
     )
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "init"
 
     new_config = MOCK_OPTIONS.copy()
-    new_config.update(advanced_options)
+    new_config.update(test_options)
 
     try:
         with patch(
@@ -438,7 +607,7 @@ async def test_advanced_options_form(
             result2 = await hass.config_entries.options.async_configure(
                 result["flow_id"], new_config
             )
-            assert result2["type"] == assert_result
+            assert result2["type"] is assert_result
 
             if result2.get("errors") is not None:
                 assert assert_result is FlowResultType.FORM
@@ -446,7 +615,7 @@ async def test_advanced_options_form(
                 # Check if entry was updated
                 for key, value in new_config.items():
                     assert entry.data[key] == value
-    except vol.Invalid:
+    except probatio.Invalid:
         # Check if form was expected with these options
         assert assert_result is FlowResultType.FORM
 
@@ -462,7 +631,7 @@ async def test_config_flow_with_cipherlist_and_ssl_verify(
     config["verify_ssl"] = verify_ssl
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
-        context={"source": config_entries.SOURCE_USER, "show_advanced_options": True},
+        context={"source": config_entries.SOURCE_USER},
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] is None
@@ -494,7 +663,7 @@ async def test_config_flow_with_event_message_data(
     config["event_message_data"] = event_message_data
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
-        context={"source": config_entries.SOURCE_USER, "show_advanced_options": False},
+        context={"source": config_entries.SOURCE_USER},
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] is None
@@ -517,16 +686,14 @@ async def test_config_flow_with_event_message_data(
     assert len(mock_setup_entry.mock_calls) == 1
 
 
-async def test_config_flow_from_with_advanced_settings(
+async def test_cipher_settings_in_config_flow(
     hass: HomeAssistant, mock_setup_entry: AsyncMock
 ) -> None:
-    """Test if advanced settings show correctly."""
+    """Test cipher settings in config flow."""
     config = MOCK_CONFIG.copy()
-    config["ssl_cipher_list"] = "python_default"
-    config["verify_ssl"] = True
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
-        context={"source": config_entries.SOURCE_USER, "show_advanced_options": True},
+        context={"source": config_entries.SOURCE_USER},
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] is None

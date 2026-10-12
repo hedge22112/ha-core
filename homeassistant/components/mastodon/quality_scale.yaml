@@ -6,14 +6,17 @@ rules:
   common-modules: done
   config-flow-test-coverage: done
   config-flow: done
-  dependency-transparency:
-    status: todo
-    comment: |
-      Mastodon.py does not have CI build/publish.
+  dependency-transparency: done
   docs-actions: done
+  docs-conditions:
+    status: exempt
+    comment: This integration does not have any conditions.
   docs-high-level-description: done
   docs-installation-instructions: done
   docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: This integration does not have any triggers.
   entity-event-setup:
     status: exempt
     comment: |
@@ -26,10 +29,7 @@ rules:
   unique-config-entry: done
 
   # Silver
-  action-exceptions:
-    status: todo
-    comment: |
-      Legacy Notify needs rewriting once Notify architecture stabilizes.
+  action-exceptions: done
   config-entry-unloading: done
   docs-configuration-parameters:
     status: exempt
@@ -39,19 +39,9 @@ rules:
   entity-unavailable: done
   integration-owner: done
   log-when-unavailable: done
-  parallel-updates:
-    status: todo
-    comment: |
-      Does not set parallel-updates on notify platform.
-  reauthentication-flow:
-    status: todo
-    comment: |
-      Waiting to move to oAuth.
-  test-coverage:
-    status: todo
-    comment: |
-      Legacy Notify needs rewriting once Notify architecture stabilizes.
-
+  parallel-updates: done
+  reauthentication-flow: done
+  test-coverage: done
   # Gold
   devices: done
   diagnostics: done
@@ -65,11 +55,11 @@ rules:
       Web service does not support discovery.
   docs-data-update: done
   docs-examples: done
-  docs-known-limitations: todo
+  docs-known-limitations: done
   docs-supported-devices: done
   docs-supported-functions: done
-  docs-troubleshooting: todo
-  docs-use-cases: todo
+  docs-troubleshooting: done
+  docs-use-cases: done
   dynamic-devices:
     status: exempt
     comment: |
@@ -78,12 +68,9 @@ rules:
   entity-device-class: done
   entity-disabled-by-default: done
   entity-translations: done
-  exception-translations: todo
+  exception-translations: done
   icon-translations: done
-  reconfiguration-flow:
-    status: todo
-    comment: |
-      Waiting to move to OAuth.
+  reconfiguration-flow: done
   repair-issues: done
   stale-devices:
     status: exempt
@@ -93,7 +80,4 @@ rules:
   # Platinum
   async-dependency: todo
   inject-websession: todo
-  strict-typing:
-    status: todo
-    comment: |
-      Requirement 'Mastodon.py==1.8.1' appears untyped
+  strict-typing: done

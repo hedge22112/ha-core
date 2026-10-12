@@ -1,6 +1,6 @@
 """Support for Radarr binary sensors."""
 
-from __future__ import annotations
+from typing import override
 
 from aiopyarr import Health
 
@@ -11,10 +11,10 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import RadarrConfigEntry
 from .const import HEALTH_ISSUES
+from .coordinator import RadarrConfigEntry
 from .entity import RadarrEntity
 
 BINARY_SENSOR_TYPE = BinarySensorEntityDescription(
@@ -28,7 +28,7 @@ BINARY_SENSOR_TYPE = BinarySensorEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RadarrConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Radarr sensors based on a config entry."""
     coordinator = entry.runtime_data.health
@@ -39,6 +39,7 @@ class RadarrBinarySensor(RadarrEntity[list[Health]], BinarySensorEntity):
     """Implementation of a Radarr binary sensor."""
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return True if the entity is on."""
         return any(report.source in HEALTH_ISSUES for report in self.coordinator.data)

@@ -1,16 +1,18 @@
 # serializer version: 1
 # name: test_number_states[platforms0][number.gotham_city_degree_minutes-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 3000.0,
-      'min': -3000.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.1,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 3000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -3000.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.1,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -24,6 +26,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Degree minutes',
     'options': dict({
     }),
     'original_device_class': None,
@@ -31,6 +34,7 @@
     'original_name': 'Degree minutes',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'degree_minutes',
     'unique_id': 'robin-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-40940',
@@ -40,12 +44,12 @@
 # name: test_number_states[platforms0][number.gotham_city_degree_minutes-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Degree minutes',
-      'max': 3000.0,
-      'min': -3000.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.1,
-      'unit_of_measurement': 'DM',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Degree minutes',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 3000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -3000.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.1,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'DM',
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_degree_minutes',
@@ -57,16 +61,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_degree_minutes_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 3000.0,
-      'min': -3000.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.1,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 3000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -3000.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.1,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -80,6 +86,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Degree minutes',
     'options': dict({
     }),
     'original_device_class': None,
@@ -87,6 +94,7 @@
     'original_name': 'Degree minutes',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'degree_minutes',
     'unique_id': 'batman-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-40940',
@@ -96,12 +104,12 @@
 # name: test_number_states[platforms0][number.gotham_city_degree_minutes_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Degree minutes',
-      'max': 3000.0,
-      'min': -3000.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.1,
-      'unit_of_measurement': 'DM',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Degree minutes',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 3000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -3000.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.1,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'DM',
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_degree_minutes_2',
@@ -113,16 +121,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_heating_offset_climate_system_1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 10.0,
-      'min': -10.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1.0,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 10.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -10.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -136,6 +146,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Heating offset climate system 1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -143,6 +154,7 @@
     'original_name': 'Heating offset climate system 1',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': 'robin-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-47011',
@@ -152,11 +164,11 @@
 # name: test_number_states[platforms0][number.gotham_city_heating_offset_climate_system_1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Heating offset climate system 1',
-      'max': 10.0,
-      'min': -10.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1.0,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Heating offset climate system 1',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 10.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -10.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_heating_offset_climate_system_1',
@@ -168,16 +180,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_heating_offset_climate_system_1_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 10.0,
-      'min': -10.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1.0,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 10.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -10.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -191,6 +205,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Heating offset climate system 1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -198,6 +213,7 @@
     'original_name': 'Heating offset climate system 1',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': 'batman-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-47011',
@@ -207,11 +223,11 @@
 # name: test_number_states[platforms0][number.gotham_city_heating_offset_climate_system_1_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Heating offset climate system 1',
-      'max': 10.0,
-      'min': -10.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 1.0,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Heating offset climate system 1',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 10.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: -10.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 1.0,
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_heating_offset_climate_system_1_2',
@@ -223,16 +239,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_room_sensor_set_point_value_heating_climate_system_1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 35.0,
-      'min': 5.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.5,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 35.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 5.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -246,6 +264,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room sensor set point value heating climate system 1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -253,6 +272,7 @@
     'original_name': 'Room sensor set point value heating climate system 1',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': 'robin-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-47398',
@@ -262,11 +282,11 @@
 # name: test_number_states[platforms0][number.gotham_city_room_sensor_set_point_value_heating_climate_system_1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Room sensor set point value heating climate system 1',
-      'max': 35.0,
-      'min': 5.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.5,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Room sensor set point value heating climate system 1',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 35.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 5.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_room_sensor_set_point_value_heating_climate_system_1',
@@ -278,16 +298,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_room_sensor_set_point_value_heating_climate_system_1_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 35.0,
-      'min': 5.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.5,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 35.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 5.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -301,6 +323,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Room sensor set point value heating climate system 1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -308,6 +331,7 @@
     'original_name': 'Room sensor set point value heating climate system 1',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': 'batman-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-47398',
@@ -317,11 +341,11 @@
 # name: test_number_states[platforms0][number.gotham_city_room_sensor_set_point_value_heating_climate_system_1_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Room sensor set point value heating climate system 1',
-      'max': 35.0,
-      'min': 5.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 0.5,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Room sensor set point value heating climate system 1',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 35.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 5.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 0.5,
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_room_sensor_set_point_value_heating_climate_system_1_2',
@@ -333,16 +357,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_start_diff_additional_heat-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 2000.0,
-      'min': 100.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 10.0,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 2000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 100.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 10.0,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -356,6 +382,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'start diff additional heat',
     'options': dict({
     }),
     'original_device_class': None,
@@ -363,6 +390,7 @@
     'original_name': 'start diff additional heat',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'degree_minutes',
     'unique_id': 'robin-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-148072',
@@ -372,12 +400,12 @@
 # name: test_number_states[platforms0][number.gotham_city_start_diff_additional_heat-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City start diff additional heat',
-      'max': 2000.0,
-      'min': 100.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 10.0,
-      'unit_of_measurement': 'DM',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City start diff additional heat',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 2000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 100.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 10.0,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'DM',
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_start_diff_additional_heat',
@@ -389,16 +417,18 @@
 # ---
 # name: test_number_states[platforms0][number.gotham_city_start_diff_additional_heat_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'max': 2000.0,
-      'min': 100.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 10.0,
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 2000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 100.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 10.0,
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -412,6 +442,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'start diff additional heat',
     'options': dict({
     }),
     'original_device_class': None,
@@ -419,6 +450,7 @@
     'original_name': 'start diff additional heat',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'degree_minutes',
     'unique_id': 'batman-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-148072',
@@ -428,12 +460,12 @@
 # name: test_number_states[platforms0][number.gotham_city_start_diff_additional_heat_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City start diff additional heat',
-      'max': 2000.0,
-      'min': 100.0,
-      'mode': <NumberMode.AUTO: 'auto'>,
-      'step': 10.0,
-      'unit_of_measurement': 'DM',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City start diff additional heat',
+      <NumberEntityCapabilityAttribute.MAX: 'max'>: 2000.0,
+      <NumberEntityCapabilityAttribute.MIN: 'min'>: 100.0,
+      <NumberEntityCapabilityAttribute.MODE: 'mode'>: <NumberMode.AUTO: 'auto'>,
+      <NumberEntityCapabilityAttribute.STEP: 'step'>: 10.0,
+      <EntityStateAttribute.UNIT_OF_MEASUREMENT: 'unit_of_measurement'>: 'DM',
     }),
     'context': <ANY>,
     'entity_id': 'number.gotham_city_start_diff_additional_heat_2',

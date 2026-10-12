@@ -1,7 +1,7 @@
 """Support for Axis lights."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from axis.models.event import Event, EventTopic
 
@@ -12,7 +12,7 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AxisConfigEntry
 from .entity import TOPIC_TO_EVENT_TYPE, AxisEventDescription, AxisEventEntity
@@ -46,7 +46,7 @@ ENTITY_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AxisConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Axis light platform."""
     config_entry.runtime_data.entity_loader.register_platform(
@@ -74,6 +74,7 @@ class AxisLight(AxisEventEntity, LightEntity):
         self.current_intensity = 0
         self.max_intensity = 0
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe lights events."""
         await super().async_added_to_hass()
@@ -85,16 +86,19 @@ class AxisLight(AxisEventEntity, LightEntity):
         ).high
 
     @callback
+    @override
     def async_event_callback(self, event: Event) -> None:
         """Update light state."""
         self._attr_is_on = event.is_tripped
         self.async_write_ha_state()
 
     @property
+    @override
     def brightness(self) -> int:
         """Return the brightness of this light between 0..255."""
         return int((self.current_intensity / self.max_intensity) * 255)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on light."""
         if not self.is_on:
@@ -106,6 +110,7 @@ class AxisLight(AxisEventEntity, LightEntity):
                 self._light_id, intensity
             )
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off light."""
         if self.is_on:

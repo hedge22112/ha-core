@@ -1,12 +1,10 @@
 """Support for Goal Zero Yeti Switches."""
 
-from __future__ import annotations
-
-from typing import Any, cast
+from typing import Any, cast, override
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import GoalZeroConfigEntry
 from .entity import GoalZeroEntity
@@ -30,7 +28,7 @@ SWITCH_TYPES: tuple[SwitchEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GoalZeroConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Goal Zero Yeti switch."""
     async_add_entities(
@@ -42,16 +40,19 @@ class GoalZeroSwitch(GoalZeroEntity, SwitchEntity):
     """Representation of a Goal Zero Yeti switch."""
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return state of the switch."""
         return cast(bool, self._api.data[self.entity_description.key] == 1)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
         payload = {self.entity_description.key: 0}
         await self._api.post_state(payload=payload)
         self.coordinator.async_set_updated_data(None)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
         payload = {self.entity_description.key: 1}

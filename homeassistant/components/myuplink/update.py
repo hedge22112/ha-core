@@ -1,14 +1,16 @@
 """Update entity for myUplink."""
 
+from typing import override
+
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity,
     UpdateEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import MyUplinkConfigEntry, MyUplinkDataCoordinator
+from .coordinator import MyUplinkConfigEntry, MyUplinkDataCoordinator
 from .entity import MyUplinkEntity
 
 UPDATE_DESCRIPTION = UpdateEntityDescription(
@@ -20,7 +22,7 @@ UPDATE_DESCRIPTION = UpdateEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MyUplinkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up update entity."""
     coordinator = config_entry.runtime_data
@@ -56,11 +58,13 @@ class MyUplinkDeviceUpdate(MyUplinkEntity, UpdateEntity):
         self.entity_description = entity_description
 
     @property
+    @override
     def installed_version(self) -> str | None:
         """Return installed_version."""
         return self.coordinator.data.devices[self.device_id].firmwareCurrent
 
     @property
+    @override
     def latest_version(self) -> str | None:
         """Return latest_version."""
         return self.coordinator.data.devices[self.device_id].firmwareDesired

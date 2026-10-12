@@ -1,6 +1,6 @@
 """Platform for Schlage sensor integration."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -8,12 +8,11 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import LockData, SchlageDataUpdateCoordinator
+from .coordinator import LockData, SchlageConfigEntry, SchlageDataUpdateCoordinator
 from .entity import SchlageEntity
 
 _SENSOR_DESCRIPTIONS: list[SensorEntityDescription] = [
@@ -29,8 +28,8 @@ _SENSOR_DESCRIPTIONS: list[SensorEntityDescription] = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: SchlageConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up sensors based on a config entry."""
     coordinator = config_entry.runtime_data
@@ -46,7 +45,7 @@ async def async_setup_entry(
             for device_id in locks
         )
 
-    _add_new_locks(coordinator.data.locks)
+    _add_new_locks(coordinator.data)
     coordinator.new_locks_callbacks.append(_add_new_locks)
 
 
@@ -66,8 +65,9 @@ class SchlageBatterySensor(SchlageEntity, SensorEntity):
         self._attr_native_value = getattr(self._lock, self.entity_description.key)
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        if self.device_id in self.coordinator.data.locks:
+        if self.device_id in self.coordinator.data:
             self._attr_native_value = getattr(self._lock, self.entity_description.key)
         super()._handle_coordinator_update()

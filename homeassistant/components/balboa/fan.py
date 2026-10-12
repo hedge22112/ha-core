@@ -1,16 +1,14 @@
 """Support for Balboa Spa pumps."""
 
-from __future__ import annotations
-
 import math
-from typing import Any, cast
+from typing import Any, cast, override
 
 from pybalboa import SpaControl
 from pybalboa.enums import OffOnState, UnknownState
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
     ranged_value_to_percentage,
@@ -23,7 +21,7 @@ from .entity import BalboaEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BalboaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the spa's pumps."""
     spa = entry.runtime_data
@@ -49,10 +47,12 @@ class BalboaPumpFanEntity(BalboaEntity, FanEntity):
             "index": f"{cast(int, control.index) + 1}"
         }
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the pump off."""
         await self._control.set_state(OffOnState.OFF)
 
+    @override
     async def async_turn_on(
         self,
         percentage: int | None = None,
@@ -64,6 +64,7 @@ class BalboaPumpFanEntity(BalboaEntity, FanEntity):
             percentage = 100
         await self.async_set_percentage(percentage)
 
+    @override
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the speed of the pump."""
         if percentage > 0:
@@ -75,6 +76,7 @@ class BalboaPumpFanEntity(BalboaEntity, FanEntity):
         await self._control.set_state(state)
 
     @property
+    @override
     def percentage(self) -> int | None:
         """Return the speed of the pump."""
         if self._control.state == UnknownState.UNKNOWN:
@@ -84,6 +86,7 @@ class BalboaPumpFanEntity(BalboaEntity, FanEntity):
         return ranged_value_to_percentage((1, self.speed_count), self._control.state)
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if the pump is running."""
         if self._control.state == UnknownState.UNKNOWN:
@@ -91,6 +94,7 @@ class BalboaPumpFanEntity(BalboaEntity, FanEntity):
         return self._control.state != OffOnState.OFF
 
     @property
+    @override
     def speed_count(self) -> int:
         """Return the number of different speed settings the pump supports."""
         return int(max(self._control.options))

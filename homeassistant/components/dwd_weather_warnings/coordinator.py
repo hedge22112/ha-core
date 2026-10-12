@@ -1,13 +1,13 @@
 """Data coordinator for the dwd_weather_warnings integration."""
 
-from __future__ import annotations
+from typing import override
 
 from dwdwfsapi import DwdWeatherWarningsAPI
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.util import location
+from homeassistant.util import location as location_util
 
 from .const import (
     CONF_REGION_DEVICE_TRACKER,
@@ -16,7 +16,7 @@ from .const import (
     DOMAIN,
     LOGGER,
 )
-from .exceptions import EntityNotFoundError
+from .exceptions import CoordinatesNotFoundError, EntityNotFoundError
 from .util import get_position_data
 
 type DwdWeatherWarningsConfigEntry = ConfigEntry[DwdWeatherWarningsCoordinator]
@@ -28,15 +28,22 @@ class DwdWeatherWarningsCoordinator(DataUpdateCoordinator[None]):
     config_entry: DwdWeatherWarningsConfigEntry
     api: DwdWeatherWarningsAPI
 
-    def __init__(self, hass: HomeAssistant) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: DwdWeatherWarningsConfigEntry
+    ) -> None:
         """Initialize the dwd_weather_warnings coordinator."""
         super().__init__(
-            hass, LOGGER, name=DOMAIN, update_interval=DEFAULT_SCAN_INTERVAL
+            hass,
+            LOGGER,
+            config_entry=config_entry,
+            name=DOMAIN,
+            update_interval=DEFAULT_SCAN_INTERVAL,
         )
 
         self._device_tracker = None
         self._previous_position = None
 
+    @override
     async def _async_setup(self) -> None:
         """Set up coordinator."""
         if region_identifier := self.config_entry.data.get(CONF_REGION_IDENTIFIER):
@@ -48,17 +55,18 @@ class DwdWeatherWarningsCoordinator(DataUpdateCoordinator[None]):
                 CONF_REGION_DEVICE_TRACKER
             )
 
+    @override
     async def _async_update_data(self) -> None:
         """Get the latest data from the DWD Weather Warnings API."""
         if self._device_tracker:
             try:
                 position = get_position_data(self.hass, self._device_tracker)
-            except (EntityNotFoundError, AttributeError) as err:
+            except (EntityNotFoundError, CoordinatesNotFoundError) as err:
                 raise UpdateFailed(f"Error fetching position: {err!r}") from err
 
             distance = None
             if self._previous_position is not None:
-                distance = location.distance(
+                distance = location_util.distance(
                     self._previous_position[0],
                     self._previous_position[1],
                     position[0],

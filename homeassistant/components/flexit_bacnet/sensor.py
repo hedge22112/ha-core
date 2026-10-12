@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from flexit_bacnet import FlexitBACnet
 
@@ -11,7 +12,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     REVOLUTIONS_PER_MINUTE,
@@ -20,11 +20,10 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import FlexitCoordinator
-from .const import DOMAIN
+from .coordinator import FlexitConfigEntry, FlexitCoordinator
 from .entity import FlexitEntity
 
 
@@ -39,6 +38,7 @@ SENSOR_TYPES: tuple[FlexitSensorEntityDescription, ...] = (
     FlexitSensorEntityDescription(
         key="outside_air_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         translation_key="outside_air_temperature",
         value_fn=lambda data: data.outside_air_temperature,
@@ -46,6 +46,7 @@ SENSOR_TYPES: tuple[FlexitSensorEntityDescription, ...] = (
     FlexitSensorEntityDescription(
         key="supply_air_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         translation_key="supply_air_temperature",
         value_fn=lambda data: data.supply_air_temperature,
@@ -53,6 +54,7 @@ SENSOR_TYPES: tuple[FlexitSensorEntityDescription, ...] = (
     FlexitSensorEntityDescription(
         key="exhaust_air_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         translation_key="exhaust_air_temperature",
         value_fn=lambda data: data.exhaust_air_temperature,
@@ -60,6 +62,7 @@ SENSOR_TYPES: tuple[FlexitSensorEntityDescription, ...] = (
     FlexitSensorEntityDescription(
         key="extract_air_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         translation_key="extract_air_temperature",
         value_fn=lambda data: data.extract_air_temperature,
@@ -67,6 +70,7 @@ SENSOR_TYPES: tuple[FlexitSensorEntityDescription, ...] = (
     FlexitSensorEntityDescription(
         key="room_temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         translation_key="room_temperature",
         value_fn=lambda data: data.room_temperature,
@@ -152,15 +156,19 @@ SENSOR_TYPES: tuple[FlexitSensorEntityDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: FlexitConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Flexit (bacnet) sensor from a config entry."""
-    coordinator: FlexitCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     async_add_entities(
         FlexitSensor(coordinator, description) for description in SENSOR_TYPES
     )
+
+
+# Coordinator is used to centralize the data updates
+PARALLEL_UPDATES = 0
 
 
 class FlexitSensor(FlexitEntity, SensorEntity):
@@ -182,6 +190,7 @@ class FlexitSensor(FlexitEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return value of sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

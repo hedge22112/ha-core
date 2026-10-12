@@ -1,13 +1,10 @@
 """The Deluge integration."""
 
-from __future__ import annotations
-
 import logging
 from ssl import SSLError
 
 from deluge_client.client import DelugeRPCClient
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -19,12 +16,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import CONF_WEB_PORT
-from .coordinator import DelugeDataUpdateCoordinator
+from .coordinator import DelugeConfigEntry, DelugeDataUpdateCoordinator
 
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
 
 _LOGGER = logging.getLogger(__name__)
-type DelugeConfigEntry = ConfigEntry[DelugeDataUpdateCoordinator]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: DelugeConfigEntry) -> bool:

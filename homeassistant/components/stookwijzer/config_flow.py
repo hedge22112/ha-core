@@ -1,15 +1,12 @@
 """Config flow to configure the Stookwijzer integration."""
 
-from __future__ import annotations
+from typing import Any, override
 
-from typing import Any
-
+import probatio
 from stookwijzer import Stookwijzer
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_LATITUDE, CONF_LOCATION, CONF_LONGITUDE
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import LocationSelector
 
 from .const import DOMAIN
@@ -20,30 +17,30 @@ class StookwijzerFlowHandler(ConfigFlow, domain=DOMAIN):
 
     VERSION = 2
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         errors = {}
         if user_input is not None:
-            latitude, longitude = await Stookwijzer.async_transform_coordinates(
-                async_get_clientsession(self.hass),
+            xy = await Stookwijzer.async_transform_coordinates(
                 user_input[CONF_LOCATION][CONF_LATITUDE],
                 user_input[CONF_LOCATION][CONF_LONGITUDE],
             )
-            if latitude and longitude:
+            if xy:
                 return self.async_create_entry(
                     title="Stookwijzer",
-                    data={CONF_LATITUDE: latitude, CONF_LONGITUDE: longitude},
+                    data={CONF_LATITUDE: xy["x"], CONF_LONGITUDE: xy["y"]},
                 )
             errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
             errors=errors,
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(
+                    probatio.Required(
                         CONF_LOCATION,
                         default={
                             CONF_LATITUDE: self.hass.config.latitude,

@@ -1,12 +1,10 @@
 """Track recorder run history."""
 
-from __future__ import annotations
-
 from datetime import datetime
 
 from sqlalchemy.orm.session import Session
 
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from ..db_schema import RecorderRuns
 

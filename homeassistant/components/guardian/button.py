@@ -1,9 +1,8 @@
 """Buttons for the Elexa Guardian integration."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import override
 
 from aioguardian import Client
 
@@ -12,14 +11,13 @@ from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import GuardianData
-from .const import API_SYSTEM_DIAGNOSTICS, DOMAIN
+from . import GuardianConfigEntry, GuardianData
+from .const import API_SYSTEM_DIAGNOSTICS
 from .entity import ValveControllerEntity, ValveControllerEntityDescription
 from .util import convert_exceptions_to_homeassistant_error
 
@@ -68,10 +66,12 @@ BUTTON_DESCRIPTIONS = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: GuardianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Guardian buttons based on a config entry."""
-    data: GuardianData = hass.data[DOMAIN][entry.entry_id]
+    data = entry.runtime_data
 
     async_add_entities(
         GuardianButton(entry, data, description) for description in BUTTON_DESCRIPTIONS
@@ -88,7 +88,7 @@ class GuardianButton(ValveControllerEntity, ButtonEntity):
 
     def __init__(
         self,
-        entry: ConfigEntry,
+        entry: GuardianConfigEntry,
         data: GuardianData,
         description: ValveControllerButtonDescription,
     ) -> None:
@@ -98,6 +98,7 @@ class GuardianButton(ValveControllerEntity, ButtonEntity):
         self._client = data.client
 
     @convert_exceptions_to_homeassistant_error
+    @override
     async def async_press(self) -> None:
         """Send out a restart command."""
         async with self._client:

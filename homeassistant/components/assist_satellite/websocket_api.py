@@ -4,13 +4,12 @@ import asyncio
 from dataclasses import asdict, replace
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.util import uuid as uuid_util
 
 from .connection_test import CONNECTION_TEST_URL_BASE
@@ -20,7 +19,7 @@ from .const import (
     DOMAIN,
     AssistSatelliteEntityFeature,
 )
-from .entity import AssistSatelliteEntity
+from .entity import AssistSatelliteConfiguration
 
 CONNECTION_TEST_TIMEOUT = 30
 
@@ -36,8 +35,8 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_satellite/intercept_wake_word",
-        vol.Required("entity_id"): cv.entity_domain(DOMAIN),
+        probatio.Required("type"): "assist_satellite/intercept_wake_word",
+        probatio.Required("entity_id"): cv.entity_domain(DOMAIN),
     }
 )
 @websocket_api.require_admin
@@ -76,8 +75,8 @@ async def websocket_intercept_wake_word(
 @callback
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_satellite/get_configuration",
-        vol.Required("entity_id"): cv.entity_domain(DOMAIN),
+        probatio.Required("type"): "assist_satellite/get_configuration",
+        probatio.Required("entity_id"): cv.entity_domain(DOMAIN),
     }
 )
 def websocket_get_configuration(
@@ -93,7 +92,16 @@ def websocket_get_configuration(
         )
         return
 
-    config_dict = asdict(satellite.async_get_configuration())
+    try:
+        config_dict = asdict(satellite.async_get_configuration())
+    except NotImplementedError:
+        # Stub configuration
+        config_dict = asdict(
+            AssistSatelliteConfiguration(
+                available_wake_words=[], active_wake_words=[], max_active_wake_words=1
+            )
+        )
+
     config_dict["pipeline_entity_id"] = satellite.pipeline_entity_id
     config_dict["vad_entity_id"] = satellite.vad_sensitivity_entity_id
 
@@ -102,9 +110,9 @@ def websocket_get_configuration(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_satellite/set_wake_words",
-        vol.Required("entity_id"): cv.entity_domain(DOMAIN),
-        vol.Required("wake_word_ids"): [str],
+        probatio.Required("type"): "assist_satellite/set_wake_words",
+        probatio.Required("entity_id"): cv.entity_domain(DOMAIN),
+        probatio.Required("wake_word_ids"): [str],
     }
 )
 @websocket_api.require_admin
@@ -153,10 +161,11 @@ async def websocket_set_wake_words(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_satellite/test_connection",
-        vol.Required("entity_id"): cv.entity_domain(DOMAIN),
+        probatio.Required("type"): "assist_satellite/test_connection",
+        probatio.Required("entity_id"): cv.entity_domain(DOMAIN),
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def websocket_test_connection(
     hass: HomeAssistant,
@@ -167,7 +176,7 @@ async def websocket_test_connection(
 
     Send an announcement to the device with a special media id.
     """
-    component: EntityComponent[AssistSatelliteEntity] = hass.data[DOMAIN]
+    component = hass.data[DATA_COMPONENT]
     satellite = component.get_entity(msg["entity_id"])
     if satellite is None:
         connection.send_error(
@@ -190,7 +199,8 @@ async def websocket_test_connection(
 
     hass.async_create_background_task(
         satellite.async_internal_announce(
-            media_id=f"{CONNECTION_TEST_URL_BASE}/{connection_id}"
+            media_id=f"{CONNECTION_TEST_URL_BASE}/{connection_id}",
+            preannounce=False,
         ),
         f"assist_satellite_connection_test_{msg['entity_id']}",
     )

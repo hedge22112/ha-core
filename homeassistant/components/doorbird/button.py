@@ -2,12 +2,12 @@
 
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .device import ConfiguredDoorBird, async_reset_device_favorites
 from .entity import DoorBirdEntity
@@ -45,7 +45,7 @@ BUTTON_DESCRIPTIONS: tuple[DoorbirdButtonEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DoorBirdConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the DoorBird button platform."""
     door_bird_data = config_entry.runtime_data
@@ -82,6 +82,7 @@ class DoorBirdButton(DoorBirdEntity, ButtonEntity):
         self.entity_description = entity_description
         self._attr_unique_id = f"{self._mac_addr}_{relay or entity_description.key}"
 
+    @override
     async def async_press(self) -> None:
         """Call the press action."""
         await self.entity_description.press_action(self._door_station, self._relay)

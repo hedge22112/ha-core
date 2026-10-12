@@ -1,10 +1,8 @@
 """Support for Big Ass Fans binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, override
 
 from aiobafi6 import Device
 
@@ -14,7 +12,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BAFConfigEntry
 from .entity import BAFDescriptionEntity
@@ -41,7 +39,7 @@ OCCUPANCY_SENSORS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BAFConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up BAF binary sensors."""
     device = entry.runtime_data
@@ -57,6 +55,7 @@ class BAFBinarySensor(BAFDescriptionEntity, BinarySensorEntity):
     entity_description: BAFBinarySensorDescription
 
     @callback
+    @override
     def _async_update_attrs(self) -> None:
         """Update attrs from device."""
         self._attr_is_on = self.entity_description.value_fn(self._device)

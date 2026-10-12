@@ -1,10 +1,8 @@
 """Withings coordinator."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
-from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, override
 
 from aiowithings import (
     Activity,
@@ -44,11 +42,17 @@ class WithingsDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
     webhooks_connected: bool = False
     coordinator_name: str = ""
 
-    def __init__(self, hass: HomeAssistant, client: WithingsClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WithingsConfigEntry,
+        client: WithingsClient,
+    ) -> None:
         """Initialize the Withings data coordinator."""
         super().__init__(
             hass,
             LOGGER,
+            config_entry=config_entry,
             name="",
             update_interval=self._default_update_interval,
         )
@@ -75,6 +79,7 @@ class WithingsDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
         )
         await self.async_request_refresh()
 
+    @override
     async def _async_update_data(self) -> _DataT:
         try:
             return await self._internal_update_data()
@@ -95,9 +100,14 @@ class WithingsMeasurementDataUpdateCoordinator(
 
     coordinator_name: str = "measurements"
 
-    def __init__(self, hass: HomeAssistant, client: WithingsClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WithingsConfigEntry,
+        client: WithingsClient,
+    ) -> None:
         """Initialize the Withings data coordinator."""
-        super().__init__(hass, client)
+        super().__init__(hass, config_entry, client)
         self.notification_categories = {
             NotificationCategory.WEIGHT,
             NotificationCategory.PRESSURE,
@@ -106,6 +116,7 @@ class WithingsMeasurementDataUpdateCoordinator(
             tuple[MeasurementType, MeasurementPosition | None], float
         ] = {}
 
+    @override
     async def _internal_update_data(
         self,
     ) -> dict[tuple[MeasurementType, MeasurementPosition | None], float]:
@@ -133,13 +144,19 @@ class WithingsSleepDataUpdateCoordinator(
 
     coordinator_name: str = "sleep"
 
-    def __init__(self, hass: HomeAssistant, client: WithingsClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WithingsConfigEntry,
+        client: WithingsClient,
+    ) -> None:
         """Initialize the Withings data coordinator."""
-        super().__init__(hass, client)
+        super().__init__(hass, config_entry, client)
         self.notification_categories = {
             NotificationCategory.SLEEP,
         }
 
+    @override
     async def _internal_update_data(self) -> SleepSummary | None:
         """Retrieve sleep data."""
         now = dt_util.now()
@@ -172,9 +189,7 @@ class WithingsSleepDataUpdateCoordinator(
         if not response:
             return None
 
-        return sorted(
-            response, key=lambda sleep_summary: sleep_summary.end_date, reverse=True
-        )[0]
+        return max(response, key=lambda sleep_summary: sleep_summary.end_date)
 
 
 class WithingsBedPresenceDataUpdateCoordinator(WithingsDataUpdateCoordinator[None]):
@@ -184,14 +199,20 @@ class WithingsBedPresenceDataUpdateCoordinator(WithingsDataUpdateCoordinator[Non
     in_bed: bool | None = None
     _default_update_interval = None
 
-    def __init__(self, hass: HomeAssistant, client: WithingsClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WithingsConfigEntry,
+        client: WithingsClient,
+    ) -> None:
         """Initialize the Withings data coordinator."""
-        super().__init__(hass, client)
+        super().__init__(hass, config_entry, client)
         self.notification_categories = {
             NotificationCategory.IN_BED,
             NotificationCategory.OUT_BED,
         }
 
+    @override
     async def async_webhook_data_updated(
         self, notification_category: NotificationCategory
     ) -> None:
@@ -199,6 +220,7 @@ class WithingsBedPresenceDataUpdateCoordinator(WithingsDataUpdateCoordinator[Non
         self.in_bed = notification_category == NotificationCategory.IN_BED
         self.async_update_listeners()
 
+    @override
     async def _internal_update_data(self) -> None:
         """Update coordinator data."""
 
@@ -209,10 +231,12 @@ class WithingsGoalsDataUpdateCoordinator(WithingsDataUpdateCoordinator[Goals]):
     coordinator_name: str = "goals"
     _default_update_interval = timedelta(hours=1)
 
+    @override
     def webhook_subscription_listener(self, connected: bool) -> None:
         """Call when webhook status changed."""
         # Webhooks aren't available for this datapoint, so we keep polling
 
+    @override
     async def _internal_update_data(self) -> Goals:
         """Retrieve goals data."""
         return await self._client.get_goals()
@@ -226,13 +250,19 @@ class WithingsActivityDataUpdateCoordinator(
     coordinator_name: str = "activity"
     _previous_data: Activity | None = None
 
-    def __init__(self, hass: HomeAssistant, client: WithingsClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WithingsConfigEntry,
+        client: WithingsClient,
+    ) -> None:
         """Initialize the Withings data coordinator."""
-        super().__init__(hass, client)
+        super().__init__(hass, config_entry, client)
         self.notification_categories = {
             NotificationCategory.ACTIVITY,
         }
 
+    @override
     async def _internal_update_data(self) -> Activity | None:
         """Retrieve latest activity."""
         if self._last_valid_update is None:
@@ -246,7 +276,7 @@ class WithingsActivityDataUpdateCoordinator(
                 self._last_valid_update
             )
 
-        today = date.today()
+        today = dt_util.now().date()
         for activity in activities:
             if activity.date == today:
                 self._previous_data = activity
@@ -265,13 +295,19 @@ class WithingsWorkoutDataUpdateCoordinator(
     coordinator_name: str = "workout"
     _previous_data: Workout | None = None
 
-    def __init__(self, hass: HomeAssistant, client: WithingsClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WithingsConfigEntry,
+        client: WithingsClient,
+    ) -> None:
         """Initialize the Withings data coordinator."""
-        super().__init__(hass, client)
+        super().__init__(hass, config_entry, client)
         self.notification_categories = {
             NotificationCategory.ACTIVITY,
         }
 
+    @override
     async def _internal_update_data(self) -> Workout | None:
         """Retrieve latest workout."""
         if self._last_valid_update is None:
@@ -302,6 +338,7 @@ class WithingsDeviceDataUpdateCoordinator(
     coordinator_name: str = "device"
     _default_update_interval = timedelta(hours=1)
 
+    @override
     async def _internal_update_data(self) -> dict[str, Device]:
         """Update coordinator data."""
         devices = await self._client.get_devices()

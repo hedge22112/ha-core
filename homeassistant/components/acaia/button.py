@@ -2,13 +2,13 @@
 
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
-from aioacaia.acaiascale import AcaiaScale
+from aioacaia import AcaiaScale
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import AcaiaConfigEntry
 from .entity import AcaiaEntity
@@ -45,7 +45,7 @@ BUTTONS: tuple[AcaiaButtonEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AcaiaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up button entities and services."""
 
@@ -58,6 +58,8 @@ class AcaiaButton(AcaiaEntity, ButtonEntity):
 
     entity_description: AcaiaButtonEntityDescription
 
+    @override
     async def async_press(self) -> None:
         """Handle the button press."""
+        # aioacaia queues button commands, so enqueueing cannot fail.
         await self.entity_description.press_fn(self._scale)

@@ -1,15 +1,24 @@
 """Provide common test tools."""
 
-from __future__ import annotations
-
+import inspect
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from music_assistant_models.enums import EventType
-from music_assistant_models.media_items import Album, Artist, Playlist, Radio, Track
+from music_assistant_models.api import MassEvent
+from music_assistant_models.dashboard import DashboardDevice, DashboardSession
+from music_assistant_models.enums import DashboardType, EventType
+from music_assistant_models.media_items import (
+    Album,
+    Artist,
+    Audiobook,
+    Playlist,
+    Podcast,
+    Radio,
+    Track,
+)
 from music_assistant_models.player import Player
 from music_assistant_models.player_queue import PlayerQueue
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -60,6 +69,10 @@ async def setup_integration_from_fixtures(
     music.get_playlist_tracks = AsyncMock(return_value=library_playlist_tracks)
     library_radios = create_library_radios_from_fixture()
     music.get_library_radios = AsyncMock(return_value=library_radios)
+    library_audiobooks = create_library_audiobooks_from_fixture()
+    music.get_library_audiobooks = AsyncMock(return_value=library_audiobooks)
+    library_podcasts = create_library_podcasts_from_fixture()
+    music.get_library_podcasts = AsyncMock(return_value=library_podcasts)
     music.get_item_by_uri = AsyncMock()
 
     config_entry.add_to_hass(hass)
@@ -130,20 +143,101 @@ def create_library_radios_from_fixture() -> list[Radio]:
     return [Radio.from_dict(radio_data) for radio_data in fixture_data]
 
 
+def create_library_audiobooks_from_fixture() -> list[Audiobook]:
+    """Create MA Audiobooks from fixture."""
+    fixture_data = load_and_parse_fixture("library_audiobooks")
+    return [Audiobook.from_dict(radio_data) for radio_data in fixture_data]
+
+
+def create_library_podcasts_from_fixture() -> list[Podcast]:
+    """Create MA Podcasts from fixture."""
+    fixture_data = load_and_parse_fixture("library_podcasts")
+    return [Podcast.from_dict(radio_data) for radio_data in fixture_data]
+
+
 async def trigger_subscription_callback(
     hass: HomeAssistant,
     client: MagicMock,
     event: EventType = EventType.PLAYER_UPDATED,
+    object_id: str | None = None,
     data: Any = None,
 ) -> None:
     """Trigger a subscription callback."""
     # trigger callback on all subscribers
-    for sub in client.subscribe_events.call_args_list:
-        callback = sub.kwargs["callback"]
-        event_filter = sub.kwargs.get("event_filter")
-        if event_filter in (None, event):
-            callback(event, data)
+    for sub in client.subscribe.call_args_list:
+        cb_func = sub.kwargs.get("cb_func", sub.args[0])
+        event_filter = sub.kwargs.get(
+            "event_filter", sub.args[1] if len(sub.args) > 1 else None
+        )
+        id_filter = sub.kwargs.get(
+            "id_filter", sub.args[2] if len(sub.args) > 2 else None
+        )
+        if not (
+            event_filter is None
+            or event == event_filter
+            or (isinstance(event_filter, list) and event in event_filter)
+        ):
+            continue
+        if not (
+            id_filter is None
+            or object_id == id_filter
+            or (isinstance(id_filter, list) and object_id in id_filter)
+        ):
+            continue
+
+        mass_event = MassEvent(
+            event=event,
+            object_id=object_id,
+            data=data,
+        )
+        if inspect.iscoroutinefunction(cb_func):
+            await cb_func(mass_event)
+        else:
+            cb_func(mass_event)
+
     await hass.async_block_till_done()
+
+
+def setup_dashboards(music_assistant_client: MagicMock) -> None:
+    """Seed the mocked client with dashboard endpoints and two active sessions."""
+    music_assistant_client.dashboard._dashboards = {
+        "chromecast_kitchen": DashboardDevice(
+            dashboard_id="chromecast_kitchen",
+            name="Kitchen Display",
+            supported_types={DashboardType.PARTY, DashboardType.NOW_PLAYING},
+            provider_domain_hint="chromecast",
+        ),
+        "fully_kiosk_hallway": DashboardDevice(
+            dashboard_id="fully_kiosk_hallway",
+            name="Hallway Display",
+            supported_types={
+                DashboardType.PARTY,
+                DashboardType.NOW_PLAYING,
+                DashboardType.MUSIC_QUIZ,
+                DashboardType.UNKNOWN,
+            },
+            provider_domain_hint="fully_kiosk",
+        ),
+        "unmapped_player_display": DashboardDevice(
+            dashboard_id="unmapped_player_display",
+            name="Unmapped Player Display",
+            supported_types={DashboardType.NOW_PLAYING},
+        ),
+    }
+    music_assistant_client.dashboard._sessions = {
+        "chromecast_kitchen": DashboardSession(
+            dashboard_id="chromecast_kitchen",
+            name="Kitchen Display",
+            dashboard=DashboardType.NOW_PLAYING,
+            player_id="00:00:00:00:00:01",
+        ),
+        "unmapped_player_display": DashboardSession(
+            dashboard_id="unmapped_player_display",
+            name="Unmapped Player Display",
+            dashboard=DashboardType.NOW_PLAYING,
+            player_id="not-exposed-player",
+        ),
+    }
 
 
 def snapshot_music_assistant_entities(
@@ -151,10 +245,14 @@ def snapshot_music_assistant_entities(
     entity_registry: er.EntityRegistry,
     snapshot: SnapshotAssertion,
     platform: Platform,
+    *,
+    unique_id_prefix: str | None = None,
 ) -> None:
-    """Snapshot MusicAssistant entities."""
+    """Snapshot MusicAssistant entities, optionally only those with a unique id prefix."""
     entities = hass.states.async_all(platform)
     for entity_state in entities:
         entity_entry = entity_registry.async_get(entity_state.entity_id)
+        if unique_id_prefix and not entity_entry.unique_id.startswith(unique_id_prefix):
+            continue
         assert entity_entry == snapshot(name=f"{entity_entry.entity_id}-entry")
         assert entity_state == snapshot(name=f"{entity_entry.entity_id}-state")

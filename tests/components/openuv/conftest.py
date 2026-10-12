@@ -1,13 +1,16 @@
 """Define test fixtures for OpenUV."""
 
 from collections.abc import Generator
-import json
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from homeassistant.components.openuv import CONF_FROM_WINDOW, CONF_TO_WINDOW, DOMAIN
+from homeassistant.components.openuv.const import (
+    CONF_FROM_WINDOW,
+    CONF_TO_WINDOW,
+    DOMAIN,
+)
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_ELEVATION,
@@ -16,12 +19,20 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 
-from tests.common import MockConfigEntry, load_fixture
+from tests.common import MockConfigEntry, load_json_object_fixture
 
 TEST_API_KEY = "abcde12345"
 TEST_ELEVATION = 0
 TEST_LATITUDE = 51.528308
 TEST_LONGITUDE = -0.3817765
+
+
+@pytest.fixture
+async def set_time_zone(hass: HomeAssistant) -> None:
+    """Set the time zone for the tests."""
+    # Set our timezone to CST/Regina so we can check calculations
+    # This keeps UTC-6 all year round
+    await hass.config.async_set_time_zone("America/Regina")
 
 
 @pytest.fixture
@@ -37,6 +48,8 @@ def mock_setup_entry() -> Generator[AsyncMock]:
 def client_fixture(data_protection_window, data_uv_index):
     """Define a mock Client object."""
     return Mock(
+        latitude=TEST_LATITUDE,
+        longitude=TEST_LONGITUDE,
         uv_index=AsyncMock(return_value=data_uv_index),
         uv_protection_window=AsyncMock(return_value=data_protection_window),
     )
@@ -71,17 +84,17 @@ def config_fixture() -> dict[str, Any]:
 @pytest.fixture(name="data_protection_window", scope="package")
 def data_protection_window_fixture():
     """Define a fixture to return UV protection window data."""
-    return json.loads(load_fixture("protection_window_data.json", "openuv"))
+    return load_json_object_fixture("protection_window_data.json", "openuv")
 
 
 @pytest.fixture(name="data_uv_index", scope="package")
 def data_uv_index_fixture():
     """Define a fixture to return UV index data."""
-    return json.loads(load_fixture("uv_index_data.json", "openuv"))
+    return load_json_object_fixture("uv_index_data.json", "openuv")
 
 
 @pytest.fixture(name="mock_pyopenuv")
-async def mock_pyopenuv_fixture(client):
+async def mock_pyopenuv_fixture(client, set_time_zone):
     """Define a fixture to patch pyopenuv."""
     with (
         patch(

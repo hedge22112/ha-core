@@ -1,12 +1,10 @@
 """Calendar platform for Habitica integration."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, override
 from uuid import UUID
 
 from dateutil.rrule import rrule
@@ -18,11 +16,10 @@ from homeassistant.components.calendar import (
     CalendarEvent,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from . import HabiticaConfigEntry
-from .coordinator import HabiticaDataUpdateCoordinator
+from .coordinator import HabiticaConfigEntry, HabiticaDataUpdateCoordinator
 from .entity import HabiticaBase
 from .util import build_rrule, get_recurrence_rule
 
@@ -41,7 +38,7 @@ class HabiticaCalendar(StrEnum):
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: HabiticaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the calendar platform."""
     coordinator = config_entry.runtime_data
@@ -73,11 +70,13 @@ class HabiticaCalendarEntity(HabiticaBase, CalendarEntity):
         """Return events."""
 
     @property
+    @override
     def event(self) -> CalendarEvent | None:
         """Return the current or next upcoming event."""
 
         return next(iter(self.get_events(dt_util.now())), None)
 
+    @override
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
@@ -88,20 +87,23 @@ class HabiticaCalendarEntity(HabiticaBase, CalendarEntity):
     @property
     def start_of_today(self) -> datetime:
         """Habitica daystart."""
-        return dt_util.start_of_local_day(self.coordinator.data.user.lastCron)
+        if (last_cron := self.coordinator.data.user.lastCron) is None:
+            return dt_util.start_of_local_day()
+
+        return dt_util.start_of_local_day(dt_util.as_local(last_cron))
 
     def get_recurrence_dates(
         self, recurrences: rrule, start_date: datetime, end_date: datetime | None = None
     ) -> list[datetime]:
         """Calculate recurrence dates based on start_date and end_date."""
         if end_date:
-            recurrence_dates = recurrences.between(
+            return recurrences.between(
                 start_date, end_date - timedelta(days=1), inc=True
             )
-
-            return cast(list[datetime], recurrence_dates)
         # if no end_date is given, return only the next recurrence
-        return [recurrences.after(start_date, inc=True)]
+        if (next_date := recurrences.after(start_date, inc=True)) is None:
+            return []
+        return [next_date]
 
 
 class HabiticaTodosCalendarEntity(HabiticaCalendarEntity):
@@ -112,6 +114,7 @@ class HabiticaTodosCalendarEntity(HabiticaCalendarEntity):
         translation_key=HabiticaCalendar.TODOS,
     )
 
+    @override
     def get_events(
         self, start_date: datetime, end_date: datetime | None = None
     ) -> list[CalendarEvent]:
@@ -183,6 +186,7 @@ class HabiticaDailiesCalendarEntity(HabiticaCalendarEntity):
             else recurrence
         ).date() + timedelta(days=1)
 
+    @override
     def get_events(
         self, start_date: datetime, end_date: datetime | None = None
     ) -> list[CalendarEvent]:
@@ -237,11 +241,13 @@ class HabiticaDailiesCalendarEntity(HabiticaCalendarEntity):
         )
 
     @property
+    @override
     def event(self) -> CalendarEvent | None:
         """Return the next upcoming event."""
         return next(iter(self.get_events(self.start_of_today)), None)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, bool | None] | None:
         """Return entity specific state attributes."""
         return {
@@ -259,6 +265,7 @@ class HabiticaTodoRemindersCalendarEntity(HabiticaCalendarEntity):
         translation_key=HabiticaCalendar.TODO_REMINDERS,
     )
 
+    @override
     def get_events(
         self, start_date: datetime, end_date: datetime | None = None
     ) -> list[CalendarEvent]:
@@ -329,6 +336,7 @@ class HabiticaDailyRemindersCalendarEntity(HabiticaCalendarEntity):
             tzinfo=dt_util.DEFAULT_TIME_ZONE,
         )
 
+    @override
     def get_events(
         self, start_date: datetime, end_date: datetime | None = None
     ) -> list[CalendarEvent]:

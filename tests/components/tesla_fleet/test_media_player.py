@@ -2,7 +2,8 @@
 
 from unittest.mock import AsyncMock, patch
 
-from syrupy import SnapshotAssertion
+import pytest
+from syrupy.assertion import SnapshotAssertion
 from tesla_fleet_api.exceptions import VehicleOffline
 
 from homeassistant.components.media_player import (
@@ -13,6 +14,7 @@ from homeassistant.components.media_player import (
     SERVICE_MEDIA_PLAY,
     SERVICE_MEDIA_PREVIOUS_TRACK,
     SERVICE_VOLUME_SET,
+    SERVICE_VOLUME_UP,
     MediaPlayerState,
 )
 from homeassistant.const import ATTR_ENTITY_ID, Platform
@@ -35,6 +37,35 @@ async def test_media_player(
 
     await setup_platform(hass, normal_config_entry, [Platform.MEDIA_PLAYER])
     assert_entities(hass, normal_config_entry.entry_id, entity_registry, snapshot)
+
+
+async def test_media_player_volume_step(
+    hass: HomeAssistant,
+    normal_config_entry: MockConfigEntry,
+) -> None:
+    """Test volume_up raises the level by exactly one Tesla notch."""
+
+    await setup_platform(hass, normal_config_entry, [Platform.MEDIA_PLAYER])
+
+    entity_id = "media_player.test_media_player"
+
+    with patch(
+        "tesla_fleet_api.tesla.VehicleFleet.adjust_volume",
+        return_value=COMMAND_OK,
+    ):
+        await hass.services.async_call(
+            MEDIA_PLAYER_DOMAIN,
+            SERVICE_VOLUME_UP,
+            {ATTR_ENTITY_ID: entity_id},
+            blocking=True,
+        )
+
+    # One notch up from the vehicle_data fixture's audio_volume of 1.6667 in a
+    # 10.333333 range: (1.6667 + 0.333333) / 10.333333.
+    state = hass.states.get(entity_id)
+    assert state.attributes[ATTR_MEDIA_VOLUME_LEVEL] == pytest.approx(
+        0.1935516, abs=1e-4
+    )
 
 
 async def test_media_player_alt(
@@ -88,7 +119,7 @@ async def test_media_player_services(
     entity_id = "media_player.test_media_player"
 
     with patch(
-        "homeassistant.components.tesla_fleet.VehicleSpecific.adjust_volume",
+        "tesla_fleet_api.tesla.VehicleFleet.adjust_volume",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -102,7 +133,7 @@ async def test_media_player_services(
         call.assert_called_once()
 
     with patch(
-        "homeassistant.components.tesla_fleet.VehicleSpecific.media_toggle_playback",
+        "tesla_fleet_api.tesla.VehicleFleet.media_toggle_playback",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -117,7 +148,7 @@ async def test_media_player_services(
 
     # This test will fail without the previous call to pause playback
     with patch(
-        "homeassistant.components.tesla_fleet.VehicleSpecific.media_toggle_playback",
+        "tesla_fleet_api.tesla.VehicleFleet.media_toggle_playback",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -131,7 +162,7 @@ async def test_media_player_services(
         call.assert_called_once()
 
     with patch(
-        "homeassistant.components.tesla_fleet.VehicleSpecific.media_next_track",
+        "tesla_fleet_api.tesla.VehicleFleet.media_next_track",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -144,7 +175,7 @@ async def test_media_player_services(
         call.assert_called_once()
 
     with patch(
-        "homeassistant.components.tesla_fleet.VehicleSpecific.media_prev_track",
+        "tesla_fleet_api.tesla.VehicleFleet.media_prev_track",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(

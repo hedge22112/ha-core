@@ -1,10 +1,8 @@
 """Utility functions for the Reolink component."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from reolink_aio.exceptions import (
     ApiError,
@@ -25,11 +23,16 @@ from homeassistant import config_entries
 from homeassistant.components.media_source import Unresolvable
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.storage import Store
+from homeassistant.helpers.translation import async_get_exception_message
 
 from .const import DOMAIN
-from .host import ReolinkHost
+
+if TYPE_CHECKING:
+    from .coordinator import ReolinkDeviceCoordinator, ReolinkFirmwareCoordinator
+    from .host import ReolinkHost
+
+STORAGE_VERSION = 1
 
 type ReolinkConfigEntry = config_entries.ConfigEntry[ReolinkData]
 
@@ -39,15 +42,15 @@ class ReolinkData:
     """Data for the Reolink integration."""
 
     host: ReolinkHost
-    device_coordinator: DataUpdateCoordinator[None]
-    firmware_coordinator: DataUpdateCoordinator[None]
+    device_coordinator: ReolinkDeviceCoordinator
+    firmware_coordinator: ReolinkFirmwareCoordinator
 
 
 def is_connected(hass: HomeAssistant, config_entry: config_entries.ConfigEntry) -> bool:
     """Check if an existing entry has a proper connection."""
     return (
         hasattr(config_entry, "runtime_data")
-        and config_entry.state == config_entries.ConfigEntryState.LOADED
+        and config_entry.state is config_entries.ConfigEntryState.LOADED
         and config_entry.runtime_data.device_coordinator.last_update_success
     )
 
@@ -59,20 +62,31 @@ def get_host(hass: HomeAssistant, config_entry_id: str) -> ReolinkHost:
     )
     if config_entry is None:
         raise Unresolvable(
-            f"Could not find Reolink config entry id '{config_entry_id}'."
+            translation_domain=DOMAIN,
+            translation_key="config_entry_not_found",
+            translation_placeholders={"config_entry_id": config_entry_id},
         )
     return config_entry.runtime_data.host
 
 
-def get_device_uid_and_ch(
-    device: dr.DeviceEntry, host: ReolinkHost
-) -> tuple[list[str], int | None, bool]:
-    """Get the channel and the split device_uid from a reolink DeviceEntry."""
-    device_uid = [
-        dev_id[1].split("_") for dev_id in device.identifiers if dev_id[0] == DOMAIN
-    ][0]
+def get_store(hass: HomeAssistant, config_entry_id: str) -> Store[str]:
+    """Return the reolink store."""
+    return Store[str](hass, STORAGE_VERSION, f"{DOMAIN}.{config_entry_id}.json")
 
+
+def get_device_uid_and_ch(
+    identifiers: set[tuple[str, str]], host: ReolinkHost
+) -> tuple[list[str], int | None, bool]:
+    """Get the channel and the split device_uid from reolink device identifiers."""
+    device_uid = []
     is_chime = False
+
+    for dev_id in identifiers:
+        if dev_id[0] == DOMAIN:
+            device_uid = dev_id[1].split("_")
+            if device_uid[0] == host.unique_id:
+                break
+
     if len(device_uid) < 2:
         # NVR itself
         ch = None
@@ -81,10 +95,36 @@ def get_device_uid_and_ch(
     elif device_uid[1].startswith("chime"):
         ch = int(device_uid[1][5:])
         is_chime = True
+    elif device_uid[1].startswith("lens"):
+        ch = int(device_uid[1][4:])
     else:
         device_uid_part = "_".join(device_uid[1:])
         ch = host.api.channel_for_uid(device_uid_part)
     return (device_uid, ch, is_chime)
+
+
+def check_translation_key(err: ReolinkError) -> str | None:
+    """Check if the translation key from the upstream library is present."""
+    if not err.translation_key:
+        return None
+    if async_get_exception_message(DOMAIN, err.translation_key) == err.translation_key:
+        # translation key not found in strings.json
+        return None
+    return err.translation_key
+
+
+_EXCEPTION_TO_TRANSLATION_KEY = {
+    ApiError: "api_error",
+    InvalidContentTypeError: "invalid_content_type",
+    CredentialsInvalidError: "invalid_credentials",
+    LoginError: "login_error",
+    NoDataError: "no_data",
+    UnexpectedDataError: "unexpected_data",
+    NotSupportedError: "not_supported",
+    SubscriptionError: "subscription_error",
+    ReolinkConnectionError: "connection_error",
+    ReolinkTimeoutError: "timeout",
+}
 
 
 # Decorators
@@ -100,73 +140,14 @@ def raise_translated_error[**P, R](
         except InvalidParameterError as err:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
-                translation_key="invalid_parameter",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except ApiError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="api_error",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except InvalidContentTypeError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="invalid_content_type",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except CredentialsInvalidError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="invalid_credentials",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except LoginError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="login_error",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except NoDataError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="no_data",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except UnexpectedDataError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="unexpected_data",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except NotSupportedError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="not_supported",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except SubscriptionError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="subscription_error",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except ReolinkConnectionError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="connection_error",
-                translation_placeholders={"err": str(err)},
-            ) from err
-        except ReolinkTimeoutError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="timeout",
+                translation_key=check_translation_key(err) or "invalid_parameter",
                 translation_placeholders={"err": str(err)},
             ) from err
         except ReolinkError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
-                translation_key="unexpected",
+                translation_key=check_translation_key(err)
+                or _EXCEPTION_TO_TRANSLATION_KEY.get(type(err), "unexpected"),
                 translation_placeholders={"err": str(err)},
             ) from err
 

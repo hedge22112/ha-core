@@ -1,7 +1,5 @@
 """Support for Open-Meteo."""
 
-from __future__ import annotations
-
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
@@ -19,6 +17,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenMeteoConfigEntry) ->
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: OpenMeteoConfigEntry) -> bool:
+    """Migrate an old config entry."""
+    # The zone used to be the unique ID, which config entries don't need
+    if entry.minor_version < 2:
+        hass.config_entries.async_update_entry(entry, unique_id=None, minor_version=2)
 
     return True
 

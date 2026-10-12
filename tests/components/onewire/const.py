@@ -1,6 +1,6 @@
 """Constants for 1-Wire integration."""
 
-from pyownet.protocol import ProtocolError
+from aio_ownet.exceptions import OWServerProtocolError, OWServerReturnError
 
 ATTR_INJECT_READS = "inject_reads"
 
@@ -11,10 +11,16 @@ MOCK_OWPROXY_DEVICES = {
             "/type": [b""],
         },
     },
+    "01.111111111111": {
+        ATTR_INJECT_READS: {
+            "/type": [b"DS2401"],
+        },
+    },
     "05.111111111111": {
         ATTR_INJECT_READS: {
             "/type": [b"DS2405"],
             "/PIO": [b"    1"],
+            "/sensed": [b"    1"],
         },
     },
     "10.111111111111": {
@@ -48,7 +54,15 @@ MOCK_OWPROXY_DEVICES = {
     },
     "16.111111111111": {
         # Test case for issue #115984, where the device type cannot be read
-        ATTR_INJECT_READS: {"/type": [ProtocolError()]},
+        ATTR_INJECT_READS: {
+            "/type": [
+                OWServerReturnError(
+                    1,
+                    "Startup - command line parameters invalid",
+                    "/16.111111111111/type",
+                )
+            ]
+        },
     },
     "1F.111111111111": {
         ATTR_INJECT_READS: {"/type": [b"DS2409"]},
@@ -65,10 +79,23 @@ MOCK_OWPROXY_DEVICES = {
             },
         },
     },
+    "20.111111111111": {
+        ATTR_INJECT_READS: {
+            "/type": [b"DS2450"],
+            "/volt.A": [b"     1.1"],
+            "/volt.B": [b"     2.2"],
+            "/volt.C": [b"     3.3"],
+            "/volt.D": [b"     4.4"],
+            "/latestvolt.A": [b"     1.11"],
+            "/latestvolt.B": [b"     2.22"],
+            "/latestvolt.C": [b"     3.33"],
+            "/latestvolt.D": [b"     4.44"],
+        }
+    },
     "22.111111111111": {
         ATTR_INJECT_READS: {
             "/type": [b"DS1822"],
-            "/temperature": [ProtocolError],
+            "/temperature": [OWServerProtocolError],
         },
     },
     "26.111111111111": {
@@ -79,7 +106,7 @@ MOCK_OWPROXY_DEVICES = {
             "/HIH3600/humidity": [b"    73.7563"],
             "/HIH4000/humidity": [b"    74.7563"],
             "/HIH5030/humidity": [b"    75.7563"],
-            "/HTM1735/humidity": [ProtocolError],
+            "/HTM1735/humidity": [OWServerProtocolError],
             "/B1-R1-A/pressure": [b"    969.265"],
             "/S3-R1-A/illuminance": [b"    65.8839"],
             "/VAD": [b"     2.97"],
@@ -115,7 +142,7 @@ MOCK_OWPROXY_DEVICES = {
             "/PIO.0": [b"    1"],
             "/PIO.1": [b"    0"],
             "/PIO.2": [b"    1"],
-            "/PIO.3": [ProtocolError],
+            "/PIO.3": [OWServerProtocolError],
             "/PIO.4": [b"    1"],
             "/PIO.5": [b"    0"],
             "/PIO.6": [b"    1"],
@@ -131,7 +158,7 @@ MOCK_OWPROXY_DEVICES = {
             "/sensed.0": [b"    1"],
             "/sensed.1": [b"    0"],
             "/sensed.2": [b"    0"],
-            "/sensed.3": [ProtocolError],
+            "/sensed.3": [OWServerProtocolError],
             "/sensed.4": [b"    0"],
             "/sensed.5": [b"    0"],
             "/sensed.6": [b"    0"],
@@ -176,7 +203,7 @@ MOCK_OWPROXY_DEVICES = {
             "/HIH3600/humidity": [b"    73.7563"],
             "/HIH4000/humidity": [b"    74.7563"],
             "/HIH5030/humidity": [b"    75.7563"],
-            "/HTM1735/humidity": [ProtocolError],
+            "/HTM1735/humidity": [OWServerProtocolError],
             "/B1-R1-A/pressure": [b"    969.265"],
             "/S3-R1-A/illuminance": [b"    65.8839"],
             "/VAD": [b"     2.97"],
@@ -239,6 +266,14 @@ MOCK_OWPROXY_DEVICES = {
             "/device_type": [b"EDS0066"],
             "/EDS0066/temperature": [b"    13.9375"],
             "/EDS0066/pressure": [b"  1012.21"],
+        },
+    },
+    "7E.333333333333": {
+        ATTR_INJECT_READS: {
+            "/type": [b"EDS"],
+            "/device_type": [b"EDS0065"],
+            "/EDS0065/temperature": [b"    13.9375"],
+            "/EDS0065/humidity": [b"   41.375"],
         },
     },
 }

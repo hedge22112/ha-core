@@ -7,6 +7,8 @@ import pytest
 from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.number import (
+    ATTR_MAX,
+    ATTR_MIN,
     ATTR_VALUE,
     DOMAIN as NUMBER_DOMAIN,
     SERVICE_SET_VALUE,
@@ -14,18 +16,19 @@ from homeassistant.components.number import (
 from homeassistant.components.peblar.const import DOMAIN
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from tests.common import MockConfigEntry, snapshot_platform
+from tests.common import (
+    MockConfigEntry,
+    mock_restore_cache_with_extra_data,
+    snapshot_platform,
+)
 
-pytestmark = [
-    pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True),
-    pytest.mark.usefixtures("init_integration"),
-]
 
-
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("init_integration")
 async def test_entities(
     hass: HomeAssistant,
     snapshot: SnapshotAssertion,
@@ -37,8 +40,8 @@ async def test_entities(
     await snapshot_platform(hass, entity_registry, snapshot, mock_config_entry.entry_id)
 
     # Ensure all entities are correctly assigned to the Peblar EV charger
-    device_entry = device_registry.async_get_device(
-        identifiers={(DOMAIN, "23-45-A4O-MOF")}
+    device_entry = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "23-45-A4O-MOF"), mock_config_entry.entry_id
     )
     assert device_entry
     entity_entries = er.async_entries_for_config_entry(
@@ -48,7 +51,8 @@ async def test_entities(
         assert entity_entry.device_id == device_entry.id
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("init_integration", "entity_registry_enabled_by_default")
 async def test_number_set_value(
     hass: HomeAssistant,
     mock_peblar: MagicMock,
@@ -71,6 +75,43 @@ async def test_number_set_value(
 
     assert len(mocked_method.mock_calls) == 2
     mocked_method.mock_calls[0].assert_called_with({"charge_current_limit": 10})
+
+
+async def test_number_set_value_when_charging_is_suspended(
+    hass: HomeAssistant,
+    mock_peblar: MagicMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test handling of setting the charging limit while charging is suspended."""
+    entity_id = "number.peblar_ev_charger_charge_limit"
+
+    # Suspend charging
+    mock_peblar.rest_api.return_value.ev_interface.return_value.charge_current_limit = 0
+
+    # Setup the config entry
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    mocked_method = mock_peblar.rest_api.return_value.ev_interface
+    mocked_method.reset_mock()
+
+    # Test normal happy path number value change
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {
+            ATTR_ENTITY_ID: entity_id,
+            ATTR_VALUE: 10,
+        },
+        blocking=True,
+    )
+
+    assert len(mocked_method.mock_calls) == 0
+
+    # Check the state is reflected
+    assert (state := hass.states.get(entity_id))
+    assert state.state == "10"
 
 
 @pytest.mark.parametrize(
@@ -96,7 +137,8 @@ async def test_number_set_value(
         ),
     ],
 )
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("init_integration", "entity_registry_enabled_by_default")
 async def test_number_set_value_communication_error(
     hass: HomeAssistant,
     mock_peblar: MagicMock,
@@ -128,6 +170,8 @@ async def test_number_set_value_communication_error(
     assert excinfo.value.translation_placeholders == translation_placeholders
 
 
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("init_integration")
 async def test_number_set_value_authentication_error(
     hass: HomeAssistant,
     mock_peblar: MagicMock,
@@ -175,3 +219,184 @@ async def test_number_set_value_authentication_error(
     assert "context" in flow
     assert flow["context"].get("source") == SOURCE_REAUTH
     assert flow["context"].get("entry_id") == mock_config_entry.entry_id
+
+
+@pytest.mark.parametrize(
+    ("restore_state", "restore_native_value", "expected_state"),
+    [
+        ("10", 10, "10"),
+        ("unknown", 10, "unknown"),
+        ("unavailable", 10, "unknown"),
+        ("10", None, "unknown"),
+    ],
+)
+async def test_restore_state(
+    hass: HomeAssistant,
+    mock_peblar: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    restore_state: str,
+    restore_native_value: int,
+    expected_state: str,
+) -> None:
+    """Test restoring the number state."""
+    EXTRA_STORED_DATA = {
+        "native_max_value": 16,
+        "native_min_value": 6,
+        "native_step": 1,
+        "native_unit_of_measurement": "A",
+        "native_value": restore_native_value,
+    }
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State("number.peblar_ev_charger_charge_limit", restore_state),
+                EXTRA_STORED_DATA,
+            ),
+        ),
+    )
+
+    # Adjust Peblar client to have an ignored value for the charging limit
+    mock_peblar.rest_api.return_value.ev_interface.return_value.charge_current_limit = 0
+
+    # Setup the config entry
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Check if state is restored and value is set correctly
+    assert (state := hass.states.get("number.peblar_ev_charger_charge_limit"))
+    assert state.state == expected_state
+
+
+@pytest.mark.parametrize(
+    ("mock_peblar", "expected_max"),
+    [
+        ({"UserDefinedChargeLimitCurrent": 10}, 16),
+        ({"CurrentCtrlFixedChargeCurrentLimit": 10}, 10),
+        ({"HwMaxCurrent": 10}, 10),
+    ],
+    ids=["user limit is not a ceiling", "installation limit", "hardware rating"],
+    indirect=["mock_peblar"],
+)
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("init_integration", "entity_registry_enabled_by_default")
+async def test_charge_limit_maximum(
+    hass: HomeAssistant,
+    expected_max: int,
+) -> None:
+    """Test the ceiling on the charge limit.
+
+    The charger accepts up to its hardware rating and reduces anything
+    above the installation limit. The user's own charge limit is the value
+    being set here, so it must not narrow the range it is chosen from.
+    """
+    state = hass.states.get("number.peblar_ev_charger_charge_limit")
+    assert state
+    assert state.attributes[ATTR_MAX] == expected_max
+
+
+@pytest.mark.parametrize(
+    "mock_peblar",
+    [{"UserDefinedChargeLimitCurrent": 10}],
+    indirect=True,
+)
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("init_integration", "entity_registry_enabled_by_default")
+async def test_charge_limit_can_be_raised_again(
+    hass: HomeAssistant,
+    mock_peblar: MagicMock,
+) -> None:
+    """A charger left on a low limit can still be turned back up."""
+    mocked_method = mock_peblar.rest_api.return_value.ev_interface
+    mocked_method.reset_mock()
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: "number.peblar_ev_charger_charge_limit", ATTR_VALUE: 16},
+        blocking=True,
+    )
+
+    mocked_method.assert_any_call(charge_current_limit=16000)
+
+
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default", "init_integration")
+@pytest.mark.parametrize(
+    ("entity_id", "value", "expected"),
+    [
+        (
+            "number.peblar_ev_charger_custom_solar_start_threshold",
+            -600,
+            {"solar_charging_custom_power_threshold": -600},
+        ),
+        (
+            "number.peblar_ev_charger_custom_solar_grid_target",
+            1500,
+            {"solar_charging_custom_power_target": 1500},
+        ),
+    ],
+)
+async def test_custom_solar_settings(
+    hass: HomeAssistant,
+    mock_peblar: MagicMock,
+    entity_id: str,
+    value: int,
+    expected: dict[str, int],
+) -> None:
+    """Test the custom solar settings reach the charger.
+
+    One setting at a time: the charger keeps whatever is left out, so
+    sending the pair would overwrite the other one with what Home Assistant
+    happened to be holding.
+    """
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: entity_id, ATTR_VALUE: value},
+        blocking=True,
+    )
+
+    mock_peblar.update_user_configuration.assert_called_once()
+    written = mock_peblar.update_user_configuration.call_args.args[0]
+    assert {
+        field: getattr(written, field)
+        for field in vars(written)
+        if getattr(written, field) is not None
+    } == expected
+
+
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default", "init_integration")
+async def test_custom_solar_settings_take_a_negative_threshold(
+    hass: HomeAssistant,
+) -> None:
+    """Test the threshold reaches below zero, which is where it lives.
+
+    It is the power going out to the grid at which charging starts, so the
+    charger's own default sits at -1300 W. A range that stopped at zero
+    would put the setting out of reach.
+    """
+    state = hass.states.get("number.peblar_ev_charger_custom_solar_start_threshold")
+    assert state
+    assert float(state.attributes[ATTR_MIN]) < 0
+
+
+@pytest.mark.parametrize("init_integration", [Platform.NUMBER], indirect=True)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default", "init_integration")
+@pytest.mark.parametrize(
+    "mock_peblar",
+    [
+        {"SolarChargingCustomPowerTarget": None},
+        {"SolarChargingAllowed": False},
+    ],
+    ids=["firmware without custom solar", "no power meter configured"],
+    indirect=True,
+)
+async def test_custom_solar_settings_absent(hass: HomeAssistant) -> None:
+    """Test a charger that cannot do custom solar is not offered its settings."""
+    assert (
+        hass.states.get("number.peblar_ev_charger_custom_solar_start_threshold") is None
+    )
+    assert hass.states.get("number.peblar_ev_charger_custom_solar_grid_target") is None

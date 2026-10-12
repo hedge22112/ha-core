@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_switch_states[platforms0][switch.gotham_city_increased_ventilation-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'In\xadcreased venti\xadlation',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'In\xadcreased venti\xadlation',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'boost_ventilation',
     'unique_id': 'robin-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-50005',
@@ -35,7 +39,7 @@
 # name: test_switch_states[platforms0][switch.gotham_city_increased_ventilation-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City In\xadcreased venti\xadlation',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City In\xadcreased venti\xadlation',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gotham_city_increased_ventilation',
@@ -47,11 +51,13 @@
 # ---
 # name: test_switch_states[platforms0][switch.gotham_city_increased_ventilation_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -65,6 +71,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'In\xadcreased venti\xadlation',
     'options': dict({
     }),
     'original_device_class': None,
@@ -72,6 +79,7 @@
     'original_name': 'In\xadcreased venti\xadlation',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'boost_ventilation',
     'unique_id': 'batman-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-50005',
@@ -81,7 +89,7 @@
 # name: test_switch_states[platforms0][switch.gotham_city_increased_ventilation_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City In\xadcreased venti\xadlation',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City In\xadcreased venti\xadlation',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gotham_city_increased_ventilation_2',
@@ -93,11 +101,13 @@
 # ---
 # name: test_switch_states[platforms0][switch.gotham_city_temporary_lux-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -111,6 +121,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Tempo\xadrary lux',
     'options': dict({
     }),
     'original_device_class': None,
@@ -118,6 +129,7 @@
     'original_name': 'Tempo\xadrary lux',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'temporary_lux',
     'unique_id': 'robin-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-50004',
@@ -127,7 +139,7 @@
 # name: test_switch_states[platforms0][switch.gotham_city_temporary_lux-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Tempo\xadrary lux',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Tempo\xadrary lux',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gotham_city_temporary_lux',
@@ -139,11 +151,13 @@
 # ---
 # name: test_switch_states[platforms0][switch.gotham_city_temporary_lux_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -157,6 +171,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Tempo\xadrary lux',
     'options': dict({
     }),
     'original_device_class': None,
@@ -164,6 +179,7 @@
     'original_name': 'Tempo\xadrary lux',
     'platform': 'myuplink',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'temporary_lux',
     'unique_id': 'batman-r-1234-20240201-123456-aa-bb-cc-dd-ee-ff-50004',
@@ -173,7 +189,7 @@
 # name: test_switch_states[platforms0][switch.gotham_city_temporary_lux_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Gotham City Tempo\xadrary lux',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Gotham City Tempo\xadrary lux',
     }),
     'context': <ANY>,
     'entity_id': 'switch.gotham_city_temporary_lux_2',

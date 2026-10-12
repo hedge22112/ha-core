@@ -1,10 +1,8 @@
 """Switch support for Melnor Bluetooth water timer."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from melnor_bluetooth.device import Valve
 
@@ -13,12 +11,10 @@ from homeassistant.components.switch import (
     SwitchEntity,
     SwitchEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import MelnorDataUpdateCoordinator
+from .coordinator import MelnorConfigEntry, MelnorDataUpdateCoordinator
 from .entity import MelnorZoneEntity, get_entities_for_valves
 
 
@@ -51,12 +47,12 @@ ZONE_ENTITY_DESCRIPTIONS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: MelnorConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the switch platform."""
 
-    coordinator: MelnorDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = config_entry.runtime_data
 
     async_add_entities(
         get_entities_for_valves(
@@ -84,15 +80,18 @@ class MelnorZoneSwitch(MelnorZoneEntity, SwitchEntity):
         super().__init__(coordinator, entity_description, valve)
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if device is on."""
         return self.entity_description.state_fn(self._valve)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the device on."""
         await self.entity_description.on_off_fn(self._valve, True)
         self.async_write_ha_state()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off."""
         await self.entity_description.on_off_fn(self._valve, False)

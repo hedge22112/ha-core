@@ -1,6 +1,6 @@
 """Support for Flipr binary sensors."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -8,9 +8,9 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import FliprConfigEntry
+from .coordinator import FliprConfigEntry
 from .entity import FliprEntity
 
 BINARY_SENSORS_TYPES: tuple[BinarySensorEntityDescription, ...] = (
@@ -30,7 +30,7 @@ BINARY_SENSORS_TYPES: tuple[BinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: FliprConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Defer sensor setup of flipr binary sensors."""
 
@@ -47,6 +47,7 @@ class FliprBinarySensor(FliprEntity, BinarySensorEntity):
     """Representation of Flipr binary sensors."""
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on in case of a Problem is detected."""
         return self.coordinator.data[self.entity_description.key] in (

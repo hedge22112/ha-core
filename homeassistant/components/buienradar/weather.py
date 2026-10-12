@@ -1,6 +1,7 @@
 """Support for Buienradar.nl weather service."""
 
 import logging
+from typing import override
 
 from buienradar.constants import (
     CONDCODE,
@@ -9,6 +10,7 @@ from buienradar.constants import (
     MAX_TEMP,
     MIN_TEMP,
     RAIN,
+    RAIN_CHANCE,
     WINDAZIMUTH,
     WINDSPEED,
 )
@@ -33,6 +35,7 @@ from homeassistant.components.weather import (
     ATTR_FORECAST_NATIVE_TEMP,
     ATTR_FORECAST_NATIVE_TEMP_LOW,
     ATTR_FORECAST_NATIVE_WIND_SPEED,
+    ATTR_FORECAST_PRECIPITATION_PROBABILITY,
     ATTR_FORECAST_TIME,
     ATTR_FORECAST_WIND_BEARING,
     Forecast,
@@ -51,7 +54,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BuienRadarConfigEntry
 from .const import DEFAULT_TIMEFRAME
@@ -94,7 +97,7 @@ CONDITION_MAP = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BuienRadarConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the buienradar platform."""
     config = entry.data
@@ -153,7 +156,9 @@ class BrWeather(WeatherEntity):
         )
         self._attr_native_pressure = data.pressure
         self._attr_native_temperature = data.temperature
+        self._attr_native_apparent_temperature = data.feeltemperature
         self._attr_native_visibility = data.visibility
+        self._attr_native_wind_gust_speed = data.wind_gust
         self._attr_native_wind_speed = data.wind_speed
         self._attr_wind_bearing = data.wind_bearing
 
@@ -188,6 +193,7 @@ class BrWeather(WeatherEntity):
                 ATTR_FORECAST_NATIVE_TEMP_LOW: data_in.get(MIN_TEMP),
                 ATTR_FORECAST_NATIVE_TEMP: data_in.get(MAX_TEMP),
                 ATTR_FORECAST_NATIVE_PRECIPITATION: data_in.get(RAIN),
+                ATTR_FORECAST_PRECIPITATION_PROBABILITY: data_in.get(RAIN_CHANCE),
                 ATTR_FORECAST_WIND_BEARING: data_in.get(WINDAZIMUTH),
                 ATTR_FORECAST_NATIVE_WIND_SPEED: data_in.get(WINDSPEED),
             }
@@ -196,6 +202,7 @@ class BrWeather(WeatherEntity):
 
         return fcdata_out
 
+    @override
     async def async_forecast_daily(self) -> list[Forecast] | None:
         """Return the daily forecast in native units."""
         return self._forecast

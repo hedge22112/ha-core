@@ -313,6 +313,37 @@ async def test_get_configuration(
         }
 
 
+async def test_get_configuration_not_implemented(
+    hass: HomeAssistant,
+    init_components: ConfigEntry,
+    entity: MockAssistSatellite,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """Test getting stub config when entity lacks the method."""
+    ws_client = await hass_ws_client(hass)
+
+    with patch.object(
+        entity, "async_get_configuration", side_effect=NotImplementedError()
+    ):
+        await ws_client.send_json_auto_id(
+            {
+                "type": "assist_satellite/get_configuration",
+                "entity_id": ENTITY_ID,
+            }
+        )
+        msg = await ws_client.receive_json()
+        assert msg["success"]
+
+        # Stub configuration
+        assert msg["result"] == {
+            "active_wake_words": [],
+            "available_wake_words": [],
+            "max_active_wake_words": 1,
+            "pipeline_entity_id": None,
+            "vad_entity_id": None,
+        }
+
+
 async def test_set_wake_words(
     hass: HomeAssistant,
     init_components: ConfigEntry,
@@ -392,6 +423,33 @@ async def test_set_wake_words_bad_id(
     }
 
 
+async def test_connection_test_require_admin(
+    hass: HomeAssistant,
+    init_components: ConfigEntry,
+    entity: MockAssistSatellite,
+    hass_ws_client: WebSocketGenerator,
+    hass_read_only_access_token: str,
+) -> None:
+    """Test connection test requires admin access."""
+    ws_client = await hass_ws_client(hass, hass_read_only_access_token)
+
+    await ws_client.send_json_auto_id(
+        {
+            "type": "assist_satellite/test_connection",
+            "entity_id": ENTITY_ID,
+        }
+    )
+
+    async with asyncio.timeout(1):
+        msg = await ws_client.receive_json()
+
+    assert not msg["success"]
+    assert msg["error"] == {
+        "code": "unauthorized",
+        "message": "Unauthorized",
+    }
+
+
 async def test_connection_test(
     hass: HomeAssistant,
     init_components: ConfigEntry,
@@ -414,6 +472,7 @@ async def test_connection_test(
 
     assert len(entity.announcements) == 1
     assert entity.announcements[0].message == ""
+    assert entity.announcements[0].preannounce_media_id is None
     announcement_media_id = entity.announcements[0].media_id
     hass_url = "http://10.10.10.10:8123"
     assert announcement_media_id.startswith(

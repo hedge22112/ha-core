@@ -1,10 +1,8 @@
 """Support for Honeywell (de)humidifiers."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from aiosomecomfort.device import Device
 
@@ -15,7 +13,7 @@ from homeassistant.components.humidifier import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import HoneywellConfigEntry
 from .const import DOMAIN
@@ -73,7 +71,7 @@ HUMIDIFIERS: dict[str, HoneywellHumidifierEntityDescription] = {
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: HoneywellConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Honeywell (de)humidifier dynamically."""
     data = config_entry.runtime_data
@@ -109,28 +107,34 @@ class HoneywellHumidifier(HumidifierEntity):
         )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the device is on or off."""
         return self.entity_description.mode(self._device) != 0
 
     @property
+    @override
     def target_humidity(self) -> int | None:
         """Return the humidity we try to reach."""
         return self.entity_description.current_set_humidity(self._device)
 
     @property
+    @override
     def current_humidity(self) -> int | None:
         """Return the current humidity."""
         return self.entity_description.current_humidity(self._device)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the device on."""
         await self.entity_description.on(self._device)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off."""
         await self.entity_description.off(self._device)
 
+    @override
     async def async_set_humidity(self, humidity: int) -> None:
         """Set new target humidity."""
         await self.entity_description.set_humidity(self._device, humidity)

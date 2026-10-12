@@ -1,9 +1,7 @@
 """Config flow to configure the Bluetooth integration."""
 
-from __future__ import annotations
-
 import platform
-from typing import Any, cast
+from typing import Any, cast, override
 
 from bluetooth_adapters import (
     ADAPTER_ADDRESS,
@@ -14,8 +12,8 @@ from bluetooth_adapters import (
     adapter_model,
     get_adapters,
 )
-from habluetooth import get_manager
-import voluptuous as vol
+from habluetooth import BluetoothScanningMode, get_manager
+import probatio
 
 from homeassistant.components import onboarding
 from homeassistant.config_entries import (
@@ -24,32 +22,66 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from homeassistant.const import CONF_SOURCE
 from homeassistant.core import callback
 from homeassistant.helpers.schema_config_entry_flow import (
+    SchemaCommonFlowHandler,
     SchemaFlowFormStep,
     SchemaOptionsFlowHandler,
+)
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
 )
 from homeassistant.helpers.typing import DiscoveryInfoType
 
 from .const import (
     CONF_ADAPTER,
     CONF_DETAILS,
+    CONF_MODE,
     CONF_PASSIVE,
-    CONF_SOURCE,
     CONF_SOURCE_CONFIG_ENTRY_ID,
+    CONF_SOURCE_DEVICE_ID,
     CONF_SOURCE_DOMAIN,
     CONF_SOURCE_MODEL,
     DOMAIN,
 )
-from .util import adapter_title
+from .util import adapter_title, resolve_scanning_mode
 
-OPTIONS_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_PASSIVE, default=False): bool,
-    }
+_MODE_SELECTOR = SelectSelector(
+    SelectSelectorConfig(
+        options=[
+            BluetoothScanningMode.AUTO.value,
+            BluetoothScanningMode.ACTIVE.value,
+            BluetoothScanningMode.PASSIVE.value,
+        ],
+        translation_key="mode",
+        mode=SelectSelectorMode.DROPDOWN,
+    )
 )
+
+
+async def _options_schema(handler: SchemaCommonFlowHandler) -> probatio.Schema:
+    """Build the options schema with the saved mode as the default."""
+    current = resolve_scanning_mode(handler.options).value
+    return probatio.Schema(
+        {probatio.Required(CONF_MODE, default=current): _MODE_SELECTOR}
+    )
+
+
+async def _validate_options(
+    handler: SchemaCommonFlowHandler, user_input: dict[str, Any]
+) -> dict[str, Any]:
+    """Mirror CONF_MODE into the legacy CONF_PASSIVE for downgrade safety."""
+    user_input[CONF_PASSIVE] = (
+        user_input[CONF_MODE] == BluetoothScanningMode.PASSIVE.value
+    )
+    return user_input
+
+
 OPTIONS_FLOW = {
-    "init": SchemaFlowFormStep(OPTIONS_SCHEMA),
+    "init": SchemaFlowFormStep(_options_schema, validate_user_input=_validate_options),
 }
 
 
@@ -73,6 +105,7 @@ class BluetoothConfigFlow(ConfigFlow, domain=DOMAIN):
         self._adapters: dict[str, AdapterDetails] = {}
         self._placeholders: dict[str, str] = {}
 
+    @override
     async def async_step_integration_discovery(
         self, discovery_info: DiscoveryInfoType
     ) -> ConfigFlowResult:
@@ -139,7 +172,7 @@ class BluetoothConfigFlow(ConfigFlow, domain=DOMAIN):
                 title=adapter_title(adapter, details), data={}
             )
 
-        configured_addresses = self._async_current_ids()
+        configured_addresses = self._async_current_ids(include_ignore=False)
         bluetooth_adapters = get_adapters()
         await bluetooth_adapters.refresh()
         self._adapters = bluetooth_adapters.adapters
@@ -154,12 +187,8 @@ class BluetoothConfigFlow(ConfigFlow, domain=DOMAIN):
             and not (system == "Linux" and details[ADAPTER_ADDRESS] == DEFAULT_ADDRESS)
         ]
         if not unconfigured_adapters:
-            ignored_adapters = len(
-                self._async_current_entries(include_ignore=True)
-            ) - len(self._async_current_entries(include_ignore=False))
             return self.async_abort(
                 reason="no_adapters",
-                description_placeholders={"ignored_adapters": str(ignored_adapters)},
             )
         if len(unconfigured_adapters) == 1:
             self._adapter = list(self._adapters)[0]
@@ -169,9 +198,9 @@ class BluetoothConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="multiple_adapters",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_ADAPTER): vol.In(
+                    probatio.Required(CONF_ADAPTER): probatio.In(
                         {
                             adapter: adapter_display_info(
                                 adapter, self._adapters[adapter]
@@ -189,18 +218,32 @@ class BluetoothConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle a flow initialized by an external scanner."""
         source = user_input[CONF_SOURCE]
         await self.async_set_unique_id(source)
+        source_config_entry_id = user_input[CONF_SOURCE_CONFIG_ENTRY_ID]
         data = {
             CONF_SOURCE: source,
             CONF_SOURCE_MODEL: user_input[CONF_SOURCE_MODEL],
             CONF_SOURCE_DOMAIN: user_input[CONF_SOURCE_DOMAIN],
-            CONF_SOURCE_CONFIG_ENTRY_ID: user_input[CONF_SOURCE_CONFIG_ENTRY_ID],
+            CONF_SOURCE_CONFIG_ENTRY_ID: source_config_entry_id,
+            CONF_SOURCE_DEVICE_ID: user_input[CONF_SOURCE_DEVICE_ID],
         }
         self._abort_if_unique_id_configured(updates=data)
-        manager = get_manager()
-        scanner = manager.async_scanner_by_source(source)
+        for entry in self._async_current_entries(include_ignore=False):
+            # If the mac address needs to be corrected, migrate
+            # the config entry to the new mac address
+            if (
+                entry.data.get(CONF_SOURCE_CONFIG_ENTRY_ID) == source_config_entry_id
+                and entry.unique_id != source
+            ):
+                self.hass.config_entries.async_update_entry(
+                    entry, unique_id=source, data={**entry.data, **data}
+                )
+                self.hass.config_entries.async_schedule_reload(entry.entry_id)
+                return self.async_abort(reason="already_configured")
+        scanner = get_manager().async_scanner_by_source(source)
         assert scanner is not None
         return self.async_create_entry(title=scanner.name, data=data)
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -209,16 +252,24 @@ class BluetoothConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: ConfigEntry,
-    ) -> SchemaOptionsFlowHandler | RemoteAdapterOptionsFlowHandler:
+    ) -> (
+        SchemaOptionsFlowHandler
+        | RemoteAdapterOptionsFlowHandler
+        | LocalNoPassiveOptionsFlowHandler
+    ):
         """Get the options flow for this handler."""
         if CONF_SOURCE in config_entry.data:
             return RemoteAdapterOptionsFlowHandler()
+        if not (manager := get_manager()) or not manager.supports_passive_scan:
+            return LocalNoPassiveOptionsFlowHandler()
         return SchemaOptionsFlowHandler(config_entry, OPTIONS_FLOW)
 
     @classmethod
     @callback
+    @override
     def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
         """Return options flow support for this handler."""
         return bool((manager := get_manager()) and manager.supports_passive_scan)
@@ -232,3 +283,13 @@ class RemoteAdapterOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Handle options flow."""
         return self.async_abort(reason="remote_adapters_not_supported")
+
+
+class LocalNoPassiveOptionsFlowHandler(OptionsFlow):
+    """Handle a option flow for local adapters with no passive support."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle options flow."""
+        return self.async_abort(reason="local_adapters_no_passive_support")

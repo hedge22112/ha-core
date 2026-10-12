@@ -1,11 +1,9 @@
 """Support for SLZB-06 switches."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, override
 
 from pysmlight import Sensors, SettingsEvent
 from pysmlight.const import Settings
@@ -17,11 +15,12 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import SmConfigEntry
-from .coordinator import SmDataUpdateCoordinator
+from .coordinator import SmConfigEntry, SmDataUpdateCoordinator
 from .entity import SmEntity
+
+PARALLEL_UPDATES = 1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +49,6 @@ SWITCHES: list[SmSwitchEntityDescription] = [
     SmSwitchEntityDescription(
         key="auto_zigbee_update",
         translation_key="auto_zigbee_update",
-        entity_category=EntityCategory.CONFIG,
         setting=Settings.ZB_AUTOUPDATE,
         entity_registry_enabled_default=False,
         state_fn=lambda x: x.auto_zigbee,
@@ -68,7 +66,7 @@ SWITCHES: list[SmSwitchEntityDescription] = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SmConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize switches for SLZB-06 device."""
     coordinator = entry.runtime_data.data
@@ -82,6 +80,7 @@ class SmSwitch(SmEntity, SwitchEntity):
     coordinator: SmDataUpdateCoordinator
     entity_description: SmSwitchEntityDescription
     _attr_device_class = SwitchDeviceClass.SWITCH
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -95,6 +94,7 @@ class SmSwitch(SmEntity, SwitchEntity):
 
         self._page, self._toggle = description.setting.value
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
@@ -116,15 +116,18 @@ class SmSwitch(SmEntity, SwitchEntity):
                 self.entity_description.setting, event.setting[self._toggle]
             )
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self.set_smlight(True)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self.set_smlight(False)
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return the state of the switch."""
         return self.entity_description.state_fn(self.coordinator.data.sensors)

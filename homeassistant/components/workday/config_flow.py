@@ -1,20 +1,18 @@
 """Adds config flow for Workday integration."""
 
-from __future__ import annotations
-
 from functools import partial
-from typing import Any
+from typing import Any, override
 
 from holidays import PUBLIC, HolidayBase, country_holidays, list_supported_countries
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_COUNTRY, CONF_LANGUAGE, CONF_NAME
+from homeassistant.const import CONF_COUNTRY, CONF_LANGUAGE
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.exceptions import HomeAssistantError
@@ -26,10 +24,10 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TextSelector,
 )
 from homeassistant.util import dt as dt_util
 
@@ -52,9 +50,9 @@ from .const import (
 
 
 def add_province_and_language_to_schema(
-    schema: vol.Schema,
+    schema: probatio.Schema,
     country: str | None,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Update schema with province from country."""
     if not country:
         return schema
@@ -66,10 +64,9 @@ def add_province_and_language_to_schema(
 
     _country = country_holidays(country=country)
     if country_default_language := (_country.default_language):
-        selectable_languages = _country.supported_languages
-        new_selectable_languages = list(selectable_languages)
+        new_selectable_languages = list(_country.supported_languages)
         language_schema = {
-            vol.Optional(
+            probatio.Optional(
                 CONF_LANGUAGE, default=country_default_language
             ): LanguageSelector(
                 LanguageSelectorConfig(
@@ -79,10 +76,22 @@ def add_province_and_language_to_schema(
         }
 
     if provinces := all_countries.get(country):
+        if _country.subdivisions_aliases and (
+            subdiv_aliases := _country.get_subdivision_aliases()
+        ):
+            province_options: list[Any] = [
+                SelectOptionDict(value=k, label=", ".join(v))
+                for k, v in subdiv_aliases.items()
+            ]
+            for option in province_options:
+                if option["label"] == "":
+                    option["label"] = option["value"]
+        else:
+            province_options = provinces
         province_schema = {
-            vol.Optional(CONF_PROVINCE): SelectSelector(
+            probatio.Optional(CONF_PROVINCE): SelectSelector(
                 SelectSelectorConfig(
-                    options=provinces,
+                    options=province_options,
                     mode=SelectSelectorMode.DROPDOWN,
                     translation_key=CONF_PROVINCE,
                 )
@@ -94,7 +103,7 @@ def add_province_and_language_to_schema(
     _categories = [x for x in _country.supported_categories if x != PUBLIC]
     if _categories:
         category_schema = {
-            vol.Optional(CONF_CATEGORY): SelectSelector(
+            probatio.Optional(CONF_CATEGORY): SelectSelector(
                 SelectSelectorConfig(
                     options=_categories,
                     mode=SelectSelectorMode.DROPDOWN,
@@ -104,7 +113,7 @@ def add_province_and_language_to_schema(
             ),
         }
 
-    return vol.Schema(
+    return probatio.Schema(
         {
             **DATA_SCHEMA_OPT.schema,
             **language_schema,
@@ -143,20 +152,9 @@ def validate_custom_dates(user_input: dict[str, Any]) -> None:
             subdiv=province,
             years=year,
             language=language,
+            categories=[PUBLIC, *user_input.get(CONF_CATEGORY, [])],
         )
-        if (
-            (supported_languages := obj_holidays.supported_languages)
-            and language
-            and language.startswith("en")
-        ):
-            for lang in supported_languages:
-                if lang.startswith("en"):
-                    obj_holidays = country_holidays(
-                        country,
-                        subdiv=province,
-                        years=year,
-                        language=lang,
-                    )
+
     else:
         obj_holidays = HolidayBase(years=year)
 
@@ -169,9 +167,9 @@ def validate_custom_dates(user_input: dict[str, Any]) -> None:
             raise RemoveDatesError("Incorrect date or name")
 
 
-DATA_SCHEMA_OPT = vol.Schema(
+DATA_SCHEMA_OPT = probatio.Schema(
     {
-        vol.Optional(CONF_WORKDAYS, default=DEFAULT_WORKDAYS): SelectSelector(
+        probatio.Optional(CONF_WORKDAYS, default=DEFAULT_WORKDAYS): SelectSelector(
             SelectSelectorConfig(
                 options=ALLOWED_DAYS,
                 multiple=True,
@@ -179,7 +177,7 @@ DATA_SCHEMA_OPT = vol.Schema(
                 translation_key="days",
             )
         ),
-        vol.Optional(CONF_EXCLUDES, default=DEFAULT_EXCLUDES): SelectSelector(
+        probatio.Optional(CONF_EXCLUDES, default=DEFAULT_EXCLUDES): SelectSelector(
             SelectSelectorConfig(
                 options=ALLOWED_DAYS,
                 multiple=True,
@@ -187,10 +185,10 @@ DATA_SCHEMA_OPT = vol.Schema(
                 translation_key="days",
             )
         ),
-        vol.Optional(CONF_OFFSET, default=DEFAULT_OFFSET): NumberSelector(
+        probatio.Optional(CONF_OFFSET, default=DEFAULT_OFFSET): NumberSelector(
             NumberSelectorConfig(min=-10, max=10, step=1, mode=NumberSelectorMode.BOX)
         ),
-        vol.Optional(CONF_ADD_HOLIDAYS, default=[]): SelectSelector(
+        probatio.Optional(CONF_ADD_HOLIDAYS, default=[]): SelectSelector(
             SelectSelectorConfig(
                 options=[],
                 multiple=True,
@@ -198,7 +196,7 @@ DATA_SCHEMA_OPT = vol.Schema(
                 mode=SelectSelectorMode.DROPDOWN,
             )
         ),
-        vol.Optional(CONF_REMOVE_HOLIDAYS, default=[]): SelectSelector(
+        probatio.Optional(CONF_REMOVE_HOLIDAYS, default=[]): SelectSelector(
             SelectSelectorConfig(
                 options=[],
                 multiple=True,
@@ -214,17 +212,20 @@ class WorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Workday integration."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     data: dict[str, Any] = {}
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: ConfigEntry,
     ) -> WorkdayOptionsFlowHandler:
         """Get the options flow for this handler."""
         return WorkdayOptionsFlowHandler()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -240,10 +241,9 @@ class WorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self.async_step_options()
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_NAME, default=DEFAULT_NAME): TextSelector(),
-                    vol.Optional(CONF_COUNTRY): CountrySelector(
+                    probatio.Optional(CONF_COUNTRY): CountrySelector(
                         CountrySelectorConfig(
                             countries=list(supported_countries),
                         )
@@ -291,8 +291,14 @@ class WorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             LOGGER.debug("Errors have occurred %s", errors)
             if not errors:
                 LOGGER.debug("No duplicate, no errors, creating entry")
+
+                name = DEFAULT_NAME
+                if (country := combined_input.get(CONF_COUNTRY)) is not None:
+                    name += f" {country}"
+                if (province := combined_input.get(CONF_PROVINCE)) is not None:
+                    name += f" {province}"
                 return self.async_create_entry(
-                    title=combined_input[CONF_NAME],
+                    title=name,
                     data={},
                     options=combined_input,
                 )
@@ -308,13 +314,12 @@ class WorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=new_schema,
             errors=errors,
             description_placeholders={
-                "name": self.data[CONF_NAME],
                 "country": self.data.get(CONF_COUNTRY, "-"),
             },
         )
 
 
-class WorkdayOptionsFlowHandler(OptionsFlow):
+class WorkdayOptionsFlowHandler(OptionsFlowWithReload):
     """Handle Workday options."""
 
     async def async_step_init(
@@ -362,7 +367,7 @@ class WorkdayOptionsFlowHandler(OptionsFlow):
                     return self.async_create_entry(data=combined_input)
 
         options = self.config_entry.options
-        schema: vol.Schema = await self.hass.async_add_executor_job(
+        schema: probatio.Schema = await self.hass.async_add_executor_job(
             add_province_and_language_to_schema,
             DATA_SCHEMA_OPT,
             options.get(CONF_COUNTRY),
@@ -375,7 +380,7 @@ class WorkdayOptionsFlowHandler(OptionsFlow):
             data_schema=new_schema,
             errors=errors,
             description_placeholders={
-                "name": options[CONF_NAME],
+                "name": self.config_entry.title,
                 "country": options.get(CONF_COUNTRY, "-"),
             },
         )

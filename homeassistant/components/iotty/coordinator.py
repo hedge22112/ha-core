@@ -1,10 +1,9 @@
 """DataUpdateCoordinator for iotty."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
+from typing import override
 
 from iottycloud.device import Device
 from iottycloud.shutter import Shutter
@@ -32,16 +31,27 @@ class IottyData:
     devices: list[Device]
 
 
+@dataclass
+class IottyConfigEntryData:
+    """Contains config entry data for iotty."""
+
+    known_devices: set[Device]
+    coordinator: IottyDataUpdateCoordinator
+
+
+type IottyConfigEntry = ConfigEntry[IottyConfigEntryData]
+
+
 class IottyDataUpdateCoordinator(DataUpdateCoordinator[IottyData]):
     """Class to manage fetching Iotty data."""
 
-    config_entry: ConfigEntry
+    config_entry: IottyConfigEntry
     _entities: dict[str, Entity]
     _devices: list[Device]
     _device_registry: dr.DeviceRegistry
 
     def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, session: OAuth2Session
+        self, hass: HomeAssistant, entry: IottyConfigEntry, session: OAuth2Session
     ) -> None:
         """Initialize the coordinator."""
         _LOGGER.debug("Initializing iotty data update coordinator")
@@ -49,11 +59,11 @@ class IottyDataUpdateCoordinator(DataUpdateCoordinator[IottyData]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=f"{DOMAIN}_coordinator",
             update_interval=UPDATE_INTERVAL,
         )
 
-        self.config_entry = entry
         self._entities = {}
         self._devices = []
         self.iotty = api.IottyProxy(
@@ -61,12 +71,14 @@ class IottyDataUpdateCoordinator(DataUpdateCoordinator[IottyData]):
         )
         self._device_registry = dr.async_get(hass)
 
+    @override
     async def _async_setup(self) -> None:
         """Get devices."""
         _LOGGER.debug("Fetching devices list from iottyCloud")
         self._devices = await self.iotty.get_devices()
         _LOGGER.debug("There are %d devices", len(self._devices))
 
+    @override
     async def _async_update_data(self) -> IottyData:
         """Fetch data from iottyCloud device."""
         _LOGGER.debug("Fetching devices status from iottyCloud")
@@ -80,8 +92,8 @@ class IottyDataUpdateCoordinator(DataUpdateCoordinator[IottyData]):
         ]
 
         for removed_device in removed_devices:
-            device_to_remove = self._device_registry.async_get_device(
-                {(DOMAIN, removed_device.device_id)}
+            device_to_remove = self._device_registry.async_get_device_by_identifier(
+                (DOMAIN, removed_device.device_id), self.config_entry.entry_id
             )
             if device_to_remove is not None:
                 self._device_registry.async_remove_device(device_to_remove.id)

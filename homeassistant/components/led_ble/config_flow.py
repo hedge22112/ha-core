@@ -1,13 +1,11 @@
 """Config flow for LEDBLE integration."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
 from bluetooth_data_tools import human_readable_name
-from led_ble import BLEAK_EXCEPTIONS, LEDBLE
-import voluptuous as vol
+from led_ble import BLEAK_EXCEPTIONS, LEDBLE, CharacteristicMissingError
+import probatio
 
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
@@ -31,6 +29,7 @@ class LedBleConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovery_info: BluetoothServiceInfoBleak | None = None
         self._discovered_devices: dict[str, BluetoothServiceInfoBleak] = {}
 
+    @override
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> ConfigFlowResult:
@@ -49,6 +48,7 @@ class LedBleConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         return await self.async_step_user()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -66,6 +66,8 @@ class LedBleConfigFlow(ConfigFlow, domain=DOMAIN):
             led_ble = LEDBLE(discovery_info.device)
             try:
                 await led_ble.update()
+            except CharacteristicMissingError:
+                return self.async_abort(reason="not_supported")
             except BLEAK_EXCEPTIONS:
                 errors["base"] = "cannot_connect"
             except Exception:
@@ -83,7 +85,7 @@ class LedBleConfigFlow(ConfigFlow, domain=DOMAIN):
         if discovery := self._discovery_info:
             self._discovered_devices[discovery.address] = discovery
         else:
-            current_addresses = self._async_current_ids()
+            current_addresses = self._async_current_ids(include_ignore=False)
             for discovery in async_discovered_service_info(self.hass):
                 if (
                     discovery.address in current_addresses
@@ -100,9 +102,9 @@ class LedBleConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self._discovered_devices:
             return self.async_abort(reason="no_devices_found")
 
-        data_schema = vol.Schema(
+        data_schema = probatio.Schema(
             {
-                vol.Required(CONF_ADDRESS): vol.In(
+                probatio.Required(CONF_ADDRESS): probatio.In(
                     {
                         service_info.address: (
                             f"{service_info.name} ({service_info.address})"

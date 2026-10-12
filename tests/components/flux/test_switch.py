@@ -17,7 +17,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from tests.common import (
     assert_setup_component,
@@ -33,6 +33,15 @@ from tests.components.light.common import MockLight
 async def set_utc(hass: HomeAssistant) -> None:
     """Set timezone to UTC."""
     await hass.config.async_set_time_zone("UTC")
+
+
+@pytest.fixture
+def ignore_missing_translations() -> str | list[str]:
+    """Ignore specific missing translations."""
+    return [
+        "component.switch.services.flux_update.name",
+        "component.switch.services.flux_update.description",
+    ]
 
 
 async def test_valid_config(hass: HomeAssistant) -> None:
@@ -155,6 +164,10 @@ async def test_valid_config_no_name(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
 
+@pytest.mark.parametrize(
+    "ignore_missing_translations",
+    [[]],
+)
 async def test_invalid_config_no_lights(hass: HomeAssistant) -> None:
     """Test configuration."""
     with assert_setup_component(0, "switch"):

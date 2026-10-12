@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_binary_sensors[binary_sensor.energy_site_backup_capable-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Backup capable',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'Backup capable',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'backup_capable',
     'unique_id': '123456-backup_capable',
@@ -35,7 +39,7 @@
 # name: test_binary_sensors[binary_sensor.energy_site_backup_capable-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Energy Site Backup capable',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Energy Site Backup capable',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.energy_site_backup_capable',
@@ -47,11 +51,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.energy_site_grid_services_active-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -65,6 +71,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Grid services active',
     'options': dict({
     }),
     'original_device_class': None,
@@ -72,6 +79,7 @@
     'original_name': 'Grid services active',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'grid_services_active',
     'unique_id': '123456-grid_services_active',
@@ -81,7 +89,7 @@
 # name: test_binary_sensors[binary_sensor.energy_site_grid_services_active-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Energy Site Grid services active',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Energy Site Grid services active',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.energy_site_grid_services_active',
@@ -93,11 +101,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.energy_site_grid_services_enabled-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -111,6 +121,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Grid services enabled',
     'options': dict({
     }),
     'original_device_class': None,
@@ -118,6 +129,7 @@
     'original_name': 'Grid services enabled',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'components_grid_services_enabled',
     'unique_id': '123456-components_grid_services_enabled',
@@ -127,7 +139,7 @@
 # name: test_binary_sensors[binary_sensor.energy_site_grid_services_enabled-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Energy Site Grid services enabled',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Energy Site Grid services enabled',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.energy_site_grid_services_enabled',
@@ -137,13 +149,66 @@
     'state': 'off',
   })
 # ---
-# name: test_binary_sensors[binary_sensor.energy_site_storm_watch_active-entry]
+# name: test_binary_sensors[binary_sensor.energy_site_grid_status-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'binary_sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'binary_sensor.energy_site_grid_status',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Grid status',
+    'options': dict({
+    }),
+    'original_device_class': <BinarySensorDeviceClass.POWER: 'power'>,
+    'original_icon': None,
+    'original_name': 'Grid status',
+    'platform': 'tessie',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'grid_status',
+    'unique_id': '123456-grid_status',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.energy_site_grid_status-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'power',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Energy Site Grid status',
+    }),
+    'context': <ANY>,
+    'entity_id': 'binary_sensor.energy_site_grid_status',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'on',
+  })
+# ---
+# name: test_binary_sensors[binary_sensor.energy_site_storm_watch_active-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -157,6 +222,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Storm watch active',
     'options': dict({
     }),
     'original_device_class': None,
@@ -164,6 +230,7 @@
     'original_name': 'Storm watch active',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'storm_mode_active',
     'unique_id': '123456-storm_mode_active',
@@ -173,7 +240,7 @@
 # name: test_binary_sensors[binary_sensor.energy_site_storm_watch_active-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Energy Site Storm watch active',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Energy Site Storm watch active',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.energy_site_storm_watch_active',
@@ -185,11 +252,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_auto_seat_climate_left-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -203,6 +272,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto seat climate left',
     'options': dict({
     }),
     'original_device_class': None,
@@ -210,6 +280,7 @@
     'original_name': 'Auto seat climate left',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'climate_state_auto_seat_climate_left',
     'unique_id': 'VINVINVIN-climate_state_auto_seat_climate_left',
@@ -219,7 +290,7 @@
 # name: test_binary_sensors[binary_sensor.test_auto_seat_climate_left-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Test Auto seat climate left',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Auto seat climate left',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_auto_seat_climate_left',
@@ -231,11 +302,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_auto_seat_climate_right-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -249,6 +322,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto seat climate right',
     'options': dict({
     }),
     'original_device_class': None,
@@ -256,6 +330,7 @@
     'original_name': 'Auto seat climate right',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'climate_state_auto_seat_climate_right',
     'unique_id': 'VINVINVIN-climate_state_auto_seat_climate_right',
@@ -265,7 +340,7 @@
 # name: test_binary_sensors[binary_sensor.test_auto_seat_climate_right-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Test Auto seat climate right',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Auto seat climate right',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_auto_seat_climate_right',
@@ -277,11 +352,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_auto_steering_wheel_heater-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -295,6 +372,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Auto steering wheel heater',
     'options': dict({
     }),
     'original_device_class': None,
@@ -302,6 +380,7 @@
     'original_name': 'Auto steering wheel heater',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'climate_state_auto_steering_wheel_heat',
     'unique_id': 'VINVINVIN-climate_state_auto_steering_wheel_heat',
@@ -311,7 +390,7 @@
 # name: test_binary_sensors[binary_sensor.test_auto_steering_wheel_heater-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Test Auto steering wheel heater',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Auto steering wheel heater',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_auto_steering_wheel_heater',
@@ -323,11 +402,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_battery_heater-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -341,6 +422,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Battery heater',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.HEAT: 'heat'>,
@@ -348,6 +430,7 @@
     'original_name': 'Battery heater',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'climate_state_battery_heater',
     'unique_id': 'VINVINVIN-climate_state_battery_heater',
@@ -357,8 +440,8 @@
 # name: test_binary_sensors[binary_sensor.test_battery_heater-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'heat',
-      'friendly_name': 'Test Battery heater',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Battery heater',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_battery_heater',
@@ -370,11 +453,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_cabin_overheat_protection-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -388,6 +473,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Cabin overheat protection',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.RUNNING: 'running'>,
@@ -395,6 +481,7 @@
     'original_name': 'Cabin overheat protection',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'climate_state_cabin_overheat_protection',
     'unique_id': 'VINVINVIN-climate_state_cabin_overheat_protection',
@@ -404,8 +491,8 @@
 # name: test_binary_sensors[binary_sensor.test_cabin_overheat_protection-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'running',
-      'friendly_name': 'Test Cabin overheat protection',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'running',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Cabin overheat protection',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_cabin_overheat_protection',
@@ -417,11 +504,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_cabin_overheat_protection_actively_cooling-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -435,6 +524,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Cabin overheat protection actively cooling',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.HEAT: 'heat'>,
@@ -442,6 +532,7 @@
     'original_name': 'Cabin overheat protection actively cooling',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'climate_state_cabin_overheat_protection_actively_cooling',
     'unique_id': 'VINVINVIN-climate_state_cabin_overheat_protection_actively_cooling',
@@ -451,8 +542,8 @@
 # name: test_binary_sensors[binary_sensor.test_cabin_overheat_protection_actively_cooling-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'heat',
-      'friendly_name': 'Test Cabin overheat protection actively cooling',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'heat',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Cabin overheat protection actively cooling',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_cabin_overheat_protection_actively_cooling',
@@ -464,11 +555,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_charge_cable-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -482,6 +575,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Charge cable',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
@@ -489,6 +583,7 @@
     'original_name': 'Charge cable',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'charge_state_conn_charge_cable',
     'unique_id': 'VINVINVIN-charge_state_conn_charge_cable',
@@ -498,8 +593,8 @@
 # name: test_binary_sensors[binary_sensor.test_charge_cable-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'connectivity',
-      'friendly_name': 'Test Charge cable',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Charge cable',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_charge_cable',
@@ -511,11 +606,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_charging-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -529,6 +626,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Charging',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.BATTERY_CHARGING: 'battery_charging'>,
@@ -536,6 +634,7 @@
     'original_name': 'Charging',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'charge_state_charging_state',
     'unique_id': 'VINVINVIN-charge_state_charging_state',
@@ -545,8 +644,8 @@
 # name: test_binary_sensors[binary_sensor.test_charging-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'battery_charging',
-      'friendly_name': 'Test Charging',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'battery_charging',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Charging',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_charging',
@@ -558,11 +657,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_dashcam-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -576,6 +677,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Dashcam',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.RUNNING: 'running'>,
@@ -583,6 +685,7 @@
     'original_name': 'Dashcam',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_dashcam_state',
     'unique_id': 'VINVINVIN-vehicle_state_dashcam_state',
@@ -592,8 +695,8 @@
 # name: test_binary_sensors[binary_sensor.test_dashcam-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'running',
-      'friendly_name': 'Test Dashcam',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'running',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Dashcam',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_dashcam',
@@ -605,11 +708,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_front_driver_door-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -623,6 +728,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Front driver door',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.DOOR: 'door'>,
@@ -630,6 +736,7 @@
     'original_name': 'Front driver door',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_df',
     'unique_id': 'VINVINVIN-vehicle_state_df',
@@ -639,8 +746,8 @@
 # name: test_binary_sensors[binary_sensor.test_front_driver_door-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'door',
-      'friendly_name': 'Test Front driver door',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'door',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Front driver door',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_front_driver_door',
@@ -652,11 +759,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_front_driver_window-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -670,6 +779,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Front driver window',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.WINDOW: 'window'>,
@@ -677,6 +787,7 @@
     'original_name': 'Front driver window',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_fd_window',
     'unique_id': 'VINVINVIN-vehicle_state_fd_window',
@@ -686,8 +797,8 @@
 # name: test_binary_sensors[binary_sensor.test_front_driver_window-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'window',
-      'friendly_name': 'Test Front driver window',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Front driver window',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_front_driver_window',
@@ -699,11 +810,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_front_passenger_door-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -717,6 +830,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Front passenger door',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.DOOR: 'door'>,
@@ -724,6 +838,7 @@
     'original_name': 'Front passenger door',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_pf',
     'unique_id': 'VINVINVIN-vehicle_state_pf',
@@ -733,8 +848,8 @@
 # name: test_binary_sensors[binary_sensor.test_front_passenger_door-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'door',
-      'friendly_name': 'Test Front passenger door',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'door',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Front passenger door',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_front_passenger_door',
@@ -746,11 +861,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_front_passenger_window-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -764,6 +881,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Front passenger window',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.WINDOW: 'window'>,
@@ -771,6 +889,7 @@
     'original_name': 'Front passenger window',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_fp_window',
     'unique_id': 'VINVINVIN-vehicle_state_fp_window',
@@ -780,8 +899,8 @@
 # name: test_binary_sensors[binary_sensor.test_front_passenger_window-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'window',
-      'friendly_name': 'Test Front passenger window',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Front passenger window',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_front_passenger_window',
@@ -793,11 +912,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_preconditioning_enabled-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -811,6 +932,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Preconditioning enabled',
     'options': dict({
     }),
     'original_device_class': None,
@@ -818,6 +940,7 @@
     'original_name': 'Preconditioning enabled',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'charge_state_preconditioning_enabled',
     'unique_id': 'VINVINVIN-charge_state_preconditioning_enabled',
@@ -827,7 +950,7 @@
 # name: test_binary_sensors[binary_sensor.test_preconditioning_enabled-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Test Preconditioning enabled',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Preconditioning enabled',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_preconditioning_enabled',
@@ -839,11 +962,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_rear_driver_door-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -857,6 +982,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Rear driver door',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.DOOR: 'door'>,
@@ -864,6 +990,7 @@
     'original_name': 'Rear driver door',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_dr',
     'unique_id': 'VINVINVIN-vehicle_state_dr',
@@ -873,8 +1000,8 @@
 # name: test_binary_sensors[binary_sensor.test_rear_driver_door-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'door',
-      'friendly_name': 'Test Rear driver door',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'door',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Rear driver door',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_rear_driver_door',
@@ -886,11 +1013,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_rear_driver_window-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -904,6 +1033,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Rear driver window',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.WINDOW: 'window'>,
@@ -911,6 +1041,7 @@
     'original_name': 'Rear driver window',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_rd_window',
     'unique_id': 'VINVINVIN-vehicle_state_rd_window',
@@ -920,8 +1051,8 @@
 # name: test_binary_sensors[binary_sensor.test_rear_driver_window-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'window',
-      'friendly_name': 'Test Rear driver window',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Rear driver window',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_rear_driver_window',
@@ -933,11 +1064,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_rear_passenger_door-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -951,6 +1084,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Rear passenger door',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.DOOR: 'door'>,
@@ -958,6 +1092,7 @@
     'original_name': 'Rear passenger door',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_pr',
     'unique_id': 'VINVINVIN-vehicle_state_pr',
@@ -967,8 +1102,8 @@
 # name: test_binary_sensors[binary_sensor.test_rear_passenger_door-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'door',
-      'friendly_name': 'Test Rear passenger door',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'door',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Rear passenger door',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_rear_passenger_door',
@@ -980,11 +1115,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_rear_passenger_window-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -998,6 +1135,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Rear passenger window',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.WINDOW: 'window'>,
@@ -1005,6 +1143,7 @@
     'original_name': 'Rear passenger window',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_rp_window',
     'unique_id': 'VINVINVIN-vehicle_state_rp_window',
@@ -1014,8 +1153,8 @@
 # name: test_binary_sensors[binary_sensor.test_rear_passenger_window-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'window',
-      'friendly_name': 'Test Rear passenger window',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'window',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Rear passenger window',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_rear_passenger_window',
@@ -1027,11 +1166,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_scheduled_charging_pending-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1045,6 +1186,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Scheduled charging pending',
     'options': dict({
     }),
     'original_device_class': None,
@@ -1052,6 +1194,7 @@
     'original_name': 'Scheduled charging pending',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'charge_state_scheduled_charging_pending',
     'unique_id': 'VINVINVIN-charge_state_scheduled_charging_pending',
@@ -1061,7 +1204,7 @@
 # name: test_binary_sensors[binary_sensor.test_scheduled_charging_pending-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Test Scheduled charging pending',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Scheduled charging pending',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_scheduled_charging_pending',
@@ -1073,11 +1216,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_status-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1091,6 +1236,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Status',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.CONNECTIVITY: 'connectivity'>,
@@ -1098,6 +1244,7 @@
     'original_name': 'Status',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'state',
     'unique_id': 'VINVINVIN-state',
@@ -1107,8 +1254,8 @@
 # name: test_binary_sensors[binary_sensor.test_status-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'connectivity',
-      'friendly_name': 'Test Status',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'connectivity',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Status',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_status',
@@ -1120,11 +1267,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_front_left-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1138,6 +1287,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Tire pressure warning front left',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.PROBLEM: 'problem'>,
@@ -1145,6 +1295,7 @@
     'original_name': 'Tire pressure warning front left',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_tpms_soft_warning_fl',
     'unique_id': 'VINVINVIN-vehicle_state_tpms_soft_warning_fl',
@@ -1154,8 +1305,8 @@
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_front_left-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'problem',
-      'friendly_name': 'Test Tire pressure warning front left',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'problem',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Tire pressure warning front left',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_tire_pressure_warning_front_left',
@@ -1167,11 +1318,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_front_right-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1185,6 +1338,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Tire pressure warning front right',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.PROBLEM: 'problem'>,
@@ -1192,6 +1346,7 @@
     'original_name': 'Tire pressure warning front right',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_tpms_soft_warning_fr',
     'unique_id': 'VINVINVIN-vehicle_state_tpms_soft_warning_fr',
@@ -1201,8 +1356,8 @@
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_front_right-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'problem',
-      'friendly_name': 'Test Tire pressure warning front right',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'problem',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Tire pressure warning front right',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_tire_pressure_warning_front_right',
@@ -1214,11 +1369,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_rear_left-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1232,6 +1389,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Tire pressure warning rear left',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.PROBLEM: 'problem'>,
@@ -1239,6 +1397,7 @@
     'original_name': 'Tire pressure warning rear left',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_tpms_soft_warning_rl',
     'unique_id': 'VINVINVIN-vehicle_state_tpms_soft_warning_rl',
@@ -1248,8 +1407,8 @@
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_rear_left-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'problem',
-      'friendly_name': 'Test Tire pressure warning rear left',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'problem',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Tire pressure warning rear left',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_tire_pressure_warning_rear_left',
@@ -1261,11 +1420,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_rear_right-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1279,6 +1440,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Tire pressure warning rear right',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.PROBLEM: 'problem'>,
@@ -1286,6 +1448,7 @@
     'original_name': 'Tire pressure warning rear right',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_tpms_soft_warning_rr',
     'unique_id': 'VINVINVIN-vehicle_state_tpms_soft_warning_rr',
@@ -1295,8 +1458,8 @@
 # name: test_binary_sensors[binary_sensor.test_tire_pressure_warning_rear_right-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'problem',
-      'friendly_name': 'Test Tire pressure warning rear right',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'problem',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Tire pressure warning rear right',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_tire_pressure_warning_rear_right',
@@ -1308,11 +1471,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_trip_charging-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1326,6 +1491,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Trip charging',
     'options': dict({
     }),
     'original_device_class': None,
@@ -1333,6 +1499,7 @@
     'original_name': 'Trip charging',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'charge_state_trip_charging',
     'unique_id': 'VINVINVIN-charge_state_trip_charging',
@@ -1342,7 +1509,7 @@
 # name: test_binary_sensors[binary_sensor.test_trip_charging-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Test Trip charging',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Trip charging',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_trip_charging',
@@ -1354,11 +1521,13 @@
 # ---
 # name: test_binary_sensors[binary_sensor.test_user_present-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -1372,6 +1541,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'User present',
     'options': dict({
     }),
     'original_device_class': <BinarySensorDeviceClass.OCCUPANCY: 'occupancy'>,
@@ -1379,6 +1549,7 @@
     'original_name': 'User present',
     'platform': 'tessie',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'vehicle_state_is_user_present',
     'unique_id': 'VINVINVIN-vehicle_state_is_user_present',
@@ -1388,8 +1559,8 @@
 # name: test_binary_sensors[binary_sensor.test_user_present-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'occupancy',
-      'friendly_name': 'Test User present',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'occupancy',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test User present',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.test_user_present',

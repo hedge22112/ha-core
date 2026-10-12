@@ -1,21 +1,23 @@
 # serializer version: 1
 # name: test_cloud_all_sensors[climate.bedroom-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -29,6 +31,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Bedroom',
     'options': dict({
     }),
     'original_device_class': None,
@@ -36,6 +39,7 @@
     'original_name': 'Bedroom',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_29',
@@ -45,17 +49,17 @@
 # name: test_cloud_all_sensors[climate.bedroom-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 21.5,
-      'friendly_name': 'Bedroom',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 21.5,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Bedroom',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'boost',
       ]),
       'status': dict({
@@ -67,8 +71,9 @@
         'temperature': 21.5,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.bedroom',
@@ -80,22 +85,24 @@
 # ---
 # name: test_cloud_all_sensors[climate.ensuite-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -109,6 +116,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Ensuite',
     'options': dict({
     }),
     'original_device_class': None,
@@ -116,6 +124,7 @@
     'original_name': 'Ensuite',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_5',
@@ -125,17 +134,17 @@
 # name: test_cloud_all_sensors[climate.ensuite-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 21,
-      'friendly_name': 'Ensuite',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 21,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Ensuite',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
@@ -149,8 +158,9 @@
         'temperature': 21,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.ensuite',
@@ -162,22 +172,24 @@
 # ---
 # name: test_cloud_all_sensors[climate.guest_room-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -191,6 +203,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Guest room',
     'options': dict({
     }),
     'original_device_class': None,
@@ -198,6 +211,7 @@
     'original_name': 'Guest room',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_7',
@@ -207,17 +221,17 @@
 # name: test_cloud_all_sensors[climate.guest_room-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 21,
-      'friendly_name': 'Guest room',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 21,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Guest room',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
@@ -231,8 +245,9 @@
         'temperature': 21,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.guest_room',
@@ -244,22 +259,24 @@
 # ---
 # name: test_cloud_all_sensors[climate.hall-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -273,6 +290,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Hall',
     'options': dict({
     }),
     'original_device_class': None,
@@ -280,6 +298,7 @@
     'original_name': 'Hall',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_2',
@@ -289,17 +308,17 @@
 # name: test_cloud_all_sensors[climate.hall-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 21,
-      'friendly_name': 'Hall',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 21,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Hall',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
@@ -313,8 +332,9 @@
         'temperature': 21,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.hall',
@@ -326,22 +346,24 @@
 # ---
 # name: test_cloud_all_sensors[climate.kitchen-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -355,6 +377,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Kitchen',
     'options': dict({
     }),
     'original_device_class': None,
@@ -362,6 +385,7 @@
     'original_name': 'Kitchen',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_3',
@@ -371,17 +395,17 @@
 # name: test_cloud_all_sensors[climate.kitchen-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 21.5,
-      'friendly_name': 'Kitchen',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 21.5,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Kitchen',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
@@ -395,8 +419,9 @@
         'temperature': 21.5,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.kitchen',
@@ -408,21 +433,23 @@
 # ---
 # name: test_cloud_all_sensors[climate.lounge-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -436,6 +463,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Lounge',
     'options': dict({
     }),
     'original_device_class': None,
@@ -443,6 +471,7 @@
     'original_name': 'Lounge',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_1',
@@ -452,17 +481,17 @@
 # name: test_cloud_all_sensors[climate.lounge-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 20,
-      'friendly_name': 'Lounge',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 20,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Lounge',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'boost',
       ]),
       'status': dict({
@@ -474,8 +503,9 @@
         'temperature': 20,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.lounge',
@@ -487,22 +517,24 @@
 # ---
 # name: test_cloud_all_sensors[climate.study-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'hvac_modes': list([
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_modes': list([
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -516,6 +548,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Study',
     'options': dict({
     }),
     'original_device_class': None,
@@ -523,6 +556,7 @@
     'original_name': 'Study',
     'platform': 'geniushub',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <ClimateEntityFeature: 401>,
     'translation_key': None,
     'unique_id': '01J71MQF0EC62D620DGYNG2R8H_zone_30',
@@ -532,17 +566,17 @@
 # name: test_cloud_all_sensors[climate.study-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'current_temperature': 22,
-      'friendly_name': 'Study',
-      'hvac_modes': list([
+      <ClimateEntityStateAttribute.CURRENT_TEMPERATURE: 'current_temperature'>: 22,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Study',
+      <ClimateEntityCapabilityAttribute.HVAC_MODES: 'hvac_modes'>: list([
         <HVACMode.OFF: 'off'>,
         <HVACMode.HEAT: 'heat'>,
       ]),
-      'icon': 'mdi:radiator',
-      'max_temp': 28.0,
-      'min_temp': 4.0,
-      'preset_mode': None,
-      'preset_modes': list([
+      <EntityStateAttribute.ICON: 'icon'>: 'mdi:radiator',
+      <ClimateEntityCapabilityAttribute.MAX_TEMP: 'max_temp'>: 28.0,
+      <ClimateEntityCapabilityAttribute.MIN_TEMP: 'min_temp'>: 4.0,
+      <ClimateEntityStateAttribute.PRESET_MODE: 'preset_mode'>: None,
+      <ClimateEntityCapabilityAttribute.PRESET_MODES: 'preset_modes'>: list([
         'activity',
         'boost',
       ]),
@@ -556,8 +590,9 @@
         'temperature': 22,
         'type': 'radiator',
       }),
-      'supported_features': <ClimateEntityFeature: 401>,
-      'temperature': 4,
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <ClimateEntityFeature: 401>,
+      <ClimateEntityStateAttribute.TARGET_TEMPERATURE: 'temperature'>: 4,
+      <ClimateEntityStateAttribute.TEMPERATURE_UNIT: 'temperature_unit'>: <UnitOfTemperature.CELSIUS: '°C'>,
     }),
     'context': <ANY>,
     'entity_id': 'climate.study',

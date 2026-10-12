@@ -3,13 +3,16 @@
 from collections.abc import Coroutine
 from datetime import timedelta
 import logging
-from typing import Any, cast
+from typing import Any, cast, override
 
 from rabbitair import Client, State
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+type RabbitAirConfigEntry = ConfigEntry[RabbitAirDataUpdateCoordinator]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +31,7 @@ class RabbitAirDebouncer(Debouncer[Coroutine[Any, Any, None]]):
         # one-second intervals.
         super().__init__(hass, _LOGGER, cooldown=2.0, immediate=False)
 
+    @override
     async def async_call(self) -> None:
         """Call the function."""
         # Restart the timer.
@@ -42,20 +46,27 @@ class RabbitAirDebouncer(Debouncer[Coroutine[Any, Any, None]]):
 class RabbitAirDataUpdateCoordinator(DataUpdateCoordinator[State]):
     """Class to manage fetching data from single endpoint."""
 
-    def __init__(self, hass: HomeAssistant, device: Client) -> None:
+    config_entry: RabbitAirConfigEntry
+
+    def __init__(
+        self, hass: HomeAssistant, config_entry: RabbitAirConfigEntry, device: Client
+    ) -> None:
         """Initialize global data updater."""
         self.device = device
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name="rabbitair",
             update_interval=timedelta(seconds=10),
             request_refresh_debouncer=RabbitAirDebouncer(hass),
         )
 
+    @override
     async def _async_update_data(self) -> State:
         return await self.device.get_state()
 
+    @override
     async def _async_refresh(
         self,
         log_failures: bool = True,

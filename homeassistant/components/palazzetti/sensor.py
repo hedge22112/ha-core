@@ -1,6 +1,7 @@
 """Support for Palazzetti sensors."""
 
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -10,22 +11,24 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfLength, UnitOfMass, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import PalazzettiConfigEntry
 from .const import STATUS_TO_HA
-from .coordinator import PalazzettiDataUpdateCoordinator
+from .coordinator import PalazzettiConfigEntry, PalazzettiDataUpdateCoordinator
 from .entity import PalazzettiEntity
 
 
 @dataclass(frozen=True, kw_only=True)
 class PropertySensorEntityDescription(SensorEntityDescription):
-    """Describes a Palazzetti sensor entity that is read from a `PalazzettiClient` property."""
+    """Describes a Palazzetti sensor entity.
+
+    Read from a `PalazzettiClient` property.
+    """
 
     client_property: str
     property_map: dict[StateType, str] | None = None
-    presence_flag: None | str = None
+    presence_flag: str | None = None
 
 
 PROPERTY_SENSOR_DESCRIPTIONS: list[PropertySensorEntityDescription] = [
@@ -60,7 +63,7 @@ PROPERTY_SENSOR_DESCRIPTIONS: list[PropertySensorEntityDescription] = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PalazzettiConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Palazzetti sensor entities based on a config entry."""
 
@@ -110,6 +113,7 @@ class PalazzettiSensor(PalazzettiEntity, SensorEntity):
         self._attr_unique_id = f"{coordinator.config_entry.unique_id}-{description.key}"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state value of the sensor."""
 

@@ -1,29 +1,26 @@
 """Support for deCONZ locks."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from pydeconz.models.event import EventType
 from pydeconz.models.light.lock import Lock
 from pydeconz.models.sensor.door_lock import DoorLock
 
 from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN, LockEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import DeconzConfigEntry
 from .entity import DeconzDevice
-from .hub import DeconzHub
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: DeconzConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up locks for deCONZ component."""
-    hub = DeconzHub.get_hub(hass, config_entry)
+    hub = config_entry.runtime_data
     hub.entities[LOCK_DOMAIN] = set()
 
     @callback
@@ -56,10 +53,12 @@ class DeconzLock(DeconzDevice[DoorLock | Lock], LockEntity):
     TYPE = LOCK_DOMAIN
 
     @property
+    @override
     def is_locked(self) -> bool:
         """Return true if lock is on."""
         return self._device.is_locked
 
+    @override
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the lock."""
         if isinstance(self._device, DoorLock):
@@ -73,6 +72,7 @@ class DeconzLock(DeconzDevice[DoorLock | Lock], LockEntity):
                 lock=True,
             )
 
+    @override
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the lock."""
         if isinstance(self._device, DoorLock):

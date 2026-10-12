@@ -1,20 +1,18 @@
 """Camera that loads a picture from an MQTT topic."""
 
-from __future__ import annotations
-
 from base64 import b64decode
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import camera
-from homeassistant.components.camera import Camera
+from homeassistant.components.camera import Camera, CameraEntityStateAttribute
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import subscription
@@ -35,32 +33,32 @@ DEFAULT_NAME = "MQTT Camera"
 
 MQTT_CAMERA_ATTRIBUTES_BLOCKED = frozenset(
     {
-        "access_token",
-        "brand",
-        "model_name",
-        "motion_detection",
+        CameraEntityStateAttribute.ACCESS_TOKEN,
+        CameraEntityStateAttribute.BRAND,
+        CameraEntityStateAttribute.MODEL_NAME,
+        CameraEntityStateAttribute.MOTION_DETECTION,
     }
 )
 
 PLATFORM_SCHEMA_BASE = MQTT_BASE_SCHEMA.extend(
     {
-        vol.Optional(CONF_NAME): vol.Any(cv.string, None),
-        vol.Required(CONF_TOPIC): valid_subscribe_topic,
-        vol.Optional(CONF_IMAGE_ENCODING): "b64",
+        probatio.Optional(CONF_NAME): probatio.Any(cv.string, None),
+        probatio.Required(CONF_TOPIC): valid_subscribe_topic,
+        probatio.Optional(CONF_IMAGE_ENCODING): "b64",
     }
 ).extend(MQTT_ENTITY_COMMON_SCHEMA.schema)
 
-PLATFORM_SCHEMA_MODERN = vol.All(
+PLATFORM_SCHEMA_MODERN = probatio.All(
     PLATFORM_SCHEMA_BASE.schema,
 )
 
-DISCOVERY_SCHEMA = PLATFORM_SCHEMA_BASE.extend({}, extra=vol.REMOVE_EXTRA)
+DISCOVERY_SCHEMA = PLATFORM_SCHEMA_BASE.extend({}, extra=probatio.REMOVE_EXTRA)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up MQTT camera through YAML and through MQTT discovery."""
     async_setup_entity_entry_helper(
@@ -94,7 +92,8 @@ class MqttCamera(MqttEntity, Camera):
         MqttEntity.__init__(self, hass, config, config_entry, discovery_data)
 
     @staticmethod
-    def config_schema() -> vol.Schema:
+    @override
+    def config_schema() -> probatio.Schema:
         """Return the config schema."""
         return DISCOVERY_SCHEMA
 
@@ -109,6 +108,7 @@ class MqttCamera(MqttEntity, Camera):
             self._last_image = msg.payload
 
     @callback
+    @override
     def _prepare_subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
 
@@ -116,10 +116,12 @@ class MqttCamera(MqttEntity, Camera):
             CONF_TOPIC, self._image_received, None, disable_encoding=True
         )
 
+    @override
     async def _subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         subscription.async_subscribe_topics_internal(self.hass, self._sub_state)
 
+    @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:

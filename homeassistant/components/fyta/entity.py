@@ -1,14 +1,15 @@
 """Entities for FYTA integration."""
 
+from typing import override
+
 from fyta_cli.fyta_models import Plant
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import FytaConfigEntry
 from .const import DOMAIN
-from .coordinator import FytaCoordinator
+from .coordinator import FytaConfigEntry, FytaCoordinator
 
 
 class FytaPlantEntity(CoordinatorEntity[FytaCoordinator]):
@@ -43,6 +44,7 @@ class FytaPlantEntity(CoordinatorEntity[FytaCoordinator]):
         return self.coordinator.data[self.plant_id]
 
     @property
+    @override
     def available(self) -> bool:
         """Test if entity is available."""
         return super().available and self.plant_id in self.coordinator.data

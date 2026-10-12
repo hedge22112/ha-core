@@ -65,6 +65,10 @@ CONTENT_TYPE_MAP = {
     "Season": MediaType.SEASON,
     "Series": MediaType.TVSHOW,
     "Movie": MediaType.MOVIE,
+    "MusicAlbum": MediaType.ALBUM,
+    "MusicArtist": MediaType.ARTIST,
+    "Playlist": MediaType.PLAYLIST,
+    "Video": MediaType.VIDEO,
     "CollectionFolder": "collection",
     "AggregateFolder": "library",
     "Folder": "library",
@@ -74,14 +78,26 @@ MEDIA_CLASS_MAP = {
     "MusicAlbum": MediaClass.ALBUM,
     "MusicArtist": MediaClass.ARTIST,
     "Audio": MediaClass.MUSIC,
-    "Series": MediaClass.DIRECTORY,
+    "Series": MediaClass.TV_SHOW,
     "Movie": MediaClass.MOVIE,
     "CollectionFolder": MediaClass.DIRECTORY,
+    "AggregateFolder": MediaClass.DIRECTORY,
     "Folder": MediaClass.DIRECTORY,
     "BoxSet": MediaClass.DIRECTORY,
     "Episode": MediaClass.EPISODE,
     "Season": MediaClass.SEASON,
+    "Playlist": MediaClass.PLAYLIST,
+    "Video": MediaClass.VIDEO,
 }
+# The track class has no item type of its own, so it searches Audio items too.
+SEARCH_ITEM_TYPE_MAP: dict[MediaClass, list[str]] = {
+    media_class: [
+        item_type
+        for item_type, item_class in MEDIA_CLASS_MAP.items()
+        if item_class == media_class
+    ]
+    for media_class in set(MEDIA_CLASS_MAP.values())
+} | {MediaClass.TRACK: [ITEM_TYPE_AUDIO]}
 
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE, Platform.SENSOR]
 LOGGER = logging.getLogger(__package__)

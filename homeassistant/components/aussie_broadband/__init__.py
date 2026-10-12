@@ -1,7 +1,5 @@
 """The Aussie Broadband integration."""
 
-from __future__ import annotations
-
 from aiohttp import ClientError
 from aussiebb.asyncio import AussieBB
 from aussiebb.const import FETCH_TYPES
@@ -45,7 +43,7 @@ async def async_setup_entry(
     # Initiate a Data Update Coordinator for each service
     for service in services:
         service["coordinator"] = AussieBroadbandDataUpdateCoordinator(
-            hass, client, service["service_id"]
+            hass, entry, client, service["service_id"]
         )
         await service["coordinator"].async_config_entry_first_refresh()
 

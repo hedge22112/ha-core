@@ -1,10 +1,8 @@
 """Ecovacs mqtt entity module."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, override
 
 from deebot_client.capabilities import Capabilities
 from deebot_client.device import Device
@@ -18,11 +16,8 @@ from homeassistant.helpers.entity import Entity, EntityDescription
 
 from .const import DOMAIN
 
-CapabilityEntity = TypeVar("CapabilityEntity")
-EventT = TypeVar("EventT", bound=Event)
 
-
-class EcovacsEntity(Entity, Generic[CapabilityEntity]):
+class EcovacsEntity[CapabilityEntityT](Entity):
     """Ecovacs entity."""
 
     _attr_should_poll = False
@@ -32,7 +27,7 @@ class EcovacsEntity(Entity, Generic[CapabilityEntity]):
     def __init__(
         self,
         device: Device,
-        capability: CapabilityEntity,
+        capability: CapabilityEntityT,
         **kwargs: Any,
     ) -> None:
         """Initialize entity."""
@@ -46,6 +41,7 @@ class EcovacsEntity(Entity, Generic[CapabilityEntity]):
         self._subscribed_events: set[type[Event]] = set()
 
     @property
+    @override
     def device_info(self) -> DeviceInfo | None:
         """Return device specific attributes."""
         device_info = self._device.device_info
@@ -68,6 +64,7 @@ class EcovacsEntity(Entity, Generic[CapabilityEntity]):
 
         return info
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Set up the event listeners now that hass is ready."""
         await super().async_added_to_hass()
@@ -80,7 +77,7 @@ class EcovacsEntity(Entity, Generic[CapabilityEntity]):
 
             self._subscribe(AvailabilityEvent, on_available)
 
-    def _subscribe(
+    def _subscribe[EventT: Event](
         self,
         event_type: type[EventT],
         callback: Callable[[EventT], Coroutine[Any, Any, None]],
@@ -98,13 +95,13 @@ class EcovacsEntity(Entity, Generic[CapabilityEntity]):
             self._device.events.request_refresh(event_type)
 
 
-class EcovacsDescriptionEntity(EcovacsEntity[CapabilityEntity]):
+class EcovacsDescriptionEntity[CapabilityEntityT](EcovacsEntity[CapabilityEntityT]):
     """Ecovacs entity."""
 
     def __init__(
         self,
         device: Device,
-        capability: CapabilityEntity,
+        capability: CapabilityEntityT,
         entity_description: EntityDescription,
         **kwargs: Any,
     ) -> None:
@@ -114,13 +111,12 @@ class EcovacsDescriptionEntity(EcovacsEntity[CapabilityEntity]):
 
 
 @dataclass(kw_only=True, frozen=True)
-class EcovacsCapabilityEntityDescription(
+class EcovacsCapabilityEntityDescription[CapabilityEntityT](
     EntityDescription,
-    Generic[CapabilityEntity],
 ):
     """Ecovacs entity description."""
 
-    capability_fn: Callable[[Capabilities], CapabilityEntity | None]
+    capability_fn: Callable[[Capabilities], CapabilityEntityT | None]
 
 
 class EcovacsLegacyEntity(Entity):
@@ -151,10 +147,12 @@ class EcovacsLegacyEntity(Entity):
         self._event_listeners: list[EventListener] = []
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if the entity is available."""
         return super().available and self.state is not None
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Remove event listeners on entity remove."""
         for listener in self._event_listeners:

@@ -1,8 +1,7 @@
 """Support for Yale doorbell camera."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from aiohttp import ClientSession
 from yalexs.activity import ActivityType
@@ -12,7 +11,7 @@ from yalexs.util import update_doorbell_image_from_activity
 from homeassistant.components.camera import Camera
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import aiohttp_client
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import YaleConfigEntry, YaleData
 from .const import DEFAULT_NAME, DEFAULT_TIMEOUT
@@ -24,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: YaleConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Yale cameras."""
     data = config_entry.runtime_data
@@ -57,6 +56,7 @@ class YaleCamera(YaleEntity, Camera):
         self._attr_model = self._detail.model
 
     @property
+    @override
     def is_recording(self) -> bool:
         """Return true if the device is recording."""
         return self._device.has_subscription
@@ -68,6 +68,7 @@ class YaleCamera(YaleEntity, Camera):
         self._update_from_data()
 
     @callback
+    @override
     def _update_from_data(self) -> None:
         """Get the latest state of the sensor."""
         if doorbell_activity := self._get_latest(
@@ -75,6 +76,7 @@ class YaleCamera(YaleEntity, Camera):
         ):
             update_doorbell_image_from_activity(self._detail, doorbell_activity)
 
+    @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:

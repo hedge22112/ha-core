@@ -7,6 +7,15 @@ DOMAIN_EVENT = f"{DOMAIN}_event"
 
 DEFAULT_NAME = "Music Assistant"
 
+# Schema version where mandatory authentication was added to the MA webserver
+AUTH_SCHEMA_VERSION = 28
+# Schema version where hassio discovery support was added
+HASSIO_DISCOVERY_SCHEMA_VERSION = 28
+
+# The official Music Assistant Home Assistant app
+APP_SLUG = "d5369777_music_assistant"
+APP_NAME = "Music Assistant"
+
 ATTR_IS_GROUP = "is_group"
 ATTR_GROUP_MEMBERS = "group_members"
 ATTR_GROUP_PARENTS = "group_parents"
@@ -26,7 +35,6 @@ ATTR_OFFSET = "offset"
 ATTR_ORDER_BY = "order_by"
 ATTR_ALBUM_TYPE = "album_type"
 ATTR_ALBUM_ARTISTS_ONLY = "album_artists_only"
-ATTR_CONFIG_ENTRY_ID = "config_entry_id"
 ATTR_URI = "uri"
 ATTR_IMAGE = "image"
 ATTR_VERSION = "version"
@@ -34,15 +42,21 @@ ATTR_ARTISTS = "artists"
 ATTR_ALBUMS = "albums"
 ATTR_TRACKS = "tracks"
 ATTR_PLAYLISTS = "playlists"
+ATTR_AUDIOBOOKS = "audiobooks"
+ATTR_PODCASTS = "podcasts"
 ATTR_RADIO = "radio"
 ATTR_ITEMS = "items"
 ATTR_RADIO_MODE = "radio_mode"
+ATTR_START_ITEM = "start_item"
 ATTR_MEDIA_ID = "media_id"
 ATTR_ARTIST = "artist"
 ATTR_ALBUM = "album"
 ATTR_URL = "url"
+ATTR_MESSAGE = "message"
+ATTR_TTS_ENTITY_ID = "tts_entity_id"
 ATTR_USE_PRE_ANNOUNCE = "use_pre_announce"
 ATTR_ANNOUNCE_VOLUME = "announce_volume"
+ATTR_PRE_ANNOUNCE_URL = "pre_announce_url"
 ATTR_SOURCE_PLAYER = "source_player"
 ATTR_AUTO_PLAY = "auto_play"
 ATTR_QUEUE_ID = "queue_id"
@@ -63,6 +77,17 @@ ATTR_BIT_DEPTH = "bit_depth"
 ATTR_STREAM_TITLE = "stream_title"
 ATTR_PROVIDER = "provider"
 ATTR_ITEM_ID = "item_id"
+ATTR_EXPLICIT = "explicit"
+ATTR_BITRATE = "bit_rate"
+ATTR_DISCART_IMAGE = "discart_image"
+ATTR_FANART_IMAGE = "fanart_image"
+ATTR_USERNAME = "username"
 
+ATTR_CONF_EXPOSE_PLAYER_TO_HA = "expose_player_to_ha"
+
+# prefix of dashboard device identifiers and entity unique ids, which tells
+# them apart from player ids (a display may share its id with a player)
+DASHBOARD_ID_PREFIX = "dashboard:"
+DASHBOARD_DEVICE_MODEL = "Dashboard display"
 
 LOGGER = logging.getLogger(__package__)

@@ -1,24 +1,21 @@
 """Feed Entity Manager Sensor support for GDACS Feed."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import datetime
 import logging
-from typing import Any
+from typing import Any, override
 
 from aio_georss_client.status_update import StatusUpdate
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from . import GdacsFeedEntityManager
-from .const import DOMAIN, FEED
+from . import GdacsConfigEntry, GdacsFeedEntityManager
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,11 +34,12 @@ PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: GdacsConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the GDACS Feed platform."""
-    manager: GdacsFeedEntityManager = hass.data[DOMAIN][FEED][entry.entry_id]
-    sensor = GdacsSensor(entry, manager)
+    sensor = GdacsSensor(entry, entry.runtime_data)
     async_add_entities([sensor])
 
 
@@ -55,7 +53,7 @@ class GdacsSensor(SensorEntity):
     _attr_translation_key = "alerts"
 
     def __init__(
-        self, config_entry: ConfigEntry, manager: GdacsFeedEntityManager
+        self, config_entry: GdacsConfigEntry, manager: GdacsFeedEntityManager
     ) -> None:
         """Initialize entity."""
         assert config_entry.unique_id
@@ -77,6 +75,7 @@ class GdacsSensor(SensorEntity):
             manufacturer="GDACS",
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Call when entity is added to hass."""
         self._remove_signal_status = async_dispatcher_connect(
@@ -88,6 +87,7 @@ class GdacsSensor(SensorEntity):
         # First update is manual because of how the feed entity manager is updated.
         await self.async_update()
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Call when entity will be removed from hass."""
         if self._remove_signal_status:
@@ -126,11 +126,13 @@ class GdacsSensor(SensorEntity):
         self._removed = status_info.removed
 
     @property
+    @override
     def native_value(self) -> int | None:
         """Return the state of the sensor."""
         return self._total
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the device state attributes."""
         return {

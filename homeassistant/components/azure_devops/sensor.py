@@ -1,12 +1,10 @@
 """Support for Azure DevOps sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import logging
-from typing import Any
+from typing import Any, override
 
 from aioazuredevops.helper import WorkItemState, WorkItemTypeAndState
 from aioazuredevops.models.build import Build
@@ -17,12 +15,11 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from . import AzureDevOpsConfigEntry
-from .coordinator import AzureDevOpsDataUpdateCoordinator
+from .coordinator import AzureDevOpsConfigEntry, AzureDevOpsDataUpdateCoordinator
 from .entity import AzureDevOpsEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -146,7 +143,7 @@ def parse_datetime(value: str | None) -> datetime | None:
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AzureDevOpsConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Azure DevOps sensor based on a config entry."""
     coordinator = entry.runtime_data
@@ -209,11 +206,13 @@ class AzureDevOpsBuildSensor(AzureDevOpsEntity, SensorEntity):
         return self.coordinator.data.builds[self.item_key]
 
     @property
+    @override
     def native_value(self) -> datetime | StateType:
         """Return the state."""
         return self.entity_description.value_fn(self.build)
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the entity."""
         return self.entity_description.attr_fn(self.build)
@@ -259,6 +258,7 @@ class AzureDevOpsWorkItemSensor(AzureDevOpsEntity, SensorEntity):
         return self.work_item_type.state_items[self.state_key]
 
     @property
+    @override
     def native_value(self) -> datetime | StateType:
         """Return the state."""
         return self.entity_description.value_fn(self.work_item_state)

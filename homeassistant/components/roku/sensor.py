@@ -1,18 +1,17 @@
 """Support for Roku sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from rokuecp.models import Device as RokuDevice
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import RokuConfigEntry
+from .coordinator import RokuConfigEntry
 from .entity import RokuEntity
 
 # Coordinator is used to centralize the data updates
@@ -45,7 +44,7 @@ SENSORS: tuple[RokuSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RokuConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Roku sensor based on a config entry."""
     async_add_entities(
@@ -63,6 +62,7 @@ class RokuSensorEntity(RokuEntity, SensorEntity):
     entity_description: RokuSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> str | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

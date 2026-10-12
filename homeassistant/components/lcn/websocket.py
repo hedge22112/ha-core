@@ -1,41 +1,43 @@
 """LCN Websocket API."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 import lcn_frontend as lcn_panel
-import voluptuous as vol
+import probatio
+from pypck.device import DeviceConnection
 
 from homeassistant.components import panel_custom, websocket_api
+from homeassistant.components.frontend import async_panel_exists
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.components.websocket_api import AsyncWebSocketCommandHandler
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.websocket_api import (
+    ActiveConnection,
+    AsyncWebSocketCommandHandler,
+)
 from homeassistant.const import (
     CONF_ADDRESS,
     CONF_DEVICES,
     CONF_DOMAIN,
     CONF_ENTITIES,
     CONF_NAME,
-    CONF_RESOURCE,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 
 from .const import (
-    ADD_ENTITIES_CALLBACKS,
     CONF_DOMAIN_DATA,
     CONF_HARDWARE_SERIAL,
     CONF_HARDWARE_TYPE,
     CONF_SOFTWARE_SERIAL,
-    CONNECTION,
     DOMAIN,
 )
 from .helpers import (
-    DeviceConnectionType,
+    LcnConfigEntry,
     async_update_device_config,
     generate_unique_id,
     get_device_config,
@@ -56,11 +58,8 @@ from .schemas import (
     DOMAIN_DATA_SWITCH,
 )
 
-if TYPE_CHECKING:
-    from homeassistant.components.websocket_api import ActiveConnection
-
 type AsyncLcnWebSocketCommandHandler = Callable[
-    [HomeAssistant, ActiveConnection, dict[str, Any], ConfigEntry], Awaitable[None]
+    [HomeAssistant, ActiveConnection, dict[str, Any], LcnConfigEntry], Awaitable[None]
 ]
 
 URL_BASE: Final = "/lcn_static"
@@ -76,7 +75,7 @@ async def register_panel_and_ws_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_add_entity)
     websocket_api.async_register_command(hass, websocket_delete_entity)
 
-    if DOMAIN not in hass.data.get("frontend_panels", {}):
+    if not async_panel_exists(hass, DOMAIN):
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(
@@ -104,7 +103,9 @@ def get_config_entry(
 
     @wraps(func)
     async def get_entry(
-        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
     ) -> None:
         """Get config_entry."""
         if not (config_entry := hass.config_entries.async_get_entry(msg["entry_id"])):
@@ -117,15 +118,15 @@ def get_config_entry(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): "lcn/devices", vol.Required("entry_id"): cv.string}
+    {probatio.Required("type"): "lcn/devices", probatio.Required("entry_id"): cv.string}
 )
 @websocket_api.async_response
 @get_config_entry
 async def websocket_get_device_configs(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Get device configs."""
     connection.send_result(msg["id"], config_entry.data[CONF_DEVICES])
@@ -134,9 +135,9 @@ async def websocket_get_device_configs(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "lcn/entities",
-        vol.Required("entry_id"): cv.string,
-        vol.Optional(CONF_ADDRESS): ADDRESS_SCHEMA,
+        probatio.Required("type"): "lcn/entities",
+        probatio.Required("entry_id"): cv.string,
+        probatio.Optional(CONF_ADDRESS): ADDRESS_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -144,8 +145,8 @@ async def websocket_get_device_configs(
 async def websocket_get_entity_configs(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Get entities configs."""
     if CONF_ADDRESS in msg:
@@ -168,21 +169,24 @@ async def websocket_get_entity_configs(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): "lcn/devices/scan", vol.Required("entry_id"): cv.string}
+    {
+        probatio.Required("type"): "lcn/devices/scan",
+        probatio.Required("entry_id"): cv.string,
+    }
 )
 @websocket_api.async_response
 @get_config_entry
 async def websocket_scan_devices(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Scan for new devices."""
-    host_connection = hass.data[DOMAIN][config_entry.entry_id][CONNECTION]
+    host_connection = config_entry.runtime_data.connection
     await host_connection.scan_modules()
 
-    for device_connection in host_connection.address_conns.values():
+    for device_connection in host_connection.device_connections.values():
         if not device_connection.is_group:
             await async_create_or_update_device_in_config_entry(
                 hass, device_connection, config_entry
@@ -197,9 +201,9 @@ async def websocket_scan_devices(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "lcn/devices/add",
-        vol.Required("entry_id"): cv.string,
-        vol.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
+        probatio.Required("type"): "lcn/devices/add",
+        probatio.Required("entry_id"): cv.string,
+        probatio.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -207,8 +211,8 @@ async def websocket_scan_devices(
 async def websocket_add_device(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Add a device."""
     if get_device_config(msg[CONF_ADDRESS], config_entry):
@@ -243,9 +247,9 @@ async def websocket_add_device(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "lcn/devices/delete",
-        vol.Required("entry_id"): cv.string,
-        vol.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
+        probatio.Required("type"): "lcn/devices/delete",
+        probatio.Required("entry_id"): cv.string,
+        probatio.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -253,17 +257,17 @@ async def websocket_add_device(
 async def websocket_delete_device(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Delete a device."""
     device_config = get_device_config(msg[CONF_ADDRESS], config_entry)
 
     device_registry = dr.async_get(hass)
-    identifiers = {
-        (DOMAIN, generate_unique_id(config_entry.entry_id, msg[CONF_ADDRESS]))
-    }
-    device = device_registry.async_get_device(identifiers, set())
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, generate_unique_id(config_entry.entry_id, msg[CONF_ADDRESS])),
+        config_entry.entry_id,
+    )
 
     if not (device and device_config):
         connection.send_result(msg["id"], False)
@@ -294,12 +298,12 @@ async def websocket_delete_device(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "lcn/entities/add",
-        vol.Required("entry_id"): cv.string,
-        vol.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
-        vol.Required(CONF_NAME): cv.string,
-        vol.Required(CONF_DOMAIN): cv.string,
-        vol.Required(CONF_DOMAIN_DATA): vol.Any(
+        probatio.Required("type"): "lcn/entities/add",
+        probatio.Required("entry_id"): cv.string,
+        probatio.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
+        probatio.Required(CONF_NAME): cv.string,
+        probatio.Required(CONF_DOMAIN): cv.string,
+        probatio.Required(CONF_DOMAIN_DATA): probatio.Any(
             DOMAIN_DATA_BINARY_SENSOR,
             DOMAIN_DATA_SENSOR,
             DOMAIN_DATA_SWITCH,
@@ -315,8 +319,8 @@ async def websocket_delete_device(
 async def websocket_add_entity(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Add an entity."""
     if not (device_config := get_device_config(msg[CONF_ADDRESS], config_entry)):
@@ -340,15 +344,12 @@ async def websocket_add_entity(
     entity_config = {
         CONF_ADDRESS: msg[CONF_ADDRESS],
         CONF_NAME: msg[CONF_NAME],
-        CONF_RESOURCE: resource,
         CONF_DOMAIN: domain_name,
         CONF_DOMAIN_DATA: domain_data,
     }
 
     # Create new entity and add to corresponding component
-    add_entities = hass.data[DOMAIN][msg["entry_id"]][ADD_ENTITIES_CALLBACKS][
-        msg[CONF_DOMAIN]
-    ]
+    add_entities = config_entry.runtime_data.add_entities_callbacks[msg[CONF_DOMAIN]]
     add_entities([entity_config])
 
     # Add entity config to config_entry
@@ -364,11 +365,19 @@ async def websocket_add_entity(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "lcn/entities/delete",
-        vol.Required("entry_id"): cv.string,
-        vol.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
-        vol.Required(CONF_DOMAIN): cv.string,
-        vol.Required(CONF_RESOURCE): cv.string,
+        probatio.Required("type"): "lcn/entities/delete",
+        probatio.Required("entry_id"): cv.string,
+        probatio.Required(CONF_ADDRESS): ADDRESS_SCHEMA,
+        probatio.Required(CONF_DOMAIN): cv.string,
+        probatio.Required(CONF_DOMAIN_DATA): probatio.Any(
+            DOMAIN_DATA_BINARY_SENSOR,
+            DOMAIN_DATA_SENSOR,
+            DOMAIN_DATA_SWITCH,
+            DOMAIN_DATA_LIGHT,
+            DOMAIN_DATA_CLIMATE,
+            DOMAIN_DATA_COVER,
+            DOMAIN_DATA_SCENE,
+        ),
     }
 )
 @websocket_api.async_response
@@ -376,8 +385,8 @@ async def websocket_add_entity(
 async def websocket_delete_entity(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    msg: dict,
-    config_entry: ConfigEntry,
+    msg: dict[str, Any],
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Delete an entity."""
     entity_config = next(
@@ -387,7 +396,10 @@ async def websocket_delete_entity(
             if (
                 tuple(entity_config[CONF_ADDRESS]) == msg[CONF_ADDRESS]
                 and entity_config[CONF_DOMAIN] == msg[CONF_DOMAIN]
-                and entity_config[CONF_RESOURCE] == msg[CONF_RESOURCE]
+                and get_resource(
+                    entity_config[CONF_DOMAIN], entity_config[CONF_DOMAIN_DATA]
+                )
+                == get_resource(msg[CONF_DOMAIN], msg[CONF_DOMAIN_DATA])
             )
         ),
         None,
@@ -413,8 +425,8 @@ async def websocket_delete_entity(
 
 async def async_create_or_update_device_in_config_entry(
     hass: HomeAssistant,
-    device_connection: DeviceConnectionType,
-    config_entry: ConfigEntry,
+    device_connection: DeviceConnection,
+    config_entry: LcnConfigEntry,
 ) -> None:
     """Create or update device in config_entry according to given device_connection."""
     address = (
@@ -443,7 +455,7 @@ async def async_create_or_update_device_in_config_entry(
 
 
 def get_entity_entry(
-    hass: HomeAssistant, entity_config: dict, config_entry: ConfigEntry
+    hass: HomeAssistant, entity_config: dict[str, Any], config_entry: LcnConfigEntry
 ) -> er.RegistryEntry | None:
     """Get entity RegistryEntry from entity_config."""
     entity_registry = er.async_get(hass)

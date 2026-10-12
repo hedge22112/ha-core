@@ -1,10 +1,8 @@
 """Support for configuring different deCONZ numbers."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pydeconz.gateway import DeconzSession
 from pydeconz.interfaces.sensors import SensorResources
@@ -17,11 +15,11 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import DeconzConfigEntry
 from .entity import DeconzDevice
 from .hub import DeconzHub
 
@@ -69,11 +67,11 @@ ENTITY_DESCRIPTIONS: tuple[DeconzNumberDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: DeconzConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the deCONZ number entity."""
-    hub = DeconzHub.get_hub(hass, config_entry)
+    hub = config_entry.runtime_data
     hub.entities[NUMBER_DOMAIN] = set()
 
     @callback
@@ -116,10 +114,12 @@ class DeconzNumber(DeconzDevice[SensorResources], NumberEntity):
         super().__init__(device, hub)
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the value of the sensor property."""
         return self.entity_description.value_fn(self._device)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set sensor config."""
         await self.entity_description.set_fn(

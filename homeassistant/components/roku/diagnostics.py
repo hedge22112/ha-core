@@ -1,12 +1,10 @@
 """Diagnostics support for Roku."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from . import RokuConfigEntry
+from .coordinator import RokuConfigEntry
 
 
 async def async_get_config_entry_diagnostics(

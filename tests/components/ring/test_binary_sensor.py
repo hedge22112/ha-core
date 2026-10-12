@@ -18,7 +18,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.setup import async_setup_component
 
-from .common import MockConfigEntry, setup_automation, setup_platform
+from .common import (
+    MockConfigEntry,
+    async_check_entity_translations,
+    setup_automation,
+    setup_platform,
+)
 from .device_mocks import (
     FRONT_DEVICE_ID,
     FRONT_DOOR_DEVICE_ID,
@@ -67,6 +72,9 @@ async def test_states(
 ) -> None:
     """Test states."""
     await setup_platform(hass, Platform.BINARY_SENSOR)
+    await async_check_entity_translations(
+        hass, entity_registry, mock_config_entry.entry_id, BINARY_SENSOR_DOMAIN
+    )
     await snapshot_platform(hass, entity_registry, snapshot, mock_config_entry.entry_id)
 
 
@@ -121,9 +129,8 @@ async def test_binary_sensor(
     with patch("homeassistant.components.ring.PLATFORMS", [Platform.BINARY_SENSOR]):
         assert await async_setup_component(hass, DOMAIN, {})
 
-    on_event_cb = mock_ring_event_listener_class.return_value.add_notification_callback.call_args.args[
-        0
-    ]
+    listener = mock_ring_event_listener_class.return_value
+    on_event_cb = listener.add_notification_callback.call_args.args[0]
 
     # Default state is set to off
 

@@ -12,7 +12,7 @@ from homeassistant.components.axis.const import (
     CONF_VIDEO_SOURCE,
     DEFAULT_STREAM_PROFILE,
     DEFAULT_VIDEO_SOURCE,
-    DOMAIN as AXIS_DOMAIN,
+    DOMAIN,
 )
 from homeassistant.config_entries import (
     SOURCE_DHCP,
@@ -36,7 +36,7 @@ from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.helpers.service_info.ssdp import SsdpServiceInfo
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
-from .const import DEFAULT_HOST, MAC, MODEL, NAME
+from .const import API_DISCOVERY_BASIC_DEVICE_INFO, DEFAULT_HOST, MAC, MODEL, NAME
 
 from tests.common import MockConfigEntry
 
@@ -47,7 +47,7 @@ DHCP_FORMATTED_MAC = dr.format_mac(MAC).replace(":", "")
 async def test_flow_manual_configuration(hass: HomeAssistant) -> None:
     """Test that config flow works."""
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, context={"source": SOURCE_USER}
+        DOMAIN, context={"source": SOURCE_USER}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -65,7 +65,7 @@ async def test_flow_manual_configuration(hass: HomeAssistant) -> None:
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == f"M1065-LW - {MAC}"
+    assert result["title"] == f"M1065-LW - {dr.format_mac(MAC)}"
     assert result["data"] == {
         CONF_PROTOCOL: "http",
         CONF_HOST: "1.2.3.4",
@@ -73,8 +73,9 @@ async def test_flow_manual_configuration(hass: HomeAssistant) -> None:
         CONF_PASSWORD: "pass",
         CONF_PORT: 80,
         CONF_MODEL: "M1065-LW",
-        CONF_NAME: "M1065-LW 0",
+        CONF_NAME: f"M1065-LW - {dr.format_mac(MAC)}",
     }
+    assert result["result"].unique_id == dr.format_mac(MAC)
 
 
 async def test_manual_configuration_duplicate_fails(
@@ -86,7 +87,7 @@ async def test_manual_configuration_duplicate_fails(
     assert config_entry_setup.data[CONF_HOST] == "1.2.3.4"
 
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, context={"source": SOURCE_USER}
+        DOMAIN, context={"source": SOURCE_USER}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -117,12 +118,13 @@ async def test_manual_configuration_duplicate_fails(
         (config_flow.CannotConnect, "cannot_connect"),
     ],
 )
+@pytest.mark.usefixtures("mock_default_requests")
 async def test_flow_fails_on_api(
-    hass: HomeAssistant, exc: Exception, error: str
+    hass: HomeAssistant, exc: type[Exception], error: str
 ) -> None:
     """Test that config flow fails on faulty credentials."""
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, context={"source": SOURCE_USER}
+        DOMAIN, context={"source": SOURCE_USER}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -145,25 +147,53 @@ async def test_flow_fails_on_api(
 
     assert result["errors"] == {"base": error}
 
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_PROTOCOL: "http",
+            CONF_HOST: "1.2.3.4",
+            CONF_USERNAME: "user",
+            CONF_PASSWORD: "pass",
+            CONF_PORT: 80,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
 
 @pytest.mark.usefixtures("mock_default_requests")
-async def test_flow_create_entry_multiple_existing_entries_of_same_model(
+@pytest.mark.parametrize("param_properties_status_code", [404])
+async def test_flow_aborts_if_no_serial_number(hass: HomeAssistant) -> None:
+    """Test that config flow aborts if property_handler is not initialized and no serial is found."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_PROTOCOL: "http",
+            CONF_HOST: "1.2.3.4",
+            CONF_USERNAME: "user",
+            CONF_PASSWORD: "pass",
+            CONF_PORT: 80,
+        },
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_serial_number"
+
+
+@pytest.mark.usefixtures("mock_default_requests")
+@pytest.mark.parametrize("api_discovery_items", [API_DISCOVERY_BASIC_DEVICE_INFO])
+async def test_flow_succeeds_with_basic_device_info(
     hass: HomeAssistant,
 ) -> None:
-    """Test that create entry can generate a name with other entries."""
-    entry = MockConfigEntry(
-        domain=AXIS_DOMAIN,
-        data={CONF_NAME: "M1065-LW 0", CONF_MODEL: "M1065-LW"},
-    )
-    entry.add_to_hass(hass)
-    entry2 = MockConfigEntry(
-        domain=AXIS_DOMAIN,
-        data={CONF_NAME: "M1065-LW 1", CONF_MODEL: "M1065-LW"},
-    )
-    entry2.add_to_hass(hass)
-
+    """Test that config flow succeeds when basic device info is present (positive path)."""
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, context={"source": SOURCE_USER}
+        DOMAIN, context={"source": SOURCE_USER}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -181,7 +211,49 @@ async def test_flow_create_entry_multiple_existing_entries_of_same_model(
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == f"M1065-LW - {MAC}"
+    assert result["title"] == f"M1065-LW - {dr.format_mac(MAC)}"
+    assert result["data"][CONF_HOST] == "1.2.3.4"
+    assert result["data"][CONF_MODEL] == "M1065-LW"
+    assert result["data"][CONF_NAME] == f"M1065-LW - {dr.format_mac(MAC)}"
+    assert result["result"].unique_id == dr.format_mac(MAC)
+
+
+@pytest.mark.usefixtures("mock_default_requests")
+async def test_flow_create_entry_multiple_existing_entries_of_same_model(
+    hass: HomeAssistant,
+) -> None:
+    """Test that create entry can generate a name with other entries."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_NAME: "M1065-LW 0", CONF_MODEL: "M1065-LW"},
+    )
+    entry.add_to_hass(hass)
+    entry2 = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_NAME: "M1065-LW 1", CONF_MODEL: "M1065-LW"},
+    )
+    entry2.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_PROTOCOL: "http",
+            CONF_HOST: "1.2.3.4",
+            CONF_USERNAME: "user",
+            CONF_PASSWORD: "pass",
+            CONF_PORT: 80,
+        },
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == f"M1065-LW - {dr.format_mac(MAC)}"
     assert result["data"] == {
         CONF_PROTOCOL: "http",
         CONF_HOST: "1.2.3.4",
@@ -189,10 +261,11 @@ async def test_flow_create_entry_multiple_existing_entries_of_same_model(
         CONF_PASSWORD: "pass",
         CONF_PORT: 80,
         CONF_MODEL: "M1065-LW",
-        CONF_NAME: "M1065-LW 2",
+        CONF_NAME: f"M1065-LW - {dr.format_mac(MAC)}",
     }
+    assert result["result"].unique_id == dr.format_mac(MAC)
 
-    assert result["data"][CONF_NAME] == "M1065-LW 2"
+    assert result["data"][CONF_NAME] == f"M1065-LW - {dr.format_mac(MAC)}"
 
 
 async def test_reauth_flow_update_configuration(
@@ -266,7 +339,7 @@ async def test_reconfiguration_flow_update_configuration(
 
 
 @pytest.mark.parametrize(
-    ("source", "discovery_info"),
+    ("source", "discovery_info", "expected_title"),
     [
         (
             SOURCE_DHCP,
@@ -275,6 +348,7 @@ async def test_reconfiguration_flow_update_configuration(
                 ip=DEFAULT_HOST,
                 macaddress=DHCP_FORMATTED_MAC,
             ),
+            f"axis-{MAC}",
         ),
         (
             SOURCE_SSDP,
@@ -283,7 +357,10 @@ async def test_reconfiguration_flow_update_configuration(
                 ssdp_st="mock_st",
                 upnp={
                     "st": "urn:axis-com:service:BasicService:1",
-                    "usn": f"uuid:Upnp-BasicDevice-1_0-{MAC}::urn:axis-com:service:BasicService:1",
+                    "usn": (
+                        f"uuid:Upnp-BasicDevice-1_0-{MAC}"
+                        "::urn:axis-com:service:BasicService:1"
+                    ),
                     "ext": "",
                     "server": (
                         "Linux/4.14.173-axis8, UPnP/1.0, Portable SDK for UPnP"
@@ -311,6 +388,7 @@ async def test_reconfiguration_flow_update_configuration(
                     "presentationURL": f"http://{DEFAULT_HOST}:80/",
                 },
             ),
+            f"AXIS M1065-LW - {MAC}",
         ),
         (
             SOURCE_ZEROCONF,
@@ -326,6 +404,7 @@ async def test_reconfiguration_flow_update_configuration(
                     "macaddress": MAC,
                 },
             ),
+            f"AXIS M1065-LW - {MAC}",
         ),
     ],
 )
@@ -334,10 +413,11 @@ async def test_discovery_flow(
     hass: HomeAssistant,
     source: str,
     discovery_info: BaseServiceInfo,
+    expected_title: str,
 ) -> None:
     """Test the different discovery flows for new devices work."""
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, data=discovery_info, context={"source": source}
+        DOMAIN, data=discovery_info, context={"source": source}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -359,7 +439,7 @@ async def test_discovery_flow(
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == f"M1065-LW - {MAC}"
+    assert result["title"] == expected_title
     assert result["data"] == {
         CONF_PROTOCOL: "http",
         CONF_HOST: "1.2.3.4",
@@ -367,10 +447,11 @@ async def test_discovery_flow(
         CONF_PASSWORD: "pass",
         CONF_PORT: 80,
         CONF_MODEL: "M1065-LW",
-        CONF_NAME: "M1065-LW 0",
+        CONF_NAME: expected_title,
     }
+    assert result["result"].unique_id == dr.format_mac(MAC)
 
-    assert result["data"][CONF_NAME] == "M1065-LW 0"
+    assert result["data"][CONF_NAME] == expected_title
 
 
 @pytest.mark.parametrize(
@@ -420,7 +501,7 @@ async def test_discovered_device_already_configured(
     assert config_entry_setup.data[CONF_HOST] == DEFAULT_HOST
 
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, data=discovery_info, context={"source": source}
+        DOMAIN, data=discovery_info, context={"source": source}
     )
 
     assert result["type"] is FlowResultType.ABORT
@@ -488,7 +569,7 @@ async def test_discovery_flow_updated_configuration(
 
     mock_requests("2.3.4.5")
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, data=discovery_info, context={"source": source}
+        DOMAIN, data=discovery_info, context={"source": source}
     )
     await hass.async_block_till_done()
 
@@ -502,6 +583,30 @@ async def test_discovery_flow_updated_configuration(
         CONF_MODEL: MODEL,
         CONF_NAME: NAME,
     }
+
+
+@pytest.mark.parametrize(
+    "axis_oui",
+    ["00408C", "ACCC8E", "B8A44F", "E82725"],
+)
+async def test_discovery_flow_allowed_oui(hass: HomeAssistant, axis_oui: str) -> None:
+    """Test that discovery flow accepts Axis OUI."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        data=SsdpServiceInfo(
+            ssdp_usn="mock_usn",
+            ssdp_st="mock_st",
+            upnp={
+                "friendlyName": f"AXIS M1065-LW - {axis_oui}",
+                "serialNumber": f"{axis_oui}123456",
+                "presentationURL": "http://2.3.4.5:8080/",
+            },
+        ),
+        context={"source": SOURCE_SSDP},
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
 
 
 @pytest.mark.parametrize(
@@ -546,7 +651,7 @@ async def test_discovery_flow_ignore_non_axis_device(
 ) -> None:
     """Test that discovery flow ignores devices with non Axis OUI."""
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, data=discovery_info, context={"source": source}
+        DOMAIN, data=discovery_info, context={"source": source}
     )
 
     assert result["type"] is FlowResultType.ABORT
@@ -595,7 +700,7 @@ async def test_discovery_flow_ignore_link_local_address(
 ) -> None:
     """Test that discovery flow ignores devices with link local addresses."""
     result = await hass.config_entries.flow.async_init(
-        AXIS_DOMAIN, data=discovery_info, context={"source": source}
+        DOMAIN, data=discovery_info, context={"source": source}
     )
 
     assert result["type"] is FlowResultType.ABORT

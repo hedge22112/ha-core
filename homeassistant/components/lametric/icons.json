@@ -7,10 +7,10 @@
       "app_previous": {
         "default": "mdi:arrow-left-bold"
       },
-      "dismiss_current": {
+      "dismiss_all": {
         "default": "mdi:bell-cancel"
       },
-      "dismiss_all": {
+      "dismiss_current": {
         "default": "mdi:bell-cancel"
       }
     },
@@ -35,6 +35,17 @@
     "switch": {
       "bluetooth": {
         "default": "mdi:bluetooth"
+      },
+      "screensaver": {
+        "default": "mdi:sleep"
+      }
+    },
+    "time": {
+      "screensaver_end_time": {
+        "default": "mdi:clock-end"
+      },
+      "screensaver_start_time": {
+        "default": "mdi:clock-start"
       }
     }
   },

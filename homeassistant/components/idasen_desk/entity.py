@@ -1,11 +1,11 @@
 """Base entity for Idasen Desk."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import IdasenDeskCoordinator
+from .coordinator import IdasenDeskCoordinator
 
 
 class IdasenDeskEntity(CoordinatorEntity[IdasenDeskCoordinator]):
@@ -29,6 +29,7 @@ class IdasenDeskEntity(CoordinatorEntity[IdasenDeskCoordinator]):
         self._desk = coordinator.desk
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return super().available and self._desk.is_connected is True

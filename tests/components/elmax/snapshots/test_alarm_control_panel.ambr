@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_alarm_control_panels[alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'AREA 1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'AREA 1',
     'platform': 'elmax',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <AlarmControlPanelEntityFeature: 2>,
     'translation_key': None,
     'unique_id': '13762559c53cd093171-area-0',
@@ -35,11 +39,11 @@
 # name: test_alarm_control_panels[alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'changed_by': None,
-      'code_arm_required': False,
-      'code_format': <CodeFormat.NUMBER: 'number'>,
-      'friendly_name': 'Direct Panel https://1.1.1.1:443/api/v2 AREA 1',
-      'supported_features': <AlarmControlPanelEntityFeature: 2>,
+      <AlarmControlPanelEntityStateAttribute.CHANGED_BY: 'changed_by'>: None,
+      <AlarmControlPanelEntityStateAttribute.CODE_ARM_REQUIRED: 'code_arm_required'>: False,
+      <AlarmControlPanelEntityStateAttribute.CODE_FORMAT: 'code_format'>: <CodeFormat.NUMBER: 'number'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Direct Panel https://1.1.1.1:443/api/v2 AREA 1',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <AlarmControlPanelEntityFeature: 2>,
     }),
     'context': <ANY>,
     'entity_id': 'alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_1',
@@ -51,11 +55,13 @@
 # ---
 # name: test_alarm_control_panels[alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_2-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -69,6 +75,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'AREA 2',
     'options': dict({
     }),
     'original_device_class': None,
@@ -76,6 +83,7 @@
     'original_name': 'AREA 2',
     'platform': 'elmax',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <AlarmControlPanelEntityFeature: 2>,
     'translation_key': None,
     'unique_id': '13762559c53cd093171-area-1',
@@ -85,11 +93,11 @@
 # name: test_alarm_control_panels[alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_2-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'changed_by': None,
-      'code_arm_required': False,
-      'code_format': <CodeFormat.NUMBER: 'number'>,
-      'friendly_name': 'Direct Panel https://1.1.1.1:443/api/v2 AREA 2',
-      'supported_features': <AlarmControlPanelEntityFeature: 2>,
+      <AlarmControlPanelEntityStateAttribute.CHANGED_BY: 'changed_by'>: None,
+      <AlarmControlPanelEntityStateAttribute.CODE_ARM_REQUIRED: 'code_arm_required'>: False,
+      <AlarmControlPanelEntityStateAttribute.CODE_FORMAT: 'code_format'>: <CodeFormat.NUMBER: 'number'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Direct Panel https://1.1.1.1:443/api/v2 AREA 2',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <AlarmControlPanelEntityFeature: 2>,
     }),
     'context': <ANY>,
     'entity_id': 'alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_2',
@@ -101,11 +109,13 @@
 # ---
 # name: test_alarm_control_panels[alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_3-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -119,6 +129,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'AREA 3',
     'options': dict({
     }),
     'original_device_class': None,
@@ -126,6 +137,7 @@
     'original_name': 'AREA 3',
     'platform': 'elmax',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <AlarmControlPanelEntityFeature: 2>,
     'translation_key': None,
     'unique_id': '13762559c53cd093171-area-2',
@@ -135,11 +147,11 @@
 # name: test_alarm_control_panels[alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_3-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'changed_by': None,
-      'code_arm_required': False,
-      'code_format': <CodeFormat.NUMBER: 'number'>,
-      'friendly_name': 'Direct Panel https://1.1.1.1:443/api/v2 AREA 3',
-      'supported_features': <AlarmControlPanelEntityFeature: 2>,
+      <AlarmControlPanelEntityStateAttribute.CHANGED_BY: 'changed_by'>: None,
+      <AlarmControlPanelEntityStateAttribute.CODE_ARM_REQUIRED: 'code_arm_required'>: False,
+      <AlarmControlPanelEntityStateAttribute.CODE_FORMAT: 'code_format'>: <CodeFormat.NUMBER: 'number'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Direct Panel https://1.1.1.1:443/api/v2 AREA 3',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <AlarmControlPanelEntityFeature: 2>,
     }),
     'context': <ANY>,
     'entity_id': 'alarm_control_panel.direct_panel_https_1_1_1_1_443_api_v2_area_3',

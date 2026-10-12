@@ -1,15 +1,16 @@
 """Config flow for Speedtest.net."""
 
-from __future__ import annotations
+from typing import Any, override
 
-from typing import Any
+import probatio
 
-import voluptuous as vol
+from homeassistant.config_entries import (
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
+from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, callback
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.core import callback
-
-from . import SpeedTestConfigEntry
 from .const import (
     CONF_SERVER_ID,
     CONF_SERVER_NAME,
@@ -17,6 +18,7 @@ from .const import (
     DEFAULT_SERVER,
     DOMAIN,
 )
+from .coordinator import SpeedTestConfigEntry
 
 
 class SpeedTestFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -26,18 +28,23 @@ class SpeedTestFlowHandler(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: SpeedTestConfigEntry,
     ) -> SpeedTestOptionsFlowHandler:
         """Get the options flow for this handler."""
         return SpeedTestOptionsFlowHandler()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
+            return self.async_abort(
+                reason="single_instance_allowed",
+                translation_domain=HOMEASSISTANT_DOMAIN,
+            )
 
         if user_input is None:
             return self.async_show_form(step_id="user")
@@ -45,7 +52,7 @@ class SpeedTestFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(title=DEFAULT_NAME, data=user_input)
 
 
-class SpeedTestOptionsFlowHandler(OptionsFlow):
+class SpeedTestOptionsFlowHandler(OptionsFlowWithReload):
     """Handle SpeedTest options."""
 
     def __init__(self) -> None:
@@ -71,12 +78,12 @@ class SpeedTestOptionsFlowHandler(OptionsFlow):
         self._servers = self.config_entry.runtime_data.servers
 
         options = {
-            vol.Optional(
+            probatio.Optional(
                 CONF_SERVER_NAME,
                 default=self.config_entry.options.get(CONF_SERVER_NAME, DEFAULT_SERVER),
-            ): vol.In(self._servers.keys()),
+            ): probatio.In(self._servers.keys()),
         }
 
         return self.async_show_form(
-            step_id="init", data_schema=vol.Schema(options), errors=errors
+            step_id="init", data_schema=probatio.Schema(options), errors=errors
         )

@@ -1,7 +1,5 @@
 """Diagnostics support for Twinkly."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -10,8 +8,8 @@ from homeassistant.const import ATTR_SW_VERSION, CONF_HOST, CONF_IP_ADDRESS, CON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from . import TwinklyConfigEntry
 from .const import DOMAIN
+from .coordinator import TwinklyConfigEntry
 
 TO_REDACT = [CONF_HOST, CONF_IP_ADDRESS, CONF_MAC]
 

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import logging
+from typing import override
 
 from screenlogicpy.const.common import ScreenLogicCommunicationError, ScreenLogicError
 from screenlogicpy.const.data import ATTR, DEVICE, GROUP, VALUE
@@ -17,7 +18,7 @@ from homeassistant.components.number import (
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import ScreenlogicDataUpdateCoordinator
 from .entity import (
@@ -104,7 +105,7 @@ SUPPORTED_SCG_NUMBERS = [
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ScreenLogicConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
     entities: list[ScreenLogicNumber] = []
@@ -168,10 +169,12 @@ class ScreenLogicNumber(ScreenLogicEntity, NumberEntity):
             self._attr_native_step = step
 
     @property
+    @override
     def native_value(self) -> float:
         """Return the current value."""
         return self.entity_data[ATTR.VALUE]
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         raise NotImplementedError
@@ -186,6 +189,7 @@ class ScreenLogicPushNumber(ScreenLogicPushEntity, ScreenLogicNumber):
 class ScreenLogicChemistryNumber(ScreenLogicPushNumber):
     """Class to represent a ScreenLogic Chemistry Number entity."""
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
 
@@ -205,6 +209,7 @@ class ScreenLogicChemistryNumber(ScreenLogicPushNumber):
 class ScreenLogicSCGNumber(ScreenLogicNumber):
     """Class to represent a ScreenLoigic SCG Number entity."""
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
 

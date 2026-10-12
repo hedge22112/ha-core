@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from syrupy.assertion import SnapshotAssertion
+from tesla_fleet_api.exceptions import InvalidCommand, InvalidRequest, TeslaFleetError
+from teslemetry_stream import Signal
 
 from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
@@ -12,16 +14,18 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from . import assert_entities, assert_entities_alt, setup_platform
-from .const import COMMAND_OK, VEHICLE_DATA_ALT
+from . import assert_entities, assert_entities_alt, reload_platform, setup_platform
+from .const import COMMAND_ERRORS, COMMAND_OK, VEHICLE_DATA_ALT
 
 
 async def test_switch(
     hass: HomeAssistant,
     snapshot: SnapshotAssertion,
     entity_registry: er.EntityRegistry,
+    mock_legacy: AsyncMock,
 ) -> None:
     """Tests that the switch entities are correct."""
 
@@ -34,6 +38,7 @@ async def test_switch_alt(
     snapshot: SnapshotAssertion,
     entity_registry: er.EntityRegistry,
     mock_vehicle_data: AsyncMock,
+    mock_legacy: AsyncMock,
 ) -> None:
     """Tests that the switch entities are correct."""
 
@@ -46,41 +51,41 @@ async def test_switch_alt(
 @pytest.mark.parametrize(
     ("name", "on", "off"),
     [
-        ("test_charge", "VehicleSpecific.charge_start", "VehicleSpecific.charge_stop"),
+        ("test_charge", "Vehicle.charge_start", "Vehicle.charge_stop"),
         (
             "test_auto_seat_climate_left",
-            "VehicleSpecific.remote_auto_seat_climate_request",
-            "VehicleSpecific.remote_auto_seat_climate_request",
+            "Vehicle.remote_auto_seat_climate_request",
+            "Vehicle.remote_auto_seat_climate_request",
         ),
         (
             "test_auto_seat_climate_right",
-            "VehicleSpecific.remote_auto_seat_climate_request",
-            "VehicleSpecific.remote_auto_seat_climate_request",
+            "Vehicle.remote_auto_seat_climate_request",
+            "Vehicle.remote_auto_seat_climate_request",
         ),
         (
             "test_auto_steering_wheel_heater",
-            "VehicleSpecific.remote_auto_steering_wheel_heat_climate_request",
-            "VehicleSpecific.remote_auto_steering_wheel_heat_climate_request",
+            "Vehicle.remote_auto_steering_wheel_heat_climate_request",
+            "Vehicle.remote_auto_steering_wheel_heat_climate_request",
         ),
         (
             "test_defrost",
-            "VehicleSpecific.set_preconditioning_max",
-            "VehicleSpecific.set_preconditioning_max",
+            "Vehicle.set_preconditioning_max",
+            "Vehicle.set_preconditioning_max",
         ),
         (
             "energy_site_storm_watch",
-            "EnergySpecific.storm_mode",
-            "EnergySpecific.storm_mode",
+            "EnergySite.storm_mode",
+            "EnergySite.storm_mode",
         ),
         (
             "energy_site_allow_charging_from_grid",
-            "EnergySpecific.grid_import_export",
-            "EnergySpecific.grid_import_export",
+            "EnergySite.grid_import_export",
+            "EnergySite.grid_import_export",
         ),
         (
             "test_sentry_mode",
-            "VehicleSpecific.set_sentry_mode",
-            "VehicleSpecific.set_sentry_mode",
+            "Vehicle.set_sentry_mode",
+            "Vehicle.set_sentry_mode",
         ),
     ],
 )
@@ -93,7 +98,7 @@ async def test_switch_services(
 
     entity_id = f"switch.{name}"
     with patch(
-        f"homeassistant.components.teslemetry.{on}",
+        f"tesla_fleet_api.teslemetry.{on}",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -107,7 +112,7 @@ async def test_switch_services(
         call.assert_called_once()
 
     with patch(
-        f"homeassistant.components.teslemetry.{off}",
+        f"tesla_fleet_api.teslemetry.{off}",
         return_value=COMMAND_OK,
     ) as call:
         await hass.services.async_call(
@@ -119,3 +124,126 @@ async def test_switch_services(
         state = hass.states.get(entity_id)
         assert state.state == STATE_OFF
         call.assert_called_once()
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize("response", COMMAND_ERRORS)
+async def test_switch_command_errors(hass: HomeAssistant, response: dict) -> None:
+    """Tests that vehicle command failures raise HomeAssistantError."""
+
+    await setup_platform(hass, [Platform.SWITCH])
+
+    with (
+        patch(
+            "tesla_fleet_api.teslemetry.Vehicle.charge_start",
+            return_value=response,
+        ),
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            SWITCH_DOMAIN,
+            SERVICE_TURN_ON,
+            {ATTR_ENTITY_ID: "switch.test_charge"},
+            blocking=True,
+        )
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize(
+    ("side_effect", "message"),
+    [
+        pytest.param(
+            InvalidCommand,
+            "Command returned exception: The data request or command is unknown.",
+            id="no_data",
+        ),
+        pytest.param(
+            InvalidRequest(
+                {"error": "invalid_request", "error_description": "detail from server"}
+            ),
+            "Command returned exception: detail from server",
+            id="error_description",
+        ),
+        pytest.param(
+            InvalidRequest(
+                {
+                    "response": None,
+                    "error": "vehicle rejected the command",
+                    "error_description": "",
+                }
+            ),
+            "Command returned exception: vehicle rejected the command",
+            id="error",
+        ),
+        pytest.param(
+            InvalidCommand({"error": "invalid_command", "error_description": ""}),
+            "Command returned exception: The data request or command is unknown.",
+            id="error_is_key",
+        ),
+        pytest.param(
+            InvalidRequest({"response": None}),
+            "Command returned exception: The request body is not valid",
+            id="no_error_detail",
+        ),
+    ],
+)
+async def test_switch_command_exception(
+    hass: HomeAssistant,
+    side_effect: type[TeslaFleetError] | TeslaFleetError,
+    message: str,
+) -> None:
+    """Tests that an energy command SDK exception raises HomeAssistantError."""
+
+    await setup_platform(hass, [Platform.SWITCH])
+
+    with (
+        patch(
+            "tesla_fleet_api.teslemetry.EnergySite.storm_mode",
+            side_effect=side_effect,
+        ),
+        pytest.raises(HomeAssistantError, match=f"^{message}$"),
+    ):
+        await hass.services.async_call(
+            SWITCH_DOMAIN,
+            SERVICE_TURN_ON,
+            {ATTR_ENTITY_ID: "switch.energy_site_storm_watch"},
+            blocking=True,
+        )
+
+
+async def test_switch_streaming(
+    hass: HomeAssistant,
+    mock_vehicle_data: AsyncMock,
+    mock_add_listener: AsyncMock,
+) -> None:
+    """Tests that the switch entities with streaming are correct."""
+
+    entry = await setup_platform(hass, [Platform.SWITCH])
+
+    # Stream update
+    mock_add_listener.send(
+        {
+            "vin": VEHICLE_DATA_ALT["response"]["vin"],
+            "data": {
+                Signal.SENTRY_MODE: "SentryModeStateIdle",
+                Signal.AUTO_SEAT_CLIMATE_LEFT: True,
+                Signal.AUTO_SEAT_CLIMATE_RIGHT: False,
+                Signal.HVAC_STEERING_WHEEL_HEAT_AUTO: True,
+                Signal.DEFROST_MODE: "DefrostModeStateOff",
+                Signal.DETAILED_CHARGE_STATE: "DetailedChargeStateCharging",
+            },
+            "createdAt": "2024-10-04T10:45:17.537Z",
+        }
+    )
+    await hass.async_block_till_done()
+
+    # Reload the entry
+    await reload_platform(hass, entry, [Platform.SWITCH])
+
+    # Assert the entities restored their values with concrete assertions
+    assert hass.states.get("switch.test_sentry_mode").state == STATE_ON
+    assert hass.states.get("switch.test_auto_seat_climate_left").state == STATE_ON
+    assert hass.states.get("switch.test_auto_seat_climate_right").state == STATE_OFF
+    assert hass.states.get("switch.test_auto_steering_wheel_heater").state == STATE_ON
+    assert hass.states.get("switch.test_defrost").state == STATE_OFF
+    assert hass.states.get("switch.test_charge").state == STATE_ON

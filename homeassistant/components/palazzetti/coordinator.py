@@ -1,5 +1,7 @@
 """Helpers to help coordinate updates."""
 
+from typing import override
+
 from pypalazzetti.client import PalazzettiClient
 from pypalazzetti.exceptions import CommunicationError, ValidationError
 
@@ -22,16 +24,19 @@ class PalazzettiDataUpdateCoordinator(DataUpdateCoordinator[None]):
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: PalazzettiConfigEntry,
     ) -> None:
         """Initialize global Palazzetti data updater."""
         super().__init__(
             hass,
             LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
         self.client = PalazzettiClient(self.config_entry.data[CONF_HOST])
 
+    @override
     async def _async_setup(self) -> None:
         try:
             await self.client.connect()
@@ -39,6 +44,7 @@ class PalazzettiDataUpdateCoordinator(DataUpdateCoordinator[None]):
         except (CommunicationError, ValidationError) as err:
             raise UpdateFailed(f"Error communicating with the API: {err}") from err
 
+    @override
     async def _async_update_data(self) -> None:
         """Fetch data from Palazzetti."""
         try:

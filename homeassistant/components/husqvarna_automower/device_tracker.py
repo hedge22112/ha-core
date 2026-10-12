@@ -1,8 +1,10 @@
 """Creates the device tracker entity for the mower."""
 
+from typing import override
+
 from homeassistant.components.device_tracker import TrackerEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AutomowerConfigEntry
 from .coordinator import AutomowerDataUpdateCoordinator
@@ -15,7 +17,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AutomowerConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up device tracker platform."""
     coordinator = entry.runtime_data
@@ -46,11 +48,13 @@ class AutomowerDeviceTrackerEntity(AutomowerBaseEntity, TrackerEntity):
         self._attr_unique_id = mower_id
 
     @property
+    @override
     def latitude(self) -> float:
         """Return latitude value of the device."""
         return self.mower_attributes.positions[0].latitude
 
     @property
+    @override
     def longitude(self) -> float:
         """Return longitude value of the device."""
         return self.mower_attributes.positions[0].longitude

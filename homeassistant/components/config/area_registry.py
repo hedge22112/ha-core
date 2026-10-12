@@ -1,14 +1,12 @@
 """HTTP views to interact with the area registry."""
 
-from __future__ import annotations
-
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import area_registry as ar, label_registry as lr
 
 
 @callback
@@ -18,10 +16,13 @@ def async_setup(hass: HomeAssistant) -> bool:
     websocket_api.async_register_command(hass, websocket_create_area)
     websocket_api.async_register_command(hass, websocket_delete_area)
     websocket_api.async_register_command(hass, websocket_update_area)
+    websocket_api.async_register_command(hass, websocket_reorder_areas)
     return True
 
 
-@websocket_api.websocket_command({vol.Required("type"): "config/area_registry/list"})
+@websocket_api.websocket_command(
+    {probatio.Required("type"): "config/area_registry/list"}
+)
 @callback
 def websocket_list_areas(
     hass: HomeAssistant,
@@ -38,15 +39,15 @@ def websocket_list_areas(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "config/area_registry/create",
-        vol.Optional("aliases"): list,
-        vol.Optional("floor_id"): str,
-        vol.Optional("humidity_entity_id"): vol.Any(str, None),
-        vol.Optional("icon"): str,
-        vol.Optional("labels"): [str],
-        vol.Required("name"): str,
-        vol.Optional("picture"): vol.Any(str, None),
-        vol.Optional("temperature_entity_id"): vol.Any(str, None),
+        probatio.Required("type"): "config/area_registry/create",
+        probatio.Optional("aliases"): list,
+        probatio.Optional("floor_id"): str,
+        probatio.Optional("humidity_entity_id"): probatio.Any(str, None),
+        probatio.Optional("icon"): str,
+        probatio.Optional("labels"): [str],
+        probatio.Required("name"): str,
+        probatio.Optional("picture"): probatio.Any(str, None),
+        probatio.Optional("temperature_entity_id"): probatio.Any(str, None),
     }
 )
 @websocket_api.require_admin
@@ -64,12 +65,14 @@ def websocket_create_area(
     data.pop("id")
 
     if "aliases" in data:
-        # Convert aliases to a set
-        data["aliases"] = set(data["aliases"])
+        # Create a set for the aliases without:
+        #   - Empty strings
+        #   - Trailing and leading whitespace characters in the individual aliases
+        data["aliases"] = {s_strip for s in data["aliases"] if (s_strip := s.strip())}
 
     if "labels" in data:
-        # Convert labels to a set
-        data["labels"] = set(data["labels"])
+        labels = set(data["labels"])
+        data["labels"] = labels - lr.async_get_missing_label_ids(hass, labels)
 
     try:
         entry = registry.async_create(**data)
@@ -81,8 +84,8 @@ def websocket_create_area(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "config/area_registry/delete",
-        vol.Required("area_id"): str,
+        probatio.Required("type"): "config/area_registry/delete",
+        probatio.Required("area_id"): str,
     }
 )
 @websocket_api.require_admin
@@ -105,16 +108,16 @@ def websocket_delete_area(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "config/area_registry/update",
-        vol.Optional("aliases"): list,
-        vol.Required("area_id"): str,
-        vol.Optional("floor_id"): vol.Any(str, None),
-        vol.Optional("humidity_entity_id"): vol.Any(str, None),
-        vol.Optional("icon"): vol.Any(str, None),
-        vol.Optional("labels"): [str],
-        vol.Optional("name"): str,
-        vol.Optional("picture"): vol.Any(str, None),
-        vol.Optional("temperature_entity_id"): vol.Any(str, None),
+        probatio.Required("type"): "config/area_registry/update",
+        probatio.Optional("aliases"): list,
+        probatio.Required("area_id"): str,
+        probatio.Optional("floor_id"): probatio.Any(str, None),
+        probatio.Optional("humidity_entity_id"): probatio.Any(str, None),
+        probatio.Optional("icon"): probatio.Any(str, None),
+        probatio.Optional("labels"): [str],
+        probatio.Optional("name"): str,
+        probatio.Optional("picture"): probatio.Any(str, None),
+        probatio.Optional("temperature_entity_id"): probatio.Any(str, None),
     }
 )
 @websocket_api.require_admin
@@ -132,12 +135,14 @@ def websocket_update_area(
     data.pop("id")
 
     if "aliases" in data:
-        # Convert aliases to a set
-        data["aliases"] = set(data["aliases"])
+        # Create a set for the aliases without:
+        #   - Empty strings
+        #   - Trailing and leading whitespace characters in the individual aliases
+        data["aliases"] = {s_strip for s in data["aliases"] if (s_strip := s.strip())}
 
     if "labels" in data:
-        # Convert labels to a set
-        data["labels"] = set(data["labels"])
+        labels = set(data["labels"])
+        data["labels"] = labels - lr.async_get_missing_label_ids(hass, labels)
 
     try:
         entry = registry.async_update(**data)
@@ -145,3 +150,27 @@ def websocket_update_area(
         connection.send_error(msg["id"], "invalid_info", str(err))
     else:
         connection.send_result(msg["id"], entry.json_fragment)
+
+
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): "config/area_registry/reorder",
+        probatio.Required("area_ids"): [str],
+    }
+)
+@websocket_api.require_admin
+@callback
+def websocket_reorder_areas(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle reorder areas websocket command."""
+    registry = ar.async_get(hass)
+
+    try:
+        registry.async_reorder(msg["area_ids"])
+    except ValueError as err:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, str(err))
+    else:
+        connection.send_result(msg["id"])

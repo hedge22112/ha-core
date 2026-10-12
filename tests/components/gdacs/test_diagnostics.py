@@ -1,11 +1,9 @@
 """Test GDACS diagnostics."""
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.core import HomeAssistant
 

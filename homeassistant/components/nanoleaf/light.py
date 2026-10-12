@@ -1,8 +1,6 @@
 """Support for Nanoleaf Lights."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -15,10 +13,9 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import NanoleafConfigEntry
-from .coordinator import NanoleafCoordinator
+from .coordinator import NanoleafConfigEntry, NanoleafCoordinator
 from .entity import NanoleafEntity
 
 RESERVED_EFFECTS = ("*Solid*", "*Static*", "*Dynamic*")
@@ -28,7 +25,7 @@ DEFAULT_NAME = "Nanoleaf"
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NanoleafConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Nanoleaf light."""
     async_add_entities([NanoleafLight(entry.runtime_data)])
@@ -50,43 +47,49 @@ class NanoleafLight(NanoleafEntity, LightEntity):
         self._attr_min_color_temp_kelvin = self._nanoleaf.color_temperature_min
 
     @property
+    @override
     def brightness(self) -> int:
         """Return the brightness of the light."""
         return int(self._nanoleaf.brightness * 2.55)
 
     @property
+    @override
     def color_temp_kelvin(self) -> int | None:
         """Return the color temperature value in Kelvin."""
         return self._nanoleaf.color_temperature
 
     @property
+    @override
     def effect(self) -> str | None:
         """Return the current effect."""
         # The API returns the *Solid* effect if the Nanoleaf is in HS or CT mode.
         # The effects *Static* and *Dynamic* are not supported by Home Assistant.
         # These reserved effects are implicitly set and are not in the effect_list.
         # https://forum.nanoleaf.me/docs/openapi#_byoot0bams8f
-        return (
-            None if self._nanoleaf.effect in RESERVED_EFFECTS else self._nanoleaf.effect
-        )
+        effect = self._nanoleaf.effect
+        return None if not effect or effect in RESERVED_EFFECTS else effect
 
     @property
+    @override
     def effect_list(self) -> list[str]:
         """Return the list of supported effects."""
         return self._nanoleaf.effects_list
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if light is on."""
         return self._nanoleaf.is_on
 
     @property
+    @override
     def hs_color(self) -> tuple[int, int]:
         """Return the color in HS."""
         return self._nanoleaf.hue, self._nanoleaf.saturation
 
     @property
-    def color_mode(self) -> ColorMode | None:
+    @override
+    def color_mode(self) -> ColorMode:
         """Return the color mode of the light."""
         # According to API docs, color mode is "ct", "effect" or "hs"
         # https://forum.nanoleaf.me/docs/openapi#_4qgqrz96f44d
@@ -95,6 +98,7 @@ class NanoleafLight(NanoleafEntity, LightEntity):
         # Home Assistant does not have an "effect" color mode, just report hs
         return ColorMode.HS
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Instruct the light to turn on."""
         brightness = kwargs.get(ATTR_BRIGHTNESS)
@@ -126,8 +130,11 @@ class NanoleafLight(NanoleafEntity, LightEntity):
             await self._nanoleaf.turn_on()
             if brightness:
                 await self._nanoleaf.set_brightness(int(brightness / 2.55))
+        await self.coordinator.async_refresh()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Instruct the light to turn off."""
         transition: float | None = kwargs.get(ATTR_TRANSITION)
         await self._nanoleaf.turn_off(None if transition is None else int(transition))
+        await self.coordinator.async_refresh()

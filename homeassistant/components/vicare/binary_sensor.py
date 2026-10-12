@@ -1,41 +1,30 @@
 """Viessmann ViCare sensor device."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 import logging
+from typing import override
 
 from PyViCare.PyViCareDevice import Device as PyViCareDevice
 from PyViCare.PyViCareDeviceConfig import PyViCareDeviceConfig
 from PyViCare.PyViCareHeatingDevice import (
     HeatingDeviceWithComponent as PyViCareHeatingDeviceComponent,
 )
-from PyViCare.PyViCareUtils import (
-    PyViCareInvalidDataError,
-    PyViCareNotSupportedFeatureError,
-    PyViCareRateLimitError,
-)
-import requests
+from PyViCare.PyViCareUtils import PyViCareNotSupportedFeatureError
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import ViCareEntity
 from .types import ViCareConfigEntry, ViCareDevice, ViCareRequiredKeysMixin
-from .utils import (
-    get_burners,
-    get_circuits,
-    get_compressors,
-    get_device_serial,
-    is_supported,
-)
+from .utils import get_burners, get_circuits, get_compressors, is_supported
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,6 +95,48 @@ GLOBAL_SENSORS: tuple[ViCareBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.RUNNING,
         value_getter=lambda api: api.getDomesticHotWaterPumpActive(),
     ),
+    ViCareBinarySensorEntityDescription(
+        key="one_time_charge",
+        translation_key="one_time_charge",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        value_getter=lambda api: api.getOneTimeCharge(),
+    ),
+    ViCareBinarySensorEntityDescription(
+        key="device_error",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        value_getter=lambda api: len(api.getDeviceErrors()) > 0,
+    ),
+    ViCareBinarySensorEntityDescription(
+        key="identification_mode",
+        translation_key="identification_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_getter=lambda api: api.getIdentification(),
+        entity_registry_enabled_default=False,
+    ),
+    ViCareBinarySensorEntityDescription(
+        key="mounting_mode",
+        translation_key="mounting_mode",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_getter=lambda api: api.getMountingMode(),
+        entity_registry_enabled_default=False,
+    ),
+    ViCareBinarySensorEntityDescription(
+        key="child_safety_lock_mode",
+        translation_key="child_safety_lock_mode",
+        value_getter=lambda api: api.getChildLock() == "active",
+        entity_registry_enabled_default=False,
+    ),
+    ViCareBinarySensorEntityDescription(
+        key="valve",
+        translation_key="valve",
+        device_class=BinarySensorDeviceClass.DOOR,
+        value_getter=lambda api: api.isValveOpen(),
+    ),
+    ViCareBinarySensorEntityDescription(
+        key="ventilation_frost_protection",
+        translation_key="ventilation_frost_protection",
+        value_getter=lambda api: api.getHeatExchangerFrostProtectionActive(),
+    ),
 )
 
 
@@ -120,12 +151,12 @@ def _build_entities(
         entities.extend(
             ViCareBinarySensor(
                 description,
-                get_device_serial(device.api),
+                device.serial,
                 device.config,
                 device.api,
             )
             for description in GLOBAL_SENSORS
-            if is_supported(description.key, description, device.api)
+            if is_supported(description.key, description.value_getter, device.api)
         )
         # add component entities
         for component_list, entity_description_list in (
@@ -136,14 +167,14 @@ def _build_entities(
             entities.extend(
                 ViCareBinarySensor(
                     description,
-                    get_device_serial(device.api),
+                    device.serial,
                     device.config,
                     device.api,
                     component,
                 )
                 for component in component_list
                 for description in entity_description_list
-                if is_supported(description.key, description, component)
+                if is_supported(description.key, description.value_getter, component)
             )
     return entities
 
@@ -151,7 +182,7 @@ def _build_entities(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ViCareConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create the ViCare binary sensor devices."""
     async_add_entities(
@@ -182,20 +213,12 @@ class ViCareBinarySensor(ViCareEntity, BinarySensorEntity):
         self.entity_description = description
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return self._attr_is_on is not None
 
     def update(self) -> None:
         """Update state of sensor."""
-        try:
-            with suppress(PyViCareNotSupportedFeatureError):
-                self._attr_is_on = self.entity_description.value_getter(self._api)
-        except requests.exceptions.ConnectionError:
-            _LOGGER.error("Unable to retrieve data from ViCare server")
-        except ValueError:
-            _LOGGER.error("Unable to decode data from ViCare server")
-        except PyViCareRateLimitError as limit_exception:
-            _LOGGER.error("Vicare API rate limit exceeded: %s", limit_exception)
-        except PyViCareInvalidDataError as invalid_data_exception:
-            _LOGGER.error("Invalid data from Vicare server: %s", invalid_data_exception)
+        with self.vicare_api_handler(), suppress(PyViCareNotSupportedFeatureError):
+            self._attr_is_on = self.entity_description.value_getter(self._api)

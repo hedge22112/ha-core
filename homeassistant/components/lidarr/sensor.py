@@ -1,10 +1,8 @@
 """Support for Lidarr."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 import dataclasses
-from typing import Any, Generic
+from typing import Any, Generic, override
 
 from aiopyarr import LidarrQueue, LidarrQueueItem, LidarrRootFolder
 
@@ -16,11 +14,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import LidarrConfigEntry
 from .const import BYTE_SIZES
-from .coordinator import LidarrDataUpdateCoordinator, T
+from .coordinator import LidarrConfigEntry, LidarrDataUpdateCoordinator, T
 from .entity import LidarrEntity
 
 
@@ -50,7 +47,7 @@ def get_modified_description(
 
 
 @dataclasses.dataclass(frozen=True)
-class LidarrSensorEntityDescriptionMixIn(Generic[T]):
+class LidarrSensorEntityDescriptionMixIn(Generic[T]):  # noqa: UP046
     """Mixin for required keys."""
 
     value_fn: Callable[[T, str], str | int]
@@ -58,7 +55,9 @@ class LidarrSensorEntityDescriptionMixIn(Generic[T]):
 
 @dataclasses.dataclass(frozen=True)
 class LidarrSensorEntityDescription(
-    SensorEntityDescription, LidarrSensorEntityDescriptionMixIn[T], Generic[T]
+    SensorEntityDescription,
+    LidarrSensorEntityDescriptionMixIn[T],
+    Generic[T],  # noqa: UP046
 ):
     """Class to describe a Lidarr sensor."""
 
@@ -98,7 +97,8 @@ SENSOR_TYPES: dict[str, LidarrSensorEntityDescription[Any]] = {
         state_class=SensorStateClass.TOTAL,
         entity_registry_enabled_default=False,
         attributes_fn=lambda data: {
-            album.title: album.artist.artistName for album in data.records
+            album.title: album.artist.artistName  # type: ignore[misc]
+            for album in data.records
         },
     ),
     "albums": LidarrSensorEntityDescription[int](
@@ -115,7 +115,7 @@ SENSOR_TYPES: dict[str, LidarrSensorEntityDescription[Any]] = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: LidarrConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Lidarr sensors based on a config entry."""
     entities: list[LidarrSensor[Any]] = []
@@ -148,11 +148,13 @@ class LidarrSensor(LidarrEntity[T], SensorEntity):
         self.folder_name = folder_name
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, str] | None:
         """Return the state attributes of the sensor."""
         return self.entity_description.attributes_fn(self.coordinator.data)
 
     @property
+    @override
     def native_value(self) -> str | int:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data, self.folder_name)

@@ -1,13 +1,13 @@
 """Switch platform for the Flipr's Hub."""
 
 import logging
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import FliprConfigEntry
+from .coordinator import FliprConfigEntry
 from .entity import FliprEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ SWITCH_TYPES: tuple[SwitchEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: FliprConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up switch for Flipr hub."""
     coordinators = config_entry.runtime_data.hub_coordinators
@@ -39,11 +39,13 @@ class FliprHubSwitch(FliprEntity, SwitchEntity):
     """Switch representing Hub state."""
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return state of the switch."""
         _LOGGER.debug("coordinator data = %s", self.coordinator.data)
         return self.coordinator.data["state"]
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
         _LOGGER.debug("Switching off %s", self.device_id)
@@ -55,6 +57,7 @@ class FliprHubSwitch(FliprEntity, SwitchEntity):
         _LOGGER.debug("New hub infos are %s", data)
         self.coordinator.async_set_updated_data(data)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
         _LOGGER.debug("Switching on %s", self.device_id)

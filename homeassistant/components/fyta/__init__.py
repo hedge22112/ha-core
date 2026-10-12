@@ -1,13 +1,10 @@
 """Initialization of FYTA integration."""
 
-from __future__ import annotations
-
 from datetime import datetime
 import logging
 
 from fyta_cli.fyta_connector import FytaConnector
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_ACCESS_TOKEN,
     CONF_PASSWORD,
@@ -19,15 +16,15 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util.dt import async_get_time_zone
 
 from .const import CONF_EXPIRATION
-from .coordinator import FytaCoordinator
+from .coordinator import FytaConfigEntry, FytaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
+    Platform.IMAGE,
     Platform.SENSOR,
 ]
-type FytaConfigEntry = ConfigEntry[FytaCoordinator]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FytaConfigEntry) -> bool:
@@ -45,7 +42,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FytaConfigEntry) -> bool
         username, password, access_token, expiration, tz, async_get_clientsession(hass)
     )
 
-    coordinator = FytaCoordinator(hass, fyta)
+    coordinator = FytaCoordinator(hass, entry, fyta)
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -68,10 +65,6 @@ async def async_migrate_entry(
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
-    if config_entry.version > 1:
-        # This means the user has downgraded from a future version
-        return False
-
     if config_entry.version == 1:
         if config_entry.minor_version < 2:
             new = {**config_entry.data}
@@ -85,7 +78,10 @@ async def async_migrate_entry(
             new[CONF_EXPIRATION] = credentials.expiration.isoformat()
 
             hass.config_entries.async_update_entry(
-                config_entry, data=new, minor_version=2, version=1
+                config_entry,
+                data=new,
+                minor_version=2,
+                version=1,
             )
 
     _LOGGER.debug(

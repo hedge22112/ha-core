@@ -1,10 +1,8 @@
 """Support for Peblar button."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from peblar import Peblar
 
@@ -15,9 +13,13 @@ from homeassistant.components.button import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import PeblarConfigEntry, PeblarUserConfigurationDataUpdateCoordinator
+from .coordinator import (
+    PeblarConfigEntry,
+    PeblarRuntimeData,
+    PeblarUserConfigurationDataUpdateCoordinator,
+)
 from .entity import PeblarEntity
 from .helpers import peblar_exception_handler
 
@@ -28,6 +30,7 @@ PARALLEL_UPDATES = 1
 class PeblarButtonEntityDescription(ButtonEntityDescription):
     """Describe a Peblar button."""
 
+    has_fn: Callable[[PeblarRuntimeData], bool] = lambda x: True
     press_fn: Callable[[Peblar], Awaitable[Any]]
 
 
@@ -46,13 +49,19 @@ DESCRIPTIONS = [
         entity_registry_enabled_default=False,
         press_fn=lambda x: x.reboot(),
     ),
+    PeblarButtonEntityDescription(
+        key="socket_unlock",
+        translation_key="socket_unlock",
+        has_fn=lambda x: x.system_information.hardware_has_socket,
+        press_fn=lambda x: x.socket_unlock(),
+    ),
 ]
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PeblarConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Peblar buttons based on a config entry."""
     async_add_entities(
@@ -62,6 +71,7 @@ async def async_setup_entry(
             description=description,
         )
         for description in DESCRIPTIONS
+        if description.has_fn(entry.runtime_data)
     )
 
 
@@ -74,6 +84,7 @@ class PeblarButtonEntity(
     entity_description: PeblarButtonEntityDescription
 
     @peblar_exception_handler
+    @override
     async def async_press(self) -> None:
         """Trigger button press on the Peblar device."""
         await self.entity_description.press_fn(self.coordinator.peblar)

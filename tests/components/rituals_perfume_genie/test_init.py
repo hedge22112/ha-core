@@ -1,11 +1,20 @@
 """Tests for the Rituals Perfume Genie integration."""
 
-from unittest.mock import patch
+from datetime import timedelta
+from unittest.mock import AsyncMock
 
-import aiohttp
+from freezegun.api import FrozenDateTimeFactory
+import pytest
+from ritualsgenie import (
+    RitualsGenieAuthenticationError,
+    RitualsGenieConnectionError,
+    RitualsGenieError,
+    RitualsGenieRateLimitError,
+)
 
-from homeassistant.components.rituals_perfume_genie.const import DOMAIN
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.components.rituals_perfume_genie.const import ACCOUNT_HASH, DOMAIN
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -16,17 +25,102 @@ from .common import (
     mock_diffuser_v1_battery_cartridge,
 )
 
+from tests.common import MockConfigEntry, async_fire_time_changed
 
-async def test_config_entry_not_ready(hass: HomeAssistant) -> None:
-    """Test the Rituals configuration entry setup if connection to Rituals is missing."""
-    config_entry = mock_config_entry(unique_id="id_123_not_ready")
-    config_entry.add_to_hass(hass)
-    with patch(
-        "homeassistant.components.rituals_perfume_genie.Account.get_devices",
-        side_effect=aiohttp.ClientError,
-    ):
-        await hass.config_entries.async_setup(config_entry.entry_id)
-    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+
+async def test_migration_v1_to_v2(
+    hass: HomeAssistant,
+    mock_rituals_client: AsyncMock,
+    old_mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test migration from V1 (account_hash) to V2 (credentials)."""
+    old_mock_config_entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(old_mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert old_mock_config_entry.version == 2
+    assert ACCOUNT_HASH not in old_mock_config_entry.data
+    assert old_mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert len(hass.config_entries.flow.async_progress()) == 1
+
+
+async def test_config_entry_not_ready(
+    hass: HomeAssistant,
+    mock_rituals_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test entry setup when connection to Rituals is missing."""
+    mock_config_entry.add_to_hass(hass)
+    mock_rituals_client.hubs.side_effect = RitualsGenieConnectionError
+
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_config_entry_auth_failed(
+    hass: HomeAssistant,
+    mock_rituals_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test entry setup with invalid credentials starts a reauth flow."""
+    mock_config_entry.add_to_hass(hass)
+    mock_rituals_client.hubs.side_effect = RitualsGenieAuthenticationError
+
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+
+    flows = hass.config_entries.flow.async_progress()
+    assert len(flows) == 1
+    assert flows[0]["context"]["source"] == SOURCE_REAUTH
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        RitualsGenieConnectionError,
+        RitualsGenieError,
+        RitualsGenieRateLimitError("Slow down", retry_after=60),
+    ],
+)
+async def test_update_failed(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    exception: Exception,
+) -> None:
+    """Test entities become unavailable when updating fails."""
+    config_entry = mock_config_entry(unique_id="id_123_update_failed")
+    client = await init_integration(hass, config_entry, [mock_diffuser("lot123")])
+    client.hubs.side_effect = exception
+
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("switch.genie")
+    assert state
+    assert state.state == STATE_UNAVAILABLE
+
+
+async def test_update_auth_failed(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Test a reauth flow is started when the credentials stopped working."""
+    config_entry = mock_config_entry(unique_id="id_123_update_auth_failed")
+    client = await init_integration(hass, config_entry, [mock_diffuser("lot123")])
+    client.hubs.side_effect = RitualsGenieAuthenticationError
+
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    flows = hass.config_entries.flow.async_progress()
+    assert len(flows) == 1
+    assert flows[0]["context"]["source"] == SOURCE_REAUTH
 
 
 async def test_config_entry_unload(hass: HomeAssistant) -> None:
@@ -38,7 +132,6 @@ async def test_config_entry_unload(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert config_entry.state is ConfigEntryState.NOT_LOADED
-    assert config_entry.entry_id not in hass.data[DOMAIN]
 
 
 async def test_entity_id_migration(

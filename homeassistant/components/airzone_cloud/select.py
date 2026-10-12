@@ -1,10 +1,8 @@
 """Support for the Airzone Cloud select."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, override
 
 from aioairzone_cloud.common import AirQualityMode, OperationMode
 from aioairzone_cloud.const import (
@@ -21,10 +19,9 @@ from aioairzone_cloud.const import (
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AirzoneCloudConfigEntry
-from .coordinator import AirzoneUpdateCoordinator
+from .coordinator import AirzoneCloudConfigEntry, AirzoneUpdateCoordinator
 from .entity import AirzoneEntity, AirzoneZoneEntity
 
 
@@ -90,7 +87,7 @@ ZONE_SELECT_TYPES: Final[tuple[AirzoneSelectDescription, ...]] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AirzoneCloudConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add Airzone Cloud select from a config_entry."""
     coordinator = entry.runtime_data
@@ -130,6 +127,7 @@ class AirzoneBaseSelect(AirzoneEntity, SelectEntity):
     values_dict: dict[str, str]
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Update attributes when the coordinator updates."""
         self._async_update_attrs()
@@ -170,6 +168,7 @@ class AirzoneZoneSelect(AirzoneZoneEntity, AirzoneBaseSelect):
 
         self._async_update_attrs()
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         param = self.entity_description.api_param

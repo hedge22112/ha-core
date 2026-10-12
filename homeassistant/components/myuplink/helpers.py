@@ -68,6 +68,7 @@ PARAMETER_ID_TO_EXCLUDE_F730 = (
     "47272",
     "47273",
     "47274",
+    "47374",
     "47375",
     "47376",
     "47538",
@@ -87,7 +88,12 @@ PARAMETER_ID_TO_EXCLUDE_F730 = (
     "47975",
     "48009",
     "48072",
+    "48181",
+    "48185",
     "48442",
+    "48740",
+    "48741",
+    "48742",
     "49909",
     "50113",
 )
@@ -110,6 +116,9 @@ PARAMETER_ID_TO_INCLUDE_SMO20 = (
 
 def skip_entity(model: str, device_point: DevicePoint) -> bool:
     """Check if entity should be skipped for this device model."""
+    if device_point.parameter_id == "65535":
+        # Garbage entity showing up on several firmware versions
+        return True
     if model == "SMO 20":
         if (
             len(device_point.smart_home_categories) > 0

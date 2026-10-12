@@ -6,9 +6,16 @@ import pytest
 from zwave_js_server.const import CommandClass
 from zwave_js_server.event import Event
 
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from tests.common import async_capture_events
+
+
+@pytest.fixture
+def platforms() -> list[str]:
+    """Fixture to specify platforms to test."""
+    return []
 
 
 async def test_scenes(
@@ -243,7 +250,35 @@ async def test_notifications(
     assert events[2].data["command_class"] == CommandClass.SWITCH_MULTILEVEL
     assert events[2].data["command_class_name"] == "Multilevel Switch"
 
+    # Publish fake Battery CC notification
+    event = Event(
+        type="notification",
+        data={
+            "source": "node",
+            "event": "notification",
+            "nodeId": 32,
+            "endpointIndex": 0,
+            "ccId": 128,
+            "args": {
+                "eventType": "battery low",
+                "urgency": 1,
+            },
+        },
+    )
 
+    node.receive_event(event)
+    await hass.async_block_till_done()
+    assert len(events) == 4
+    assert events[3].data["home_id"] == client.driver.controller.home_id
+    assert events[3].data["node_id"] == 32
+    assert events[3].data["endpoint"] == 0
+    assert events[3].data["event_type"] == "battery low"
+    assert events[3].data["urgency"] == 1
+    assert events[3].data["command_class"] == CommandClass.BATTERY
+    assert events[3].data["command_class_name"] == "Battery"
+
+
+@pytest.mark.parametrize("platforms", [[Platform.SWITCH]])
 async def test_value_updated(
     hass: HomeAssistant, vision_security_zl7432, integration, client
 ) -> None:

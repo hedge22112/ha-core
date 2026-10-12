@@ -1,10 +1,8 @@
 """Number platform for Sensibo integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pysensibo.model import SensiboDevice
 
@@ -13,9 +11,9 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfRatio, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import SensiboConfigEntry
 from .coordinator import SensiboDataUpdateCoordinator
@@ -50,7 +48,7 @@ DEVICE_NUMBER_TYPES = (
         key="calibration_hum",
         translation_key="calibration_humidity",
         device_class=NumberDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         remote_key="humidity",
         entity_category=EntityCategory.CONFIG,
         entity_registry_enabled_default=False,
@@ -65,7 +63,7 @@ DEVICE_NUMBER_TYPES = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SensiboConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Sensibo number platform."""
 
@@ -76,7 +74,8 @@ async def async_setup_entry(
     def _add_remove_devices() -> None:
         """Handle additions of devices and sensors."""
         nonlocal added_devices
-        new_devices, _, added_devices = coordinator.get_devices(added_devices)
+        new_devices, _, new_added_devices = coordinator.get_devices(added_devices)
+        added_devices = new_added_devices
 
         if new_devices:
             async_add_entities(
@@ -107,10 +106,12 @@ class SensiboNumber(SensiboDeviceBaseEntity, NumberEntity):
         self._attr_unique_id = f"{device_id}-{entity_description.key}"
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the value from coordinator data."""
         return self.entity_description.value_fn(self.device_data)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set value for calibration."""
         await self.async_send_api_call(key=self.entity_description.key, value=value)

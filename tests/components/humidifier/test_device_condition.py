@@ -1,8 +1,8 @@
 """The tests for Humidifier device conditions."""
 
+from probatio import to_field_list
 import pytest
 from pytest_unordered import unordered
-import voluptuous_serialize
 
 from homeassistant.components import automation
 from homeassistant.components.device_automation import DeviceAutomationType
@@ -18,11 +18,6 @@ from homeassistant.helpers.entity_registry import RegistryEntryHider
 from homeassistant.setup import async_setup_component
 
 from tests.common import MockConfigEntry, async_get_device_automations
-
-
-@pytest.fixture(autouse=True, name="stub_blueprint_populate")
-def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
-    """Stub copying the blueprints to the config folder."""
 
 
 @pytest.mark.parametrize(
@@ -59,7 +54,9 @@ async def test_get_conditions(
     )
     if set_state:
         hass.states.async_set(
-            f"{DOMAIN}.test_5678", "attributes", {"supported_features": features_state}
+            entity_entry.entity_id,
+            "attributes",
+            {"supported_features": features_state},
         )
     expected_conditions = []
     basic_condition_types = ["is_on", "is_off"]
@@ -220,7 +217,10 @@ async def test_if_state(
                     "action": {
                         "service": "test.automation",
                         "data_template": {
-                            "some": "is_mode - {{ trigger.platform }} - {{ trigger.event.event_type }}"
+                            "some": (
+                                "is_mode - {{ trigger.platform }}"
+                                " - {{ trigger.event.event_type }}"
+                            )
                         },
                     },
                 },
@@ -298,7 +298,10 @@ async def test_if_state_legacy(
                     "action": {
                         "service": "test.automation",
                         "data_template": {
-                            "some": "is_mode - {{ trigger.platform }} - {{ trigger.event.event_type }}"
+                            "some": (
+                                "is_mode - {{ trigger.platform }}"
+                                " - {{ trigger.event.event_type }}"
+                            )
                         },
                     },
                 },
@@ -363,6 +366,7 @@ async def test_if_state_legacy(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -376,6 +380,7 @@ async def test_if_state_legacy(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -417,6 +422,7 @@ async def test_if_state_legacy(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -430,6 +436,7 @@ async def test_if_state_legacy(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -480,7 +487,7 @@ async def test_capabilities(
     assert capabilities and "extra_fields" in capabilities
 
     assert (
-        voluptuous_serialize.convert(
+        to_field_list(
             capabilities["extra_fields"], custom_serializer=cv.custom_serializer
         )
         == expected_capabilities
@@ -533,6 +540,7 @@ async def test_capabilities(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -546,6 +554,7 @@ async def test_capabilities(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -587,6 +596,7 @@ async def test_capabilities(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -600,6 +610,7 @@ async def test_capabilities(
                 {
                     "name": "for",
                     "optional": True,
+                    "required": False,
                     "type": "positive_time_period_dict",
                 }
             ],
@@ -650,7 +661,7 @@ async def test_capabilities_legacy(
     assert capabilities and "extra_fields" in capabilities
 
     assert (
-        voluptuous_serialize.convert(
+        to_field_list(
             capabilities["extra_fields"], custom_serializer=cv.custom_serializer
         )
         == expected_capabilities
@@ -691,7 +702,7 @@ async def test_capabilities_missing_entity(
     assert capabilities and "extra_fields" in capabilities
 
     assert (
-        voluptuous_serialize.convert(
+        to_field_list(
             capabilities["extra_fields"], custom_serializer=cv.custom_serializer
         )
         == expected_capabilities

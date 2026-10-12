@@ -1,12 +1,18 @@
 """The tests for the TTS component."""
 
 import asyncio
+from collections.abc import AsyncGenerator, Callable
 from http import HTTPStatus
+import io
 from pathlib import Path
+import tempfile
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+import wave
 
 from freezegun.api import FrozenDateTimeFactory
+import mutagen
+from mutagen.id3 import TIT2, TPE1, Encoding
 import pytest
 
 from homeassistant.components import ffmpeg, tts
@@ -14,21 +20,24 @@ from homeassistant.components.media_player import (
     ATTR_MEDIA_ANNOUNCE,
     ATTR_MEDIA_CONTENT_ID,
     ATTR_MEDIA_CONTENT_TYPE,
-    DOMAIN as DOMAIN_MP,
+    DOMAIN as MP_DOMAIN,
     SERVICE_PLAY_MEDIA,
     MediaType,
 )
+from homeassistant.components.tts import DOMAIN
+from homeassistant.components.tts.const import DEFAULT_TIME_MEMORY
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNKNOWN
-from homeassistant.core import HomeAssistant, State
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from .common import (
     DEFAULT_LANG,
-    SUPPORT_LANGUAGES,
+    MOCK_DATA,
     TEST_DOMAIN,
+    MockResultStream,
     MockTTS,
     MockTTSEntity,
     MockTTSProvider,
@@ -40,34 +49,20 @@ from .common import (
 
 from tests.common import (
     MockModule,
+    async_fire_time_changed,
     async_mock_service,
+    load_fixture_bytes,
     mock_integration,
     mock_platform,
-    mock_restore_cache,
-    reset_translation_cache,
 )
 from tests.typing import ClientSessionGenerator, WebSocketGenerator
 
 ORIG_WRITE_TAGS = tts.SpeechManager.write_tags
 
 
-class DefaultEntity(tts.TextToSpeechEntity):
-    """Test entity."""
-
-    _attr_supported_languages = SUPPORT_LANGUAGES
-    _attr_default_language = DEFAULT_LANG
-
-
-async def test_default_entity_attributes() -> None:
-    """Test default entity attributes."""
-    entity = DefaultEntity()
-
-    assert entity.hass is None
-    assert entity.default_language == DEFAULT_LANG
-    assert entity.supported_languages == SUPPORT_LANGUAGES
-    assert entity.supported_options is None
-    assert entity.default_options is None
-    assert entity.async_get_supported_voices("test") is None
+async def get_stream_data(stream: tts.ResultStream) -> bytes:
+    """Get all data of a result stream."""
+    return b"".join([chunk async for chunk in stream.async_stream_result()])
 
 
 async def test_config_entry_unload(
@@ -87,7 +82,7 @@ async def test_config_entry_unload(
     assert state is not None
     assert state.state == STATE_UNKNOWN
 
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     now = dt_util.utcnow()
     freezer.move_to(now)
@@ -119,24 +114,6 @@ async def test_config_entry_unload(
 
     state = hass.states.get(entity_id)
     assert state is None
-
-
-async def test_restore_state(
-    hass: HomeAssistant,
-    mock_tts_entity: MockTTSEntity,
-) -> None:
-    """Test we restore state in the integration."""
-    entity_id = f"{tts.DOMAIN}.{TEST_DOMAIN}"
-    timestamp = "2023-01-01T23:59:59+00:00"
-    mock_restore_cache(hass, (State(entity_id, timestamp),))
-
-    config_entry = await mock_config_entry_setup(hass, mock_tts_entity)
-    await hass.async_block_till_done()
-
-    assert config_entry.state is ConfigEntryState.LOADED
-    state = hass.states.get(entity_id)
-    assert state
-    assert state.state == timestamp
 
 
 @pytest.mark.parametrize(
@@ -194,7 +171,7 @@ async def test_service(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -212,10 +189,13 @@ async def test_service(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
-            / f"42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_{expected_url_suffix}.mp3"
+            / (
+                "42f18378fd4393d18c8dd11d03fa9563c1e54491"
+                f"_en-us_-_{expected_url_suffix}.mp3"
+            )
         ).is_file()
 
 
@@ -257,7 +237,7 @@ async def test_service_default_language(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform with default language and call service."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -274,7 +254,7 @@ async def test_service_default_language(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
             / (
@@ -321,7 +301,7 @@ async def test_service_default_special_language(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform with default special language and call service."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -338,10 +318,13 @@ async def test_service_default_special_language(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
-            / f"42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_{expected_url_suffix}.mp3"
+            / (
+                "42f18378fd4393d18c8dd11d03fa9563c1e54491"
+                f"_en-us_-_{expected_url_suffix}.mp3"
+            )
         ).is_file()
 
 
@@ -381,7 +364,7 @@ async def test_service_language(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service with language."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -398,10 +381,13 @@ async def test_service_language(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
-            / f"42f18378fd4393d18c8dd11d03fa9563c1e54491_de-de_-_{expected_url_suffix}.mp3"
+            / (
+                "42f18378fd4393d18c8dd11d03fa9563c1e54491"
+                f"_de-de_-_{expected_url_suffix}.mp3"
+            )
         ).is_file()
 
 
@@ -441,9 +427,9 @@ async def test_service_wrong_language(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(ServiceValidationError, match="Language lang is not supported"):
         await hass.services.async_call(
             tts.DOMAIN,
             tts_service,
@@ -495,7 +481,7 @@ async def test_service_options(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service with options."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -514,7 +500,7 @@ async def test_service_options(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
             / (
@@ -579,7 +565,7 @@ async def test_service_default_options(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service with default options."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -598,7 +584,7 @@ async def test_service_default_options(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
             / (
@@ -653,7 +639,7 @@ async def test_merge_default_service_options(
 
     This tests merging default and user provided options.
     """
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -672,7 +658,7 @@ async def test_merge_default_service_options(
         assert await get_media_source_url(
             hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
         ) == ("/api/tts_proxy/test_token.mp3")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert (
             mock_tts_cache_dir
             / (
@@ -720,9 +706,9 @@ async def test_service_wrong_options(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service with wrong options."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(ServiceValidationError, match="Unsupported options: "):
         await hass.services.async_call(
             tts.DOMAIN,
             tts_service,
@@ -776,7 +762,7 @@ async def test_service_clear_cache(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service clear cache."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -787,7 +773,7 @@ async def test_service_clear_cache(
     # To make sure the file is persisted
     assert len(calls) == 1
     await get_media_source_url(hass, calls[0].data[ATTR_MEDIA_CONTENT_ID])
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert (
         mock_tts_cache_dir
         / f"42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_{expected_url_suffix}.mp3"
@@ -838,7 +824,7 @@ async def test_service_receive_voice(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service and receive voice."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -852,7 +838,7 @@ async def test_service_receive_voice(
     await hass.async_block_till_done()
     client = await hass_client()
     req = await client.get(url)
-    tts_data = b""
+    tts_data = MOCK_DATA
     tts_data = tts.SpeechManager.write_tags(
         f"42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_{expected_url_suffix}.mp3",
         tts_data,
@@ -864,11 +850,10 @@ async def test_service_receive_voice(
     assert req.status == HTTPStatus.OK
     assert await req.read() == tts_data
 
-    extension, data = await tts.async_get_media_source_audio(
-        hass, calls[0].data[ATTR_MEDIA_CONTENT_ID]
-    )
-    assert extension == "mp3"
-    assert tts_data == data
+    stream = tts.async_get_stream(hass, url.rsplit("/", 1)[-1])
+    assert stream is not None
+    assert stream.extension == "mp3"
+    assert tts_data == b"".join([chunk async for chunk in stream.async_stream_result()])
 
 
 @pytest.mark.parametrize(
@@ -910,7 +895,7 @@ async def test_service_receive_voice_german(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform and call service and receive voice."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -923,7 +908,7 @@ async def test_service_receive_voice_german(
     await hass.async_block_till_done()
     client = await hass_client()
     req = await client.get(url)
-    tts_data = b""
+    tts_data = MOCK_DATA
     tts_data = tts.SpeechManager.write_tags(
         "42f18378fd4393d18c8dd11d03fa9563c1e54491_de-de_-_{expected_url_suffix}.mp3",
         tts_data,
@@ -956,6 +941,29 @@ async def test_web_view_wrong_file(
     )
 
     req = await client.get(url)
+    assert req.status == HTTPStatus.NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    ("setup", "expected_url_suffix"),
+    [("mock_setup", "test"), ("mock_config_entry_setup", "tts.test")],
+    indirect=["setup"],
+)
+async def test_web_view_wrong_file_with_head_request(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    setup: str,
+    expected_url_suffix: str,
+) -> None:
+    """Set up a TTS platform and receive wrong file from web."""
+    client = await hass_client()
+
+    url = (
+        "/api/tts_proxy/42f18378fd4393d18c8dd11d03fa9563c1e54491"
+        f"_en-us_-_{expected_url_suffix}.mp3"
+    )
+
+    req = await client.head(url)
     assert req.status == HTTPStatus.NOT_FOUND
 
 
@@ -1018,7 +1026,7 @@ async def test_service_without_cache(
     expected_url_suffix: str,
 ) -> None:
     """Set up a TTS platform with cache and call service without cache."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -1063,9 +1071,9 @@ async def test_setup_legacy_cache_dir(
     mock_provider: MockTTSProvider,
 ) -> None:
     """Set up a TTS platform with cache and call service without cache."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
-    tts_data = b""
+    tts_data = MOCK_DATA
     cache_file = (
         mock_tts_cache_dir / "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3"
     )
@@ -1101,9 +1109,9 @@ async def test_setup_cache_dir(
     mock_tts_entity: MockTTSEntity,
 ) -> None:
     """Set up a TTS platform with cache and call service without cache."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
-    tts_data = b""
+    tts_data = MOCK_DATA
     cache_file = mock_tts_cache_dir / (
         "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_tts.test.mp3"
     )
@@ -1187,7 +1195,7 @@ async def test_service_get_tts_error(
     service_data: dict[str, Any],
 ) -> None:
     """Set up a TTS platform with wrong get_tts_audio."""
-    calls = async_mock_service(hass, DOMAIN_MP, SERVICE_PLAY_MEDIA)
+    calls = async_mock_service(hass, MP_DOMAIN, SERVICE_PLAY_MEDIA)
 
     await hass.services.async_call(
         tts.DOMAIN,
@@ -1198,7 +1206,7 @@ async def test_service_get_tts_error(
     assert len(calls) == 1
     assert (
         await retrieve_media(hass, hass_client, calls[0].data[ATTR_MEDIA_CONTENT_ID])
-        == HTTPStatus.NOT_FOUND
+        == HTTPStatus.INTERNAL_SERVER_ERROR
     )
 
 
@@ -1209,7 +1217,7 @@ async def test_legacy_cannot_retrieve_without_token(
     hass_client: ClientSessionGenerator,
 ) -> None:
     """Verify that a TTS cannot be retrieved by filename directly."""
-    tts_data = b""
+    tts_data = MOCK_DATA
     cache_file = (
         mock_tts_cache_dir / "42f18378fd4393d18c8dd11d03fa9563c1e54491_en_-_test.mp3"
     )
@@ -1232,7 +1240,7 @@ async def test_cannot_retrieve_without_token(
     hass_client: ClientSessionGenerator,
 ) -> None:
     """Verify that a TTS cannot be retrieved by filename directly."""
-    tts_data = b""
+    tts_data = MOCK_DATA
     cache_file = mock_tts_cache_dir / (
         "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_tts.test.mp3"
     )
@@ -1380,11 +1388,21 @@ async def test_generate_media_source_id(
     indirect=["setup"],
 )
 @pytest.mark.parametrize(
-    ("engine", "language", "options"),
+    ("engine", "language", "options", "message"),
     [
-        ("not-loaded-engine", None, None),
-        (None, "unsupported-language", None),
-        (None, None, {"option": "not-supported"}),
+        (
+            "not-loaded-engine",
+            None,
+            None,
+            "The selected text-to-speech provider is not available",
+        ),
+        (
+            None,
+            "unsupported-language",
+            None,
+            "Language unsupported-language is not supported",
+        ),
+        (None, None, {"option": "not-supported"}, "Unsupported options: option"),
     ],
 )
 async def test_generate_media_source_id_invalid_options(
@@ -1393,9 +1411,10 @@ async def test_generate_media_source_id_invalid_options(
     engine: str | None,
     language: str | None,
     options: dict[str, Any] | None,
+    message: str,
 ) -> None:
     """Test generating a media source ID."""
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(ServiceValidationError, match=message):
         tts.generate_media_source_id(hass, "msg", engine, language, options, None)
 
 
@@ -1419,29 +1438,6 @@ def test_resolve_engine(hass: HomeAssistant, setup: str, engine_id: str) -> None
         patch.dict(hass.data[tts.DOMAIN]._entities, {}, clear=True),
     ):
         assert tts.async_resolve_engine(hass, None) is None
-
-
-@pytest.mark.parametrize(
-    ("setup", "engine_id"),
-    [
-        ("mock_setup", "test"),
-        ("mock_config_entry_setup", "tts.test"),
-    ],
-    indirect=["setup"],
-)
-async def test_support_options(hass: HomeAssistant, setup: str, engine_id: str) -> None:
-    """Test supporting options."""
-    assert await tts.async_support_options(hass, engine_id, "en_US") is True
-    assert await tts.async_support_options(hass, engine_id, "nl") is False
-    assert (
-        await tts.async_support_options(
-            hass, engine_id, "en_US", {"invalid_option": "yo"}
-        )
-        is False
-    )
-
-    with pytest.raises(HomeAssistantError):
-        await tts.async_support_options(hass, "non-existing")
 
 
 async def test_legacy_fetching_in_async(
@@ -1470,25 +1466,21 @@ async def test_legacy_fetching_in_async(
 
     await mock_setup(hass, ProviderWithAsyncFetching(DEFAULT_LANG))
 
-    # Test async_get_media_source_audio
-    media_source_id = tts.generate_media_source_id(
-        hass,
-        "test message",
-        "test",
-        "en_US",
-        cache=None,
-    )
+    def create_stream(message: str) -> tts.ResultStream:
+        stream = tts.async_create_stream(hass, "test", "en_US")
+        stream.async_set_message(message)
+        return stream
 
-    task = hass.async_create_task(
-        tts.async_get_media_source_audio(hass, media_source_id)
-    )
-    task2 = hass.async_create_task(
-        tts.async_get_media_source_audio(hass, media_source_id)
-    )
+    # Streams for the same message share a single fetch
+    stream = create_stream("test message")
+    stream2 = create_stream("test message")
+    stream3 = create_stream("test message")
 
-    url = await get_media_source_url(hass, media_source_id)
+    task = hass.async_create_task(get_stream_data(stream))
+    task2 = hass.async_create_task(get_stream_data(stream2))
+
     client = await hass_client()
-    client_get_task = hass.async_create_task(client.get(url))
+    client_get_task = hass.async_create_task(client.get(stream3.url))
 
     # Make sure that tasks are waiting for our future to resolve
     done, pending = await asyncio.wait((task, task2, client_get_task), timeout=0.1)
@@ -1497,28 +1489,23 @@ async def test_legacy_fetching_in_async(
 
     tts_audio.set_result(b"test")
 
-    assert await task == ("mp3", b"test")
-    assert await task2 == ("mp3", b"test")
+    assert stream.extension == "mp3"
+    assert await task == b"test"
+    assert await task2 == b"test"
 
     req = await client_get_task
     assert req.status == HTTPStatus.OK
     assert await req.read() == b"test"
 
     # Test error is not cached
-    media_source_id = tts.generate_media_source_id(
-        hass, "test message 2", "test", "en_US", None, None
-    )
     tts_audio = asyncio.Future()
     tts_audio.set_exception(HomeAssistantError("test error"))
     with pytest.raises(HomeAssistantError):
-        assert await tts.async_get_media_source_audio(hass, media_source_id)
+        await get_stream_data(create_stream("test message 2"))
 
     tts_audio = asyncio.Future()
     tts_audio.set_result(b"test 2")
-    assert await tts.async_get_media_source_audio(hass, media_source_id) == (
-        "mp3",
-        b"test 2",
-    )
+    assert await get_stream_data(create_stream("test message 2")) == b"test 2"
 
 
 async def test_fetching_in_async(
@@ -1537,25 +1524,21 @@ async def test_fetching_in_async(
 
     await mock_config_entry_setup(hass, EntityWithAsyncFetching(DEFAULT_LANG))
 
-    # Test async_get_media_source_audio
-    media_source_id = tts.generate_media_source_id(
-        hass,
-        "test message",
-        "tts.test",
-        "en_US",
-        cache=None,
-    )
+    def create_stream(message: str) -> tts.ResultStream:
+        stream = tts.async_create_stream(hass, "tts.test", "en_US")
+        stream.async_set_message(message)
+        return stream
 
-    task = hass.async_create_task(
-        tts.async_get_media_source_audio(hass, media_source_id)
-    )
-    task2 = hass.async_create_task(
-        tts.async_get_media_source_audio(hass, media_source_id)
-    )
+    # Streams for the same message share a single fetch
+    stream = create_stream("test message")
+    stream2 = create_stream("test message")
+    stream3 = create_stream("test message")
 
-    url = await get_media_source_url(hass, media_source_id)
+    task = hass.async_create_task(get_stream_data(stream))
+    task2 = hass.async_create_task(get_stream_data(stream2))
+
     client = await hass_client()
-    client_get_task = hass.async_create_task(client.get(url))
+    client_get_task = hass.async_create_task(client.get(stream3.url))
 
     # Make sure that tasks are waiting for our future to resolve
     done, pending = await asyncio.wait((task, task2, client_get_task), timeout=0.1)
@@ -1564,28 +1547,62 @@ async def test_fetching_in_async(
 
     tts_audio.set_result(b"test")
 
-    assert await task == ("mp3", b"test")
-    assert await task2 == ("mp3", b"test")
+    assert stream.extension == "mp3"
+    assert await task == b"test"
+    assert await task2 == b"test"
 
     req = await client_get_task
     assert req.status == HTTPStatus.OK
     assert await req.read() == b"test"
 
     # Test error is not cached
-    media_source_id = tts.generate_media_source_id(
-        hass, "test message 2", "tts.test", "en_US", None, None
-    )
     tts_audio = asyncio.Future()
     tts_audio.set_exception(HomeAssistantError("test error"))
     with pytest.raises(HomeAssistantError):
-        assert await tts.async_get_media_source_audio(hass, media_source_id)
+        await get_stream_data(create_stream("test message 2"))
 
     tts_audio = asyncio.Future()
     tts_audio.set_result(b"test 2")
-    assert await tts.async_get_media_source_audio(hass, media_source_id) == (
-        "mp3",
-        b"test 2",
-    )
+    assert await get_stream_data(create_stream("test message 2")) == b"test 2"
+
+
+@pytest.mark.parametrize(
+    ("setup", "engine_id"),
+    [
+        ("mock_setup", "test"),
+    ],
+    indirect=["setup"],
+)
+async def test_ws_list_engines_filter_deprecated(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    setup: str,
+    engine_id: str,
+) -> None:
+    """Test listing tts engines and supported languages."""
+    client = await hass_ws_client()
+
+    await client.send_json_auto_id({"type": "tts/engine/list"})
+
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"] == {
+        "providers": [
+            {
+                "name": "Test",
+                "engine_id": engine_id,
+                "supported_languages": ["de_CH", "de_DE", "en_GB", "en_US"],
+            }
+        ]
+    }
+
+    hass.data[tts.DATA_TTS_MANAGER].providers[engine_id].has_entity = True
+
+    await client.send_json_auto_id({"type": "tts/engine/list"})
+
+    msg = await client.receive_json()
+    assert msg["success"]
+    assert msg["result"] == {"providers": []}
 
 
 @pytest.mark.parametrize(
@@ -1693,7 +1710,7 @@ async def test_ws_list_engines_deprecated(
     mock_integration(hass, MockModule(domain="test_2"))
     mock_platform(hass, "test_2.tts", MockTTS(mock_provider_2))
     await async_setup_component(
-        hass, "tts", {"tts": [{"platform": "test"}, {"platform": "test_2"}]}
+        hass, DOMAIN, {"tts": [{"platform": "test"}, {"platform": "test_2"}]}
     )
     await mock_config_entry_setup(hass, mock_tts_entity)
 
@@ -1836,99 +1853,140 @@ async def test_async_convert_audio_error(hass: HomeAssistant) -> None:
     """Test that ffmpeg failing during audio conversion will raise an error."""
     assert await async_setup_component(hass, ffmpeg.DOMAIN, {})
 
-    with pytest.raises(RuntimeError):
+    async def bad_data_gen():
+        yield bytes(0)
+
+    with pytest.raises(HomeAssistantError):
         # Simulate a bad WAV file
-        await tts.async_convert_audio(hass, "wav", bytes(0), "mp3")
+        async for _chunk in tts._async_convert_audio(
+            hass, "wav", bad_data_gen(), "mp3"
+        ):
+            pass
 
 
-async def test_ttsentity_subclass_properties(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+async def _audio_data_gen() -> AsyncGenerator[bytes]:
+    """Yield test audio data."""
+    yield b"audio"
+
+
+@pytest.mark.parametrize(
+    ("from_extension", "audio_input", "expected_input"),
+    [
+        pytest.param(
+            "wav",
+            _audio_data_gen(),
+            ["-f", "wav", "-probesize", "32", "-i", "pipe:0"],
+            id="streaming_wav",
+        ),
+        pytest.param(
+            "wav",
+            Path("input.wav"),
+            ["-f", "wav", "-i", "input.wav"],
+            id="static_wav",
+        ),
+        pytest.param(
+            "mp3",
+            _audio_data_gen(),
+            ["-f", "mp3", "-i", "pipe:0"],
+            id="streaming_mp3",
+        ),
+    ],
+)
+async def test_async_convert_audio_probe_size(
+    hass: HomeAssistant,
+    from_extension: str,
+    audio_input: AsyncGenerator[bytes] | Path,
+    expected_input: list[str],
 ) -> None:
-    """Test for errors when subclasses of the TextToSpeechEntity are missing required properties."""
+    """Test probe size is limited for streaming WAV conversion only."""
+    assert await async_setup_component(hass, ffmpeg.DOMAIN, {})
 
-    class TestClass1(tts.TextToSpeechEntity):
-        _attr_default_language = DEFAULT_LANG
-        _attr_supported_languages = SUPPORT_LANGUAGES
+    mock_process = MagicMock()
+    mock_process.stdin.drain = AsyncMock()
+    mock_process.stdout.read = AsyncMock(return_value=b"")
+    mock_process.wait = AsyncMock(return_value=0)
 
-    await mock_config_entry_setup(hass, TestClass1())
+    with patch(
+        "asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_create_subprocess_exec:
+        async for _chunk in tts._async_convert_audio(
+            hass,
+            from_extension,
+            audio_input,
+            "flac",
+            to_sample_rate=48000,
+            to_sample_channels=1,
+            to_sample_bytes=2,
+        ):
+            pass
 
-    class TestClass2(tts.TextToSpeechEntity):
-        @property
-        def default_language(self) -> str:
-            return DEFAULT_LANG
+    command = list(mock_create_subprocess_exec.call_args.args)
+    input_index = command.index("-i")
+    # FFmpeg input options are positional.
+    assert command[4 : input_index + 2] == expected_input
+    assert command[input_index + 2 :] == [
+        "-f",
+        "flac",
+        "-ar",
+        "48000",
+        "-ac",
+        "1",
+        "-sample_fmt",
+        "s16",
+        "-fflags",
+        "+bitexact",
+        "pipe:1",
+    ]
 
-        @property
-        def supported_languages(self) -> list[str]:
-            return SUPPORT_LANGUAGES
 
-    await mock_config_entry_setup(hass, TestClass2())
+@pytest.mark.parametrize(
+    ("to_bitrate", "expected_encoder_args"),
+    [
+        pytest.param(None, ["-q:a", "0"], id="default_vbr"),
+        pytest.param(48, ["-b:a", "48k"], id="cbr_48k"),
+    ],
+)
+async def test_async_convert_audio_mp3_bitrate(
+    hass: HomeAssistant,
+    to_bitrate: int | None,
+    expected_encoder_args: list[str],
+) -> None:
+    """Test that a preferred bitrate produces a constant bitrate MP3."""
+    assert await async_setup_component(hass, ffmpeg.DOMAIN, {})
 
-    assert all(record.exc_info is None for record in caplog.records)
+    mock_process = MagicMock()
+    mock_process.stdin.drain = AsyncMock()
+    mock_process.stdout.read = AsyncMock(return_value=b"")
+    mock_process.wait = AsyncMock(return_value=0)
 
-    caplog.clear()
+    with patch(
+        "asyncio.create_subprocess_exec", return_value=mock_process
+    ) as mock_create_subprocess_exec:
+        async for _chunk in tts._async_convert_audio(
+            hass,
+            "wav",
+            _audio_data_gen(),
+            "mp3",
+            to_sample_rate=24000,
+            to_sample_channels=1,
+            to_bitrate=to_bitrate,
+        ):
+            pass
 
-    class TestClass3(tts.TextToSpeechEntity):
-        _attr_default_language = DEFAULT_LANG
-
-    await mock_config_entry_setup(hass, TestClass3())
-
-    assert (
-        "TTS entities must either set the '_attr_supported_languages' attribute or override the 'supported_languages' property"
-        in [
-            str(record.exc_info[1])
-            for record in caplog.records
-            if record.exc_info is not None
-        ]
-    )
-    caplog.clear()
-
-    class TestClass4(tts.TextToSpeechEntity):
-        _attr_supported_languages = SUPPORT_LANGUAGES
-
-    await mock_config_entry_setup(hass, TestClass4())
-
-    assert (
-        "TTS entities must either set the '_attr_default_language' attribute or override the 'default_language' property"
-        in [
-            str(record.exc_info[1])
-            for record in caplog.records
-            if record.exc_info is not None
-        ]
-    )
-    caplog.clear()
-
-    class TestClass5(tts.TextToSpeechEntity):
-        @property
-        def default_language(self) -> str:
-            return DEFAULT_LANG
-
-    await mock_config_entry_setup(hass, TestClass5())
-
-    assert (
-        "TTS entities must either set the '_attr_supported_languages' attribute or override the 'supported_languages' property"
-        in [
-            str(record.exc_info[1])
-            for record in caplog.records
-            if record.exc_info is not None
-        ]
-    )
-    caplog.clear()
-
-    class TestClass6(tts.TextToSpeechEntity):
-        @property
-        def supported_languages(self) -> list[str]:
-            return SUPPORT_LANGUAGES
-
-    await mock_config_entry_setup(hass, TestClass6())
-
-    assert (
-        "TTS entities must either set the '_attr_default_language' attribute or override the 'default_language' property"
-        in [
-            str(record.exc_info[1])
-            for record in caplog.records
-            if record.exc_info is not None
-        ]
-    )
+    command = list(mock_create_subprocess_exec.call_args.args)
+    input_index = command.index("-i")
+    assert command[input_index + 2 :] == [
+        "-f",
+        "mp3",
+        "-ar",
+        "24000",
+        "-ac",
+        "1",
+        *expected_encoder_args,
+        "-fflags",
+        "+bitexact",
+        "pipe:1",
+    ]
 
 
 async def test_default_engine_prefer_entity(
@@ -1988,5 +2046,494 @@ async def test_default_engine_prefer_cloud_entity(
     assert provider_engine == "test"
     assert tts.async_default_engine(hass) == "tts.cloud_tts_entity"
 
-    # Reset the `cloud` translations cache to avoid flaky translation checks
-    reset_translation_cache(hass, ["cloud"])
+
+async def test_stream(hass: HomeAssistant, mock_tts_entity: MockTTSEntity) -> None:
+    """Test creating streams."""
+    await mock_config_entry_setup(hass, mock_tts_entity)
+
+    stream = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+    assert stream.language == mock_tts_entity.default_language
+    assert stream.options == (mock_tts_entity.default_options or {})
+    assert stream.supports_streaming_input is False
+    assert tts.async_get_stream(hass, stream.token) is stream
+    stream.async_set_message("beer")
+    result_data = b"".join([chunk async for chunk in stream.async_stream_result()])
+    assert result_data == MOCK_DATA
+
+    async def async_stream_tts_audio(
+        request: tts.TTSAudioRequest,
+    ) -> tts.TTSAudioResponse:
+        """Mock stream TTS audio."""
+
+        async def gen_data():
+            async for msg in request.message_gen:
+                yield msg.encode()
+
+        return tts.TTSAudioResponse(
+            extension="mp3",
+            data_gen=gen_data(),
+        )
+
+    mock_tts_entity.async_stream_tts_audio = async_stream_tts_audio
+    mock_tts_entity.async_supports_streaming_input = Mock(return_value=True)
+
+    async def stream_message():
+        """Mock stream message."""
+        yield "he"
+        yield "ll"
+        yield "o"
+
+    stream = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+    assert stream.supports_streaming_input is True
+    stream.async_set_message_stream(stream_message())
+    result_data = b"".join([chunk async for chunk in stream.async_stream_result()])
+    assert result_data == b"hello"
+
+    data = b"beer"
+    stream2 = MockResultStream(hass, "wav", data)
+    assert tts.async_get_stream(hass, stream2.token) is stream2
+    assert stream2.extension == "wav"
+    result_data = b"".join([chunk async for chunk in stream2.async_stream_result()])
+    assert result_data == data
+
+
+async def _message_stream() -> AsyncGenerator[str]:
+    """Stream a message."""
+    yield "beer"
+
+
+@pytest.mark.parametrize(
+    "set_message",
+    [
+        pytest.param(lambda stream: stream.async_set_message("beer"), id="message"),
+        pytest.param(
+            lambda stream: stream.async_set_message_stream(_message_stream()),
+            id="message_stream",
+        ),
+    ],
+)
+async def test_stream_set_message_after_memory_cache_age(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_tts_entity: MockTTSEntity,
+    set_message: Callable[[tts.ResultStream], None],
+) -> None:
+    """Test a stream created long before its message is set can still be fetched.
+
+    A pipeline creates its stream when the run starts, for example before
+    waiting for the wake word, which can be long before the message is known.
+    """
+    await mock_config_entry_setup(hass, mock_tts_entity)
+    stream = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+
+    freezer.tick(DEFAULT_TIME_MEMORY + 2)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    set_message(stream)
+
+    assert tts.async_get_stream(hass, stream.token) is stream
+    result_data = b"".join([chunk async for chunk in stream.async_stream_result()])
+    assert result_data
+
+
+async def test_stream_override_result_after_memory_cache_age(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_tts_entity: MockTTSEntity,
+    tmp_path: Path,
+) -> None:
+    """Test a stream overridden long after it was created can still be fetched."""
+    await mock_config_entry_setup(hass, mock_tts_entity)
+    stream = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+
+    freezer.tick(DEFAULT_TIME_MEMORY + 2)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    # The Assist pipeline overrides the result for its local acknowledgment
+    stream.async_override_result(tmp_path / "acknowledge.mp3")
+
+    assert tts.async_get_stream(hass, stream.token) is stream
+
+
+async def test_result_stream_message_set_idempotent(
+    hass: HomeAssistant, mock_tts_entity: MockTTSEntity
+) -> None:
+    """Test setting a result stream message more than once."""
+    await mock_config_entry_setup(hass, mock_tts_entity)
+
+    stream = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+    stream.async_set_message("hello")
+    cache_first = stream._result_cache.result()
+    stream.async_set_message("world")
+    assert stream._result_cache.result() is cache_first
+
+    async def async_stream_tts_audio(
+        request: tts.TTSAudioRequest,
+    ) -> tts.TTSAudioResponse:
+        """Mock stream TTS audio."""
+
+        async def gen_data():
+            async for msg in request.message_gen:
+                yield msg.encode()
+
+        return tts.TTSAudioResponse(
+            extension="mp3",
+            data_gen=gen_data(),
+        )
+
+    mock_tts_entity.async_stream_tts_audio = async_stream_tts_audio
+    mock_tts_entity.async_supports_streaming_input = Mock(return_value=True)
+
+    async def stream_message():
+        """Mock stream message."""
+        yield "h"
+
+    stream2 = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+    stream2.async_set_message_stream(stream_message())
+    cache_first = stream2._result_cache.result()
+    stream2.async_set_message_stream(stream_message())
+    assert stream2._result_cache.result() is cache_first
+
+
+async def test_tts_cache() -> None:
+    """Test TTSCache."""
+
+    async def data_gen(queue: asyncio.Queue[bytes | Exception | None]):
+        while chunk := await queue.get():
+            if isinstance(chunk, Exception):
+                raise chunk
+            yield chunk
+
+    queue = asyncio.Queue()
+    cache = tts.TTSCache("test-key", "mp3", data_gen(queue))
+    assert cache.cache_key == "test-key"
+    assert cache.extension == "mp3"
+
+    for i in range(10):
+        queue.put_nowait(f"{i}".encode())
+    queue.put_nowait(None)
+
+    assert await cache.async_load_data() == b"0123456789"
+
+    with pytest.raises(RuntimeError):
+        await cache.async_load_data()
+
+    # When data is loaded, we get it all in 1 chunk
+    cur = 0
+    async for chunk in cache.async_stream_data():
+        assert chunk == b"0123456789"
+        cur += 1
+    assert cur == 1
+
+    # Show we can stream the data while it's still being generated
+    async def consume_cache(cache: tts.TTSCache):
+        return b"".join([chunk async for chunk in cache.async_stream_data()])
+
+    queue = asyncio.Queue()
+    cache = tts.TTSCache("test-key", "mp3", data_gen(queue))
+
+    load_data_task = asyncio.create_task(cache.async_load_data())
+    consume_pre_data_loaded_task = asyncio.create_task(consume_cache(cache))
+    queue.put_nowait(b"0")
+    await asyncio.sleep(0)
+    queue.put_nowait(b"1")
+    await asyncio.sleep(0)
+    consume_mid_data_task = asyncio.create_task(consume_cache(cache))
+    queue.put_nowait(b"2")
+    await asyncio.sleep(0)
+    queue.put_nowait(None)
+    consume_post_data_loaded_task = asyncio.create_task(consume_cache(cache))
+    await asyncio.sleep(0)
+    assert await load_data_task == b"012"
+    assert await consume_post_data_loaded_task == b"012"
+    assert await consume_mid_data_task == b"012"
+    assert await consume_pre_data_loaded_task == b"012"
+
+    # Now with errors
+    async def consume_cache(cache: tts.TTSCache):
+        return b"".join([chunk async for chunk in cache.async_stream_data()])
+
+    queue = asyncio.Queue()
+    cache = tts.TTSCache("test-key", "mp3", data_gen(queue))
+
+    load_data_task = asyncio.create_task(cache.async_load_data())
+    consume_pre_data_loaded_task = asyncio.create_task(consume_cache(cache))
+    queue.put_nowait(b"0")
+    await asyncio.sleep(0)
+    queue.put_nowait(b"1")
+    await asyncio.sleep(0)
+    consume_mid_data_task = asyncio.create_task(consume_cache(cache))
+    queue.put_nowait(ValueError("Boom!"))
+    await asyncio.sleep(0)
+    queue.put_nowait(None)
+    consume_post_data_loaded_task = asyncio.create_task(consume_cache(cache))
+    await asyncio.sleep(0)
+    with pytest.raises(ValueError):
+        assert await load_data_task == b"012"
+    with pytest.raises(ValueError):
+        assert await consume_post_data_loaded_task == b"012"
+    with pytest.raises(ValueError):
+        assert await consume_mid_data_task == b"012"
+    with pytest.raises(ValueError):
+        assert await consume_pre_data_loaded_task == b"012"
+
+
+async def test_async_internal_get_tts_audio_called(
+    hass: HomeAssistant,
+    mock_tts_entity: MockTTSEntity,
+    hass_client: ClientSessionGenerator,
+) -> None:
+    """Test non-streaming entity calls async_internal_get_tts_audio."""
+
+    await mock_config_entry_setup(hass, mock_tts_entity)
+
+    # Non-streaming
+    assert mock_tts_entity.async_supports_streaming_input() is False
+
+    with patch(
+        "homeassistant.components.tts.entity.TextToSpeechEntity.async_internal_get_tts_audio"
+    ) as internal_get_tts_audio:
+        media_source_id = tts.generate_media_source_id(
+            hass,
+            "test message",
+            "tts.test",
+            "en_US",
+            cache=None,
+        )
+
+        url = await get_media_source_url(hass, media_source_id)
+        client = await hass_client()
+        await client.get(url)
+
+        # async_internal_get_tts_audio is called
+        internal_get_tts_audio.assert_called_once_with("test message", "en_US", {})
+
+
+async def test_stream_override(
+    hass: HomeAssistant, mock_tts_entity: MockTTSEntity
+) -> None:
+    """Test overriding streams with a media path."""
+    await mock_config_entry_setup(hass, mock_tts_entity)
+
+    stream = tts.async_create_stream(hass, mock_tts_entity.entity_id)
+
+    with tempfile.NamedTemporaryFile(mode="wb+", suffix=".wav") as wav_file:
+        with wave.open(wav_file, "wb") as wav_writer:
+            wav_writer.setframerate(16000)
+            wav_writer.setsampwidth(2)
+            wav_writer.setnchannels(1)
+            wav_writer.writeframes(bytes(16000 * 2))  # 1 second @ 16Khz/mono
+
+        wav_file.seek(0)
+
+        stream.async_override_result(wav_file.name)
+
+        # An override without conversion is available directly on disk.
+        assert stream.async_get_media_path() == Path(wav_file.name)
+
+        result_data = b"".join([chunk async for chunk in stream.async_stream_result()])
+
+    # Verify the result
+    with io.BytesIO(result_data) as wav_io, wave.open(wav_io, "rb") as wav_reader:
+        assert wav_reader.getframerate() == 16000
+        assert wav_reader.getsampwidth() == 2
+        assert wav_reader.getnchannels() == 1
+        assert wav_reader.readframes(wav_reader.getnframes()) == bytes(
+            16000 * 2
+        )  # 1 second @ 16Khz/mono
+
+
+async def test_stream_override_with_conversion(
+    hass: HomeAssistant, mock_tts_entity: MockTTSEntity
+) -> None:
+    """Test overriding streams with a media path that requires conversion."""
+    await mock_config_entry_setup(hass, mock_tts_entity)
+
+    stream = tts.async_create_stream(
+        hass,
+        mock_tts_entity.entity_id,
+        options={
+            tts.ATTR_PREFERRED_FORMAT: "wav",
+            tts.ATTR_PREFERRED_SAMPLE_RATE: 22050,
+            tts.ATTR_PREFERRED_SAMPLE_BYTES: 2,
+            tts.ATTR_PREFERRED_SAMPLE_CHANNELS: 2,
+        },
+    )
+
+    # Use a temp file here since ffmpeg will read it directly
+    with tempfile.NamedTemporaryFile(mode="wb+", suffix=".wav") as wav_file:
+        with wave.open(wav_file, "wb") as wav_writer:
+            wav_writer.setframerate(16000)
+            wav_writer.setsampwidth(2)
+            wav_writer.setnchannels(1)
+            wav_writer.writeframes(bytes(16000 * 2))  # 1 second @ 16Khz/mono
+
+        wav_file.seek(0)
+        stream.async_override_result(wav_file.name)
+
+        # An override that needs conversion no longer matches the file on disk,
+        # so no path is exposed.
+        assert stream.async_get_media_path() is None
+
+        result_data = b"".join([chunk async for chunk in stream.async_stream_result()])
+
+    # Verify the result has the preferred format
+    with io.BytesIO(result_data) as wav_io, wave.open(wav_io, "rb") as wav_reader:
+        assert wav_reader.getframerate() == 22050
+        assert wav_reader.getsampwidth() == 2
+        assert wav_reader.getnchannels() == 2
+        assert wav_reader.readframes(wav_reader.getnframes()) == bytes(
+            22050 * 2 * 2
+        )  # 1 second @ 22.5Khz/stereo
+
+
+def test_write_tags_keeps_single_id3_tag() -> None:
+    """Test tagging audio that already carries an ID3 tag does not add a second one."""
+    data = load_fixture_bytes("tagged.mp3", DOMAIN)
+    assert data.startswith(b"ID3")
+    assert data.count(b"ID3") == 1
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        data,
+        "Test",
+        "There is someone at the door.",
+        "en",
+        None,
+    )
+
+    assert tagged.startswith(b"ID3")
+    assert tagged.count(b"ID3") == 1
+
+
+def test_write_tags_sets_standard_id3_frames() -> None:
+    """Test tagging audio carrying only the encoder frame sets standard frames."""
+    data = load_fixture_bytes("tagged.mp3", DOMAIN)
+    assert list(mutagen.File(io.BytesIO(data)).tags) == ["TSSE"]
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        data,
+        "Test",
+        "There is someone at the door.",
+        "en",
+        None,
+    )
+
+    tags = mutagen.File(io.BytesIO(tagged)).tags
+    assert tags["TPE1"].text == ["en"]
+    assert tags["TALB"].text == ["Test"]
+    assert tags["TIT2"].text == ["There is someone at the door."]
+    assert "TSSE" in tags
+
+
+def test_write_tags_adds_tag_to_untagged_audio() -> None:
+    """Test audio arriving without an ID3 tag gets one holding the frames."""
+    data = load_fixture_bytes("untagged.mp3", DOMAIN)
+    assert not data.startswith(b"ID3")
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        data,
+        "Test",
+        "There is someone at the door.",
+        "en",
+        None,
+    )
+
+    assert tagged.startswith(b"ID3")
+    assert tagged.count(b"ID3") == 1
+    tags = mutagen.File(io.BytesIO(tagged)).tags
+    assert tags["TPE1"].text == ["en"]
+    assert tags["TALB"].text == ["Test"]
+    assert tags["TIT2"].text == ["There is someone at the door."]
+
+
+def test_write_tags_fills_empty_id3_tag() -> None:
+    """Test audio arriving with an ID3 tag holding no frames gets the frames."""
+    data = b"ID3\x04\x00\x00\x00\x00\x00\x00" + load_fixture_bytes(
+        "untagged.mp3", DOMAIN
+    )
+    assert not mutagen.File(io.BytesIO(data)).tags
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        data,
+        "Test",
+        "There is someone at the door.",
+        "en",
+        None,
+    )
+
+    assert tagged.count(b"ID3") == 1
+    tags = mutagen.File(io.BytesIO(tagged)).tags
+    assert tags["TPE1"].text == ["en"]
+    assert tags["TALB"].text == ["Test"]
+    assert tags["TIT2"].text == ["There is someone at the door."]
+
+
+def test_write_tags_overwrites_id3v1_metadata() -> None:
+    """Test audio arriving with only an ID3v1 trailer gets the frames rewritten."""
+    data = load_fixture_bytes("id3v1.mp3", DOMAIN)
+    assert not data.startswith(b"ID3")
+    assert data[-128:-125] == b"TAG"
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        data,
+        "Test",
+        "There is someone at the door.",
+        "en",
+        None,
+    )
+
+    assert tagged.startswith(b"ID3")
+    tags = mutagen.File(io.BytesIO(tagged)).tags
+    assert tags["TPE1"].text == ["en"]
+    assert tags["TALB"].text == ["Test"]
+    assert tags["TIT2"].text == ["There is someone at the door."]
+
+
+def test_write_tags_replaces_existing_frames() -> None:
+    """Test frames carried through conversion from the provider are replaced."""
+    data = load_fixture_bytes("untagged.mp3", DOMAIN)
+    source = io.BytesIO(data)
+    source.name = "source.mp3"
+    source_file = mutagen.File(source)
+    source_file.add_tags()
+    source_file.tags.add(TIT2(encoding=Encoding.UTF8, text="Provider title"))
+    source_file.tags.add(TPE1(encoding=Encoding.UTF8, text="Provider artist"))
+    source.seek(0)
+    source_file.save(source)
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        source.getvalue(),
+        "Test",
+        "There is someone at the door.",
+        "en",
+        None,
+    )
+
+    tags = mutagen.File(io.BytesIO(tagged)).tags
+    assert tags["TIT2"].text == ["There is someone at the door."]
+    assert tags["TPE1"].text == ["en"]
+
+
+def test_write_tags_uses_voice_as_artist() -> None:
+    """Test the voice option replaces the language as the artist frame."""
+    data = load_fixture_bytes("tagged.mp3", DOMAIN)
+
+    tagged = ORIG_WRITE_TAGS(
+        "42f18378fd4393d18c8dd11d03fa9563c1e54491_en-us_-_test.mp3",
+        data,
+        "Test",
+        "There is someone at the door.",
+        "en",
+        {"voice": "JennyNeural"},
+    )
+
+    tags = mutagen.File(io.BytesIO(tagged)).tags
+    assert tags["TPE1"].text == ["JennyNeural"]

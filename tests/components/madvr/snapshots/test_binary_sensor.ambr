@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_hdr_flag-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'HDR flag',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'HDR flag',
     'platform': 'madvr',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'hdr_flag',
     'unique_id': '00:11:22:33:44:55_hdr_flag',
@@ -35,7 +39,7 @@
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_hdr_flag-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'madVR Envy HDR flag',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'madVR Envy HDR flag',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.madvr_envy_hdr_flag',
@@ -47,11 +51,13 @@
 # ---
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_outgoing_hdr_flag-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -65,6 +71,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Outgoing HDR flag',
     'options': dict({
     }),
     'original_device_class': None,
@@ -72,6 +79,7 @@
     'original_name': 'Outgoing HDR flag',
     'platform': 'madvr',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'outgoing_hdr_flag',
     'unique_id': '00:11:22:33:44:55_outgoing_hdr_flag',
@@ -81,7 +89,7 @@
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_outgoing_hdr_flag-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'madVR Envy Outgoing HDR flag',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'madVR Envy Outgoing HDR flag',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.madvr_envy_outgoing_hdr_flag',
@@ -93,11 +101,13 @@
 # ---
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_power_state-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -111,6 +121,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Power state',
     'options': dict({
     }),
     'original_device_class': None,
@@ -118,6 +129,7 @@
     'original_name': 'Power state',
     'platform': 'madvr',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'power_state',
     'unique_id': '00:11:22:33:44:55_power_state',
@@ -127,7 +139,7 @@
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_power_state-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'madVR Envy Power state',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'madVR Envy Power state',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.madvr_envy_power_state',
@@ -139,11 +151,13 @@
 # ---
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_signal_state-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -157,6 +171,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Signal state',
     'options': dict({
     }),
     'original_device_class': None,
@@ -164,6 +179,7 @@
     'original_name': 'Signal state',
     'platform': 'madvr',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'signal_state',
     'unique_id': '00:11:22:33:44:55_signal_state',
@@ -173,7 +189,7 @@
 # name: test_binary_sensor_setup[binary_sensor.madvr_envy_signal_state-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'madVR Envy Signal state',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'madVR Envy Signal state',
     }),
     'context': <ANY>,
     'entity_id': 'binary_sensor.madvr_envy_signal_state',

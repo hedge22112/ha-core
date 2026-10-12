@@ -1,13 +1,11 @@
 """Support for Google Maps location sharing."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
 
 from locationsharinglib import Service
 from locationsharinglib.locationsharinglibexceptions import InvalidCookies
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.device_tracker import (
     PLATFORM_SCHEMA as DEVICE_TRACKER_PLATFORM_SCHEMA,
@@ -22,7 +20,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import track_time_interval
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util, slugify
@@ -42,8 +40,10 @@ CREDENTIALS_FILE = ".google_maps_location_sharing.cookies"
 # need to be refactored as part of a bigger rewrite.
 PLATFORM_SCHEMA = DEVICE_TRACKER_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Optional(CONF_MAX_GPS_ACCURACY, default=100000): vol.Coerce(float),
+        probatio.Required(CONF_USERNAME): cv.string,
+        probatio.Optional(CONF_MAX_GPS_ACCURACY, default=100000): probatio.Coerce(
+            float
+        ),
     }
 )
 

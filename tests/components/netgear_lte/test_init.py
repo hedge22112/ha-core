@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from .conftest import CONF_DATA
 
@@ -50,7 +50,9 @@ async def test_device(
     """Test device info."""
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     await hass.async_block_till_done()
-    device = device_registry.async_get_device(identifiers={(DOMAIN, entry.unique_id)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, entry.unique_id), entry.entry_id
+    )
     assert device == snapshot
 
 

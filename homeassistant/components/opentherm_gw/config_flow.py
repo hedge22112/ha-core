@@ -1,14 +1,12 @@
 """OpenTherm Gateway config flow."""
 
-from __future__ import annotations
-
 import asyncio
-from typing import Any
+from typing import Any, override
 
+import probatio
 import pyotgw
 from pyotgw import vars as gw_vars
 from serial import SerialException
-import voluptuous as vol
 
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -19,13 +17,12 @@ from homeassistant.config_entries import (
 from homeassistant.const import (
     CONF_DEVICE,
     CONF_ID,
-    CONF_NAME,
     PRECISION_HALVES,
     PRECISION_TENTHS,
     PRECISION_WHOLE,
 )
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 
 from . import DOMAIN
 from .const import (
@@ -45,6 +42,7 @@ class OpenThermGwConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: ConfigEntry,
     ) -> OpenThermGwOptionsFlow:
@@ -56,9 +54,8 @@ class OpenThermGwConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle config flow initiation."""
         if info:
-            name = info[CONF_NAME]
             device = info[CONF_DEVICE]
-            gw_id = cv.slugify(info.get(CONF_ID, name))
+            gw_id = cv.slugify(info[CONF_ID])
 
             entries = [e.data for e in self._async_current_entries()]
 
@@ -82,50 +79,37 @@ class OpenThermGwConfigFlow(ConfigFlow, domain=DOMAIN):
                     await test_connection()
             except TimeoutError:
                 return self._show_form({"base": "timeout_connect"})
-            except (ConnectionError, SerialException):
+            except ConnectionError, SerialException:
                 return self._show_form({"base": "cannot_connect"})
 
-            return self._create_entry(gw_id, name, device)
+            return self._create_entry(gw_id, device)
 
         return self._show_form()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle manual initiation of the config flow."""
         return await self.async_step_init(user_input)
 
-    # Deprecated import from configuration.yaml, can be removed in 2025.4.0
-    async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
-        """Import an OpenTherm Gateway device as a config entry.
-
-        This flow is triggered by `async_setup` for configured devices.
-        """
-        formatted_config = {
-            CONF_NAME: import_data.get(CONF_NAME, import_data[CONF_ID]),
-            CONF_DEVICE: import_data[CONF_DEVICE],
-            CONF_ID: import_data[CONF_ID],
-        }
-        return await self.async_step_init(info=formatted_config)
-
     def _show_form(self, errors: dict[str, str] | None = None) -> ConfigFlowResult:
         """Show the config flow form with possible errors."""
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_NAME): str,
-                    vol.Required(CONF_DEVICE): str,
-                    vol.Optional(CONF_ID): str,
+                    probatio.Required(CONF_DEVICE): str,
+                    probatio.Required(CONF_ID): str,
                 }
             ),
             errors=errors or {},
         )
 
-    def _create_entry(self, gw_id, name, device):
+    def _create_entry(self, gw_id, device):
         """Create entry for the OpenTherm Gateway device."""
         return self.async_create_entry(
-            title=name, data={CONF_ID: gw_id, CONF_DEVICE: device, CONF_NAME: name}
+            title="OpenTherm Gateway", data={CONF_ID: gw_id, CONF_DEVICE: device}
         )
 
 
@@ -141,33 +125,33 @@ class OpenThermGwOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_READ_PRECISION,
                         default=self.config_entry.options.get(CONF_READ_PRECISION, 0),
-                    ): vol.All(
-                        vol.Coerce(float),
-                        vol.In(
+                    ): probatio.All(
+                        probatio.Coerce(float),
+                        probatio.In(
                             [0, PRECISION_TENTHS, PRECISION_HALVES, PRECISION_WHOLE]
                         ),
                     ),
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_SET_PRECISION,
                         default=self.config_entry.options.get(CONF_SET_PRECISION, 0),
-                    ): vol.All(
-                        vol.Coerce(float),
-                        vol.In(
+                    ): probatio.All(
+                        probatio.Coerce(float),
+                        probatio.In(
                             [0, PRECISION_TENTHS, PRECISION_HALVES, PRECISION_WHOLE]
                         ),
                     ),
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_TEMPORARY_OVRD_MODE,
                         default=self.config_entry.options.get(
                             CONF_TEMPORARY_OVRD_MODE, True
                         ),
                     ): bool,
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_FLOOR_TEMP,
                         default=self.config_entry.options.get(CONF_FLOOR_TEMP, False),
                     ): bool,

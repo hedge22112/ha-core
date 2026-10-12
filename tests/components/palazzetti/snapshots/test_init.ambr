@@ -2,7 +2,8 @@
 # name: test_device
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
       tuple(
@@ -16,7 +17,6 @@
     'id': <ANY>,
     'identifiers': set({
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Palazzetti',
@@ -24,9 +24,7 @@
     'model_id': None,
     'name': 'Stove',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': '0.0.0',
     'via_device_id': None,
   })

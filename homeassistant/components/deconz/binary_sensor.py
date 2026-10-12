@@ -1,9 +1,8 @@
 """Support for deCONZ binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from pydeconz.interfaces.sensors import SensorResources
 from pydeconz.models.event import EventType
@@ -23,11 +22,11 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import DeconzConfigEntry
 from .const import ATTR_DARK, ATTR_ON
 from .entity import DeconzDevice
 from .hub import DeconzHub
@@ -160,11 +159,11 @@ ENTITY_DESCRIPTIONS: tuple[DeconzBinarySensorDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: DeconzConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the deCONZ binary sensor."""
-    hub = DeconzHub.get_hub(hass, config_entry)
+    hub = config_entry.runtime_data
     hub.entities[BINARY_SENSOR_DOMAIN] = set()
 
     @callback
@@ -213,11 +212,13 @@ class DeconzBinarySensor(DeconzDevice[SensorResources], BinarySensorEntity):
             self._update_keys.update({"on", "state"})
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self._device)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, bool | float | int | list | None]:
         """Return the state attributes of the sensor."""
         attr: dict[str, bool | float | int | list | None] = {}

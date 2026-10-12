@@ -1,7 +1,5 @@
 """Sensor to monitor incoming/outgoing phone calls on a Fritz!Box router."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -9,7 +7,7 @@ import logging
 import queue
 from threading import Event as ThreadingEvent, Thread
 from time import sleep
-from typing import Any, cast
+from typing import Any, cast, override
 
 from fritzconnection.core.fritzmonitor import FritzMonitor
 
@@ -17,7 +15,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import CONF_HOST, CONF_PORT, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import FritzBoxCallMonitorConfigEntry
 from .base import Contact, FritzBoxPhonebook
@@ -48,7 +46,7 @@ class CallState(StrEnum):
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: FritzBoxCallMonitorConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the fritzbox_callmonitor sensor from config_entry."""
     fritzbox_phonebook = config_entry.runtime_data
@@ -110,6 +108,7 @@ class FritzBoxCallSensor(SensorEntity):
             sw_version=self._fritzbox_phonebook.fph.fc.system_version,
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Connect to FRITZ!Box to monitor its call state."""
         await super().async_added_to_hass()
@@ -120,6 +119,7 @@ class FritzBoxCallSensor(SensorEntity):
             )
         )
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Disconnect from FRITZ!Box by stopping monitor."""
         await super().async_will_remove_from_hass()
@@ -157,6 +157,7 @@ class FritzBoxCallSensor(SensorEntity):
         self._attributes = {**attributes}
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, str | list[str] | bool]:
         """Return the state attributes."""
         if self._prefixes:

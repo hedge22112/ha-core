@@ -1,6 +1,7 @@
 """Component for wiffi support."""
 
 from datetime import timedelta
+from typing import override
 
 from homeassistant.const import CONF_TIMEOUT
 from homeassistant.core import callback
@@ -41,7 +42,8 @@ class WiffiEntity(Entity):
         self._value = None
         self._timeout = options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-    async def async_added_to_hass(self):
+    @override
+    async def async_added_to_hass(self) -> None:
         """Entity has been added to hass."""
         self.async_on_remove(
             async_dispatcher_connect(

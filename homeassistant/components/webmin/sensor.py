@@ -1,8 +1,7 @@
 """Support for Webmin sensors."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,7 +11,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import WebminConfigEntry
@@ -200,7 +199,7 @@ def generate_filesystem_sensor_description(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: WebminConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Webmin sensors based on a config entry."""
     coordinator = entry.runtime_data
@@ -238,6 +237,7 @@ class WebminSensor(CoordinatorEntity[WebminUpdateCoordinator], SensorEntity):
         self._attr_unique_id = f"{coordinator.unique_id}_{description.key}"
 
     @property
+    @override
     def native_value(self) -> int | float:
         """Return the state of the sensor."""
         return self.coordinator.data[self.entity_description.key]
@@ -265,6 +265,7 @@ class WebminFSSensor(CoordinatorEntity[WebminUpdateCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> int | float:
         """Return the state of the sensor."""
         return self.coordinator.data["disk_fs"][self.entity_description.mountpoint][

@@ -1,9 +1,7 @@
 """Support for Fibaro binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, cast, override
 
 from pyfibaro.fibaro_device import DeviceModel
 
@@ -14,7 +12,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import FibaroConfigEntry
 from .entity import FibaroEntity
@@ -42,7 +40,7 @@ SENSOR_TYPES = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FibaroConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Perform the setup for Fibaro controller devices."""
     controller = entry.runtime_data
@@ -75,10 +73,12 @@ class FibaroBinarySensor(FibaroEntity, BinarySensorEntity):
             self._attr_icon = SENSOR_TYPES[self._fibaro_sensor_type][1]
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return the extra state attributes of the device."""
         return {**super().extra_state_attributes, **self._own_extra_state_attributes}
 
+    @override
     def update(self) -> None:
         """Get the latest data and update the state."""
         super().update()

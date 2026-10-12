@@ -1,16 +1,15 @@
 """Support for Dremel 3D Printer buttons."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from dremel3dpy import Dremel3DPrinter
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import DremelConfigEntry
 from .entity import Dremel3DPrinterEntity
@@ -45,7 +44,7 @@ BUTTON_TYPES: tuple[Dremel3DPrinterButtonEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DremelConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Dremel 3D Printer control buttons."""
     async_add_entities(
@@ -59,6 +58,7 @@ class Dremel3DPrinterButtonEntity(Dremel3DPrinterEntity, ButtonEntity):
 
     entity_description: Dremel3DPrinterButtonEntityDescription
 
+    @override
     def press(self) -> None:
         """Handle the button press."""
         # api does not care about the current state

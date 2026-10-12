@@ -6,22 +6,14 @@ from typing import Any
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from homeassistant import setup
 from homeassistant.components import automation
 from homeassistant.core import HomeAssistant, ServiceCall
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from . import async_init_integration
 
 from tests.common import async_fire_time_changed_exact
-
-
-@pytest.fixture(autouse=True, name="stub_blueprint_populate")
-def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
-    """Stub copying the blueprints to the config folder."""
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +30,7 @@ async def simulate_press(
     _LOGGER.info("*** simulate press of %d", number)
     callback = mock_litejet.switch_pressed_callbacks.get(number)
     with mock.patch(
-        "homeassistant.helpers.condition.dt_util.utcnow",
+        "homeassistant.helpers.condition.conditions.dt_util.utcnow",
         return_value=mock_litejet.start_time + mock_litejet.last_delta,
     ):
         if callback is not None:
@@ -53,7 +45,7 @@ async def simulate_release(
     _LOGGER.info("*** simulate release of %d", number)
     callback = mock_litejet.switch_released_callbacks.get(number)
     with mock.patch(
-        "homeassistant.helpers.condition.dt_util.utcnow",
+        "homeassistant.helpers.condition.conditions.dt_util.utcnow",
         return_value=mock_litejet.start_time + mock_litejet.last_delta,
     ):
         if callback is not None:
@@ -70,7 +62,7 @@ async def simulate_time(
     )
     mock_litejet.last_delta = delta
     with mock.patch(
-        "homeassistant.helpers.condition.dt_util.utcnow",
+        "homeassistant.helpers.condition.conditions.dt_util.utcnow",
         return_value=mock_litejet.start_time + delta,
     ):
         _LOGGER.info("*** now=%s", dt_util.utcnow())

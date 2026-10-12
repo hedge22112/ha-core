@@ -1,11 +1,9 @@
 """The Media Source implementation for the Jellyfin integration."""
 
-from __future__ import annotations
-
 import logging
 import mimetypes
 import os
-from typing import Any
+from typing import Any, override
 
 from jellyfin_apiclient_python.api import jellyfin_url
 from jellyfin_apiclient_python.client import JellyfinClient
@@ -19,7 +17,6 @@ from homeassistant.components.media_source import (
 )
 from homeassistant.core import HomeAssistant
 
-from . import JellyfinConfigEntry
 from .const import (
     COLLECTION_TYPE_MOVIES,
     COLLECTION_TYPE_MUSIC,
@@ -48,17 +45,14 @@ from .const import (
     PLAYABLE_ITEM_TYPES,
     SUPPORTED_COLLECTION_TYPES,
 )
+from .coordinator import JellyfinConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_get_media_source(hass: HomeAssistant) -> MediaSource:
     """Set up Jellyfin media source."""
-    # Currently only a single Jellyfin server is supported
-    entry: JellyfinConfigEntry = hass.config_entries.async_entries(DOMAIN)[0]
-    coordinator = entry.runtime_data
-
-    return JellyfinSource(hass, coordinator.api_client, entry)
+    return JellyfinSource(hass)
 
 
 class JellyfinSource(MediaSource):
@@ -66,21 +60,29 @@ class JellyfinSource(MediaSource):
 
     name: str = "Jellyfin"
 
-    def __init__(
-        self, hass: HomeAssistant, client: JellyfinClient, entry: JellyfinConfigEntry
-    ) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the Jellyfin media source."""
         super().__init__(DOMAIN)
-
         self.hass = hass
+        self.entry: JellyfinConfigEntry
+        self.client: JellyfinClient
+        self.api: Any
+        self.url: str
+
+    def _ensure_loaded(self) -> None:
+        """Ensure the Jellyfin integration is loaded and set up instance state."""
+        if not (entries := self.hass.config_entries.async_loaded_entries(DOMAIN)):
+            raise BrowseError("Jellyfin integration not loaded")
+        entry: JellyfinConfigEntry = entries[0]
         self.entry = entry
+        self.client = entry.runtime_data.api_client
+        self.api = self.client.jellyfin
+        self.url = jellyfin_url(self.client, "")
 
-        self.client = client
-        self.api = client.jellyfin
-        self.url = jellyfin_url(client, "")
-
+    @override
     async def async_resolve_media(self, item: MediaSourceItem) -> PlayMedia:
         """Return a streamable URL and associated mime type."""
+        self._ensure_loaded()
         media_item = await self.hass.async_add_executor_job(
             self.api.get_item, item.identifier
         )
@@ -88,13 +90,16 @@ class JellyfinSource(MediaSource):
         stream_url = self._get_stream_url(media_item)
         mime_type = _media_mime_type(media_item)
 
-        # Media Sources without a mime type have been filtered out during library creation
+        # Media Sources without a mime type have been filtered
+        # out during library creation
         assert mime_type is not None
 
         return PlayMedia(stream_url, mime_type)
 
+    @override
     async def async_browse_media(self, item: MediaSourceItem) -> BrowseMediaSource:
         """Return a browsable Jellyfin media source."""
+        self._ensure_loaded()
         if not item.identifier:
             return await self._build_libraries()
 
@@ -329,8 +334,8 @@ class JellyfinSource(MediaSource):
         movies = await self._get_children(library_id, ITEM_TYPE_MOVIE)
         movies = sorted(
             movies,
-            # Sort by whether a movies has an name first, then by name
-            # This allows for sorting moveis with, without and with missing names
+            # Sort by whether a movie has a name first, then by name
+            # This allows for sorting movies with, without and with missing names
             key=lambda k: (
                 ITEM_KEY_NAME not in k,
                 k.get(ITEM_KEY_NAME),
@@ -388,7 +393,7 @@ class JellyfinSource(MediaSource):
         series = await self._get_children(library_id, ITEM_TYPE_SERIES)
         series = sorted(
             series,
-            # Sort by whether a seroes has an name first, then by name
+            # Sort by whether a series has a name first, then by name
             # This allows for sorting series with, without and with missing names
             key=lambda k: (
                 ITEM_KEY_NAME not in k,

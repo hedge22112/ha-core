@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from typing import override
 
 from nyt_games import Connections, SpellingBee, Wordle
 
@@ -14,11 +15,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import NYTGamesConfigEntry
-from .coordinator import NYTGamesCoordinator
+from .coordinator import NYTGamesConfigEntry, NYTGamesCoordinator
 from .entity import ConnectionsEntity, SpellingBeeEntity, WordleEntity
 
 
@@ -147,7 +147,7 @@ CONNECTIONS_SENSORS: tuple[NYTGamesConnectionsSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NYTGamesConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up NYT Games sensor entities based on a config entry."""
 
@@ -188,6 +188,7 @@ class NYTGamesWordleSensor(WordleEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data.wordle)
@@ -211,6 +212,7 @@ class NYTGamesSpellingBeeSensor(SpellingBeeEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         assert self.coordinator.data.spelling_bee is not None
@@ -235,6 +237,7 @@ class NYTGamesConnectionsSensor(ConnectionsEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType | date:
         """Return the state of the sensor."""
         assert self.coordinator.data.connections is not None

@@ -1,11 +1,9 @@
 """Sensors on Zigbee Home Automation networks."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import functools
 import logging
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -16,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .entity import ZHAEntity
@@ -43,10 +41,18 @@ _EXTRA_STATE_ATTRIBUTES: set[str] = {
     "measurement_type",
     "apparent_power_max",
     "rms_current_max",
+    "rms_current_max_ph_b",
+    "rms_current_max_ph_c",
     "rms_voltage_max",
+    "rms_voltage_max_ph_b",
+    "rms_voltage_max_ph_c",
     "ac_frequency_max",
     "power_factor_max",
+    "power_factor_max_ph_b",
+    "power_factor_max_ph_c",
     "active_power_max",
+    "active_power_max_ph_b",
+    "active_power_max_ph_c",
     # Smart Energy metering
     "device_type",
     "status",
@@ -72,7 +78,7 @@ _EXTRA_STATE_ATTRIBUTES: set[str] = {
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Zigbee Home Automation sensor from config entry."""
     zha_data = get_zha_data(hass)
@@ -88,7 +94,7 @@ async def async_setup_entry(
     config_entry.async_on_unload(unsub)
 
 
-# pylint: disable-next=hass-invalid-inheritance # needs fixing
+# pylint: disable-next=home-assistant-invalid-inheritance # needs fixing
 class Sensor(ZHAEntity, SensorEntity):
     """ZHA sensor."""
 
@@ -97,14 +103,14 @@ class Sensor(ZHAEntity, SensorEntity):
         super().__init__(entity_data, **kwargs)
         entity = self.entity_data.entity
 
-        if entity.device_class is not None:
-            self._attr_device_class = SensorDeviceClass(entity.device_class)
+        if self._zha_state.device_class is not None:
+            self._attr_device_class = SensorDeviceClass(self._zha_state.device_class)
 
-        if entity.state_class is not None:
-            self._attr_state_class = SensorStateClass(entity.state_class)
+        if self._zha_state.state_class is not None:
+            self._attr_state_class = SensorStateClass(self._zha_state.state_class)
 
-        if hasattr(entity.info_object, "unit") and entity.info_object.unit is not None:
-            self._attr_native_unit_of_measurement = entity.info_object.unit
+        if hasattr(self._zha_state, "unit") and self._zha_state.unit is not None:
+            self._attr_native_unit_of_measurement = self._zha_state.unit
 
         if (
             hasattr(entity, "entity_description")
@@ -130,28 +136,34 @@ class Sensor(ZHAEntity, SensorEntity):
                     entity_description.device_class.value
                 )
 
-    @property
-    def native_value(self) -> StateType:
-        """Return the state of the entity."""
-        return self.entity_data.entity.native_value
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return entity specific state attributes."""
-        entity = self.entity_data.entity
-        if entity.extra_state_attribute_names is None:
-            return None
-
-        if not entity.extra_state_attribute_names <= _EXTRA_STATE_ATTRIBUTES:
-            _LOGGER.warning(
-                "Unexpected extra state attributes found for sensor %s: %s",
-                entity,
-                entity.extra_state_attribute_names - _EXTRA_STATE_ATTRIBUTES,
+        if self._zha_state.suggested_display_precision is not None:
+            self._attr_suggested_display_precision = (
+                self._zha_state.suggested_display_precision
             )
 
-        return exclude_none_values(
-            {
-                name: entity.state.get(name)
-                for name in entity.extra_state_attribute_names
-            }
-        )
+        if hasattr(self._zha_state, "options"):
+            self._attr_options = self._zha_state.options
+
+    @property
+    @override
+    def native_value(self) -> StateType:
+        """Return the state of the entity."""
+        return self._zha_state.native_value
+
+    @property
+    @override
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return entity specific state attributes."""
+        if not self._zha_state.extra_state_attribute_names:
+            return None
+
+        extra_state_attributes = self._zha_state.extra_state_attributes
+
+        if not extra_state_attributes.keys() <= _EXTRA_STATE_ATTRIBUTES:
+            _LOGGER.warning(
+                "Unexpected extra state attributes found for sensor %s: %s",
+                self.entity_data.entity,
+                extra_state_attributes.keys() - _EXTRA_STATE_ATTRIBUTES,
+            )
+
+        return exclude_none_values(extra_state_attributes)

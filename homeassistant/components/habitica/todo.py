@@ -1,10 +1,9 @@
 """Todo platform for the Habitica integration."""
 
-from __future__ import annotations
-
 from enum import StrEnum
 import logging
-from typing import TYPE_CHECKING
+import math
+from typing import TYPE_CHECKING, override
 from uuid import UUID
 
 from aiohttp import ClientError
@@ -26,13 +25,12 @@ from homeassistant.components.todo import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity import EntityDescription
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import ASSETS_URL, DOMAIN
-from .coordinator import HabiticaDataUpdateCoordinator
+from .coordinator import HabiticaConfigEntry, HabiticaDataUpdateCoordinator
 from .entity import HabiticaBase
-from .types import HabiticaConfigEntry
 from .util import next_due_date
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,7 +50,7 @@ class HabiticaTodoList(StrEnum):
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: HabiticaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensor from a config entry created in the integrations UI."""
     coordinator = config_entry.runtime_data
@@ -76,6 +74,7 @@ class BaseHabiticaListEntity(HabiticaBase, TodoListEntity):
 
         super().__init__(coordinator, self.entity_description)
 
+    @override
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         """Delete Habitica tasks."""
         if len(uids) > 1 and self.entity_description.key is HabiticaTodoList.TODOS:
@@ -112,25 +111,31 @@ class BaseHabiticaListEntity(HabiticaBase, TodoListEntity):
 
         await self.coordinator.async_request_refresh()
 
+    @override
     async def async_move_todo_item(
         self, uid: str, previous_uid: str | None = None
     ) -> None:
         """Move an item in the To-do list."""
         if TYPE_CHECKING:
             assert self.todo_items
+        tasks_order = (
+            self.coordinator.data.user.tasksOrder.todos
+            if self.entity_description.key is HabiticaTodoList.TODOS
+            else self.coordinator.data.user.tasksOrder.dailys
+        )
 
         if previous_uid:
-            pos = (
-                self.todo_items.index(
-                    next(item for item in self.todo_items if item.uid == previous_uid)
-                )
-                + 1
-            )
+            pos = tasks_order.index(UUID(previous_uid))
+            if pos < tasks_order.index(UUID(uid)):
+                pos += 1
+
         else:
             pos = 0
 
         try:
-            await self.coordinator.habitica.reorder_task(UUID(uid), pos)
+            tasks_order[:] = (
+                await self.coordinator.habitica.reorder_task(UUID(uid), pos)
+            ).data
         except TooManyRequestsError as e:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -144,21 +149,8 @@ class BaseHabiticaListEntity(HabiticaBase, TodoListEntity):
                 translation_key=f"move_{self.entity_description.key}_item_failed",
                 translation_placeholders={"pos": str(pos)},
             ) from e
-        else:
-            # move tasks in the coordinator until we have fresh data
-            tasks = self.coordinator.data.tasks
-            new_pos = (
-                tasks.index(
-                    next(task for task in tasks if task.id == UUID(previous_uid))
-                )
-                + 1
-                if previous_uid
-                else 0
-            )
-            old_pos = tasks.index(next(task for task in tasks if task.id == UUID(uid)))
-            tasks.insert(new_pos, tasks.pop(old_pos))
-            await self.coordinator.async_request_refresh()
 
+    @override
     async def async_update_todo_item(self, item: TodoItem) -> None:
         """Update a Habitica todo."""
         refresh_required = False
@@ -268,10 +260,11 @@ class HabiticaTodosListEntity(BaseHabiticaListEntity):
     )
 
     @property
+    @override
     def todo_items(self) -> list[TodoItem]:
         """Return the todo items."""
 
-        return [
+        tasks = [
             *(
                 TodoItem(
                     uid=str(task.id),
@@ -288,7 +281,17 @@ class HabiticaTodosListEntity(BaseHabiticaListEntity):
                 if task.Type is TaskType.TODO
             ),
         ]
+        return sorted(
+            tasks,
+            key=lambda task: (
+                math.inf
+                if (uid := UUID(task.uid))
+                not in (tasks_order := self.coordinator.data.user.tasksOrder.todos)
+                else tasks_order.index(uid)
+            ),
+        )
 
+    @override
     async def async_create_todo_item(self, item: TodoItem) -> None:
         """Create a Habitica todo."""
         if TYPE_CHECKING:
@@ -335,6 +338,7 @@ class HabiticaDailiesListEntity(BaseHabiticaListEntity):
     )
 
     @property
+    @override
     def todo_items(self) -> list[TodoItem]:
         """Return the dailies.
 
@@ -342,13 +346,14 @@ class HabiticaDailiesListEntity(BaseHabiticaListEntity):
         which is a calculated value based on recurrence of the task.
         If a task is a yesterdaily, the due date is the last time
         a new day has been started. This allows to check off dailies from yesterday,
-        that have been completed but forgotten to mark as completed before resetting the dailies.
+        that have been completed but forgotten to mark as completed
+        before resetting the dailies.
         Changes of the date input field in Home Assistant will be ignored.
         """
         if TYPE_CHECKING:
             assert self.coordinator.data.user.lastCron
 
-        return [
+        tasks = [
             *(
                 TodoItem(
                     uid=str(task.id),
@@ -365,3 +370,12 @@ class HabiticaDailiesListEntity(BaseHabiticaListEntity):
                 if task.Type is TaskType.DAILY
             )
         ]
+        return sorted(
+            tasks,
+            key=lambda task: (
+                math.inf
+                if (uid := UUID(task.uid))
+                not in (tasks_order := self.coordinator.data.user.tasksOrder.dailys)
+                else tasks_order.index(uid)
+            ),
+        )

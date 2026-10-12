@@ -4,10 +4,11 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 import zoneinfo
 
+from electrickiwi_api.model import AccountSummary
 from freezegun import freeze_time
 import pytest
 
-from homeassistant.components.electric_kiwi.const import ATTRIBUTION
+from homeassistant.components.electric_kiwi.const import ATTRIBUTION, DOMAIN
 from homeassistant.components.electric_kiwi.sensor import _check_and_move_time
 from homeassistant.components.sensor import (
     ATTR_STATE_CLASS,
@@ -18,11 +19,11 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ATTRIBUTION, ATTR_DEVICE_CLASS
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import EntityRegistry
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
-from .conftest import ComponentSetup, YieldFixture
+from . import init_integration
 
-from tests.common import MockConfigEntry
+from tests.common import MockConfigEntry, load_json_value_fixture
 
 DEFAULT_TIME_ZONE = dt_util.get_default_time_zone()
 TEST_TZ_NAME = "Pacific/Auckland"
@@ -47,10 +48,9 @@ def restore_timezone():
 async def test_hop_sensors(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
-    ek_api: YieldFixture,
-    ek_auth: YieldFixture,
+    electrickiwi_api: Mock,
+    ek_auth: AsyncMock,
     entity_registry: EntityRegistry,
-    component_setup: ComponentSetup,
     sensor: str,
     sensor_state: str,
 ) -> None:
@@ -61,7 +61,7 @@ async def test_hop_sensors(
     sensor state should be set to today at 4pm or if now is past 4pm,
     then tomorrow at 4pm.
     """
-    assert await component_setup()
+    await init_integration(hass, config_entry)
     assert config_entry.state is ConfigEntryState.LOADED
 
     entity = entity_registry.async_get(sensor)
@@ -70,8 +70,7 @@ async def test_hop_sensors(
     state = hass.states.get(sensor)
     assert state
 
-    api = ek_api(Mock())
-    hop_data = await api.get_hop()
+    hop_data = await electrickiwi_api.get_hop()
 
     value = _check_and_move_time(hop_data, sensor_state)
 
@@ -98,20 +97,19 @@ async def test_hop_sensors(
         ),
         (
             "sensor.next_billing_date",
-            "2020-11-03T00:00:00",
+            "2025-02-19T00:00:00",
             SensorDeviceClass.DATE,
             None,
         ),
-        ("sensor.hour_of_power_savings", "3.5", None, SensorStateClass.MEASUREMENT),
+        ("sensor.hour_of_power_savings", "11.2", None, SensorStateClass.MEASUREMENT),
     ],
 )
 async def test_account_sensors(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
-    ek_api: YieldFixture,
-    ek_auth: YieldFixture,
+    electrickiwi_api: AsyncMock,
+    ek_auth: AsyncMock,
     entity_registry: EntityRegistry,
-    component_setup: ComponentSetup,
     sensor: str,
     sensor_state: str,
     device_class: str,
@@ -119,7 +117,7 @@ async def test_account_sensors(
 ) -> None:
     """Test Account sensors for the Electric Kiwi integration."""
 
-    assert await component_setup()
+    await init_integration(hass, config_entry)
     assert config_entry.state is ConfigEntryState.LOADED
 
     entity = entity_registry.async_get(sensor)
@@ -133,9 +131,32 @@ async def test_account_sensors(
     assert state.attributes.get(ATTR_STATE_CLASS) == state_class
 
 
-async def test_check_and_move_time(ek_api: AsyncMock) -> None:
+async def test_hop_percentage_without_power_connections(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    electrickiwi_api: AsyncMock,
+    ek_auth: AsyncMock,
+) -> None:
+    """Test the hour of power savings sensor when the account has no connections.
+
+    An account that migrated to another provider keeps returning account data,
+    but without any power connections, so the sensor falls back to 0.
+    """
+    electrickiwi_api.get_account_summary.return_value = AccountSummary.from_dict(
+        load_json_value_fixture("account_summary_no_connections.json", DOMAIN)
+    )
+
+    await init_integration(hass, config_entry)
+    assert config_entry.state is ConfigEntryState.LOADED
+
+    state = hass.states.get("sensor.hour_of_power_savings")
+    assert state
+    assert state.state == "0.0"
+
+
+async def test_check_and_move_time(electrickiwi_api: AsyncMock) -> None:
     """Test correct time is returned depending on time of day."""
-    hop = await ek_api(Mock()).get_hop()
+    hop = await electrickiwi_api.get_hop()
 
     test_time = datetime(2023, 6, 21, 18, 0, 0, tzinfo=TEST_TIMEZONE)
     dt_util.set_default_time_zone(TEST_TIMEZONE)

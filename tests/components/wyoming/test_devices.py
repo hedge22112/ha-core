@@ -1,32 +1,31 @@
 """Test Wyoming devices."""
 
-from __future__ import annotations
-
-from homeassistant.components.assist_pipeline.select import OPTION_PREFERRED
+from homeassistant.components.assist_pipeline import OPTION_PREFERRED
 from homeassistant.components.wyoming import DOMAIN
 from homeassistant.components.wyoming.devices import SatelliteDevice
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import area_registry as ar, device_registry as dr
 
 
 async def test_device_registry_info(
     hass: HomeAssistant,
     satellite_device: SatelliteDevice,
     satellite_config_entry: ConfigEntry,
+    area_registry: ar.AreaRegistry,
     device_registry: dr.DeviceRegistry,
 ) -> None:
     """Test info in device registry."""
 
     # Satellite uses config entry id since only one satellite per entry is
     # supported.
-    device = device_registry.async_get_device(
-        identifiers={(DOMAIN, satellite_config_entry.entry_id)}
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, satellite_config_entry.entry_id), satellite_config_entry.entry_id
     )
     assert device is not None
     assert device.name == "Test Satellite"
-    assert device.suggested_area == "Office"
+    assert device.area_id == area_registry.async_get_area_by_name("Office").id
 
     # Check associated entities
     assist_in_progress_id = satellite_device.get_assist_in_progress_entity_id(hass)

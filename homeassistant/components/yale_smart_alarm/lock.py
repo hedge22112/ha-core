@@ -1,8 +1,6 @@
 """Lock for Yale Alarm."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from yalesmartalarmclient import YaleLock, YaleLockState
 
@@ -10,7 +8,7 @@ from homeassistant.components.lock import LockEntity, LockState
 from homeassistant.const import ATTR_CODE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import YaleConfigEntry
 from .const import (
@@ -30,7 +28,9 @@ LOCK_STATE_MAP = {
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: YaleConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: YaleConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Yale lock entry."""
 
@@ -54,11 +54,13 @@ class YaleDoorlock(YaleLockEntity, LockEntity):
         super().__init__(coordinator, lock)
         self._attr_code_format = rf"^\d{{{code_format}}}$"
 
+    @override
     async def async_unlock(self, **kwargs: Any) -> None:
         """Send unlock command."""
         code: str | None = kwargs.get(ATTR_CODE)
         return await self.async_set_lock(YaleLockState.UNLOCKED, code)
 
+    @override
     async def async_lock(self, **kwargs: Any) -> None:
         """Send lock command."""
         return await self.async_set_lock(YaleLockState.LOCKED, None)
@@ -95,11 +97,13 @@ class YaleDoorlock(YaleLockEntity, LockEntity):
         )
 
     @property
+    @override
     def is_locked(self) -> bool | None:
         """Return true if the lock is locked."""
         return LOCK_STATE_MAP.get(self.lock_data.state()) == LockState.LOCKED
 
     @property
+    @override
     def is_open(self) -> bool | None:
         """Return true if the lock is open."""
         return LOCK_STATE_MAP.get(self.lock_data.state()) == LockState.OPEN

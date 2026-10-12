@@ -1,15 +1,16 @@
 """Support for the HKO service."""
 
+from typing import override
+
 from homeassistant.components.weather import (
     Forecast,
     WeatherEntity,
     WeatherEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -22,19 +23,18 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
 )
-from .coordinator import HKOUpdateCoordinator
+from .coordinator import HKOConfigEntry, HKOUpdateCoordinator
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: HKOConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add a HKO weather entity from a config_entry."""
     assert config_entry.unique_id is not None
     unique_id = config_entry.unique_id
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    async_add_entities([HKOEntity(unique_id, coordinator)], False)
+    async_add_entities([HKOEntity(unique_id, config_entry.runtime_data)], False)
 
 
 class HKOEntity(CoordinatorEntity[HKOUpdateCoordinator], WeatherEntity):
@@ -57,20 +57,24 @@ class HKOEntity(CoordinatorEntity[HKOUpdateCoordinator], WeatherEntity):
         )
 
     @property
+    @override
     def condition(self) -> str:
         """Return the current condition."""
         return self.coordinator.data[API_FORECAST][0][API_CONDITION]
 
     @property
+    @override
     def native_temperature(self) -> int:
         """Return the temperature."""
         return self.coordinator.data[API_CURRENT][API_TEMPERATURE]
 
     @property
+    @override
     def humidity(self) -> int:
         """Return the humidity."""
         return self.coordinator.data[API_CURRENT][API_HUMIDITY]
 
+    @override
     async def async_forecast_daily(self) -> list[Forecast] | None:
         """Return the forecast data."""
         return self.coordinator.data[API_FORECAST]

@@ -1,20 +1,21 @@
-"""Support for repeating alerts when conditions are met."""
+"""Support for repeating alerts when conditions are met.
 
-from __future__ import annotations
+DEVELOPMENT OF THE ALERT INTEGRATION IS FROZEN.
+"""
 
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.notify import (
     ATTR_DATA,
     ATTR_MESSAGE,
     ATTR_TITLE,
-    DOMAIN as DOMAIN_NOTIFY,
+    DOMAIN as NOTIFY_DOMAIN,
 )
 from homeassistant.const import STATE_IDLE, STATE_OFF, STATE_ON
 from homeassistant.core import Event, EventStateChangedData, HassJob, HomeAssistant
-from homeassistant.exceptions import ServiceNotFound
+from homeassistant.exceptions import ServiceNotFound, ServiceValidationError
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import (
     async_track_point_in_time,
@@ -27,7 +28,10 @@ from .const import DOMAIN, LOGGER
 
 
 class AlertEntity(Entity):
-    """Representation of an alert."""
+    """Representation of an alert.
+
+    DEVELOPMENT OF THE ALERT INTEGRATION IS FROZEN.
+    """
 
     _attr_should_poll = False
 
@@ -68,13 +72,26 @@ class AlertEntity(Entity):
         self._ack = False
         self._cancel: Callable[[], None] | None = None
         self._send_done_message = False
+        self._watched_entity_id = watched_entity_id
         self.entity_id = f"{DOMAIN}.{entity_id}"
 
         async_track_state_change_event(
             hass, [watched_entity_id], self.watched_entity_change
         )
 
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Start alerting if the watched entity is already in the alert state."""
+        await super().async_added_to_hass()
+        if (
+            (state := self.hass.states.get(self._watched_entity_id)) is not None
+            and state.state == self._alert_state
+            and not self._firing
+        ):
+            await self.begin_alerting()
+
     @property
+    @override
     def state(self) -> str:
         """Return the alert status."""
         if self._firing:
@@ -179,7 +196,7 @@ class AlertEntity(Entity):
         for target in self._notifiers:
             try:
                 await self.hass.services.async_call(
-                    DOMAIN_NOTIFY, target, msg_payload, context=self._context
+                    NOTIFY_DOMAIN, target, msg_payload, context=self._context
                 )
             except ServiceNotFound:
                 LOGGER.error(
@@ -195,7 +212,8 @@ class AlertEntity(Entity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Async Acknowledge alert."""
-        LOGGER.debug("Acknowledged Alert: %s", self._attr_name)
+        if not self._can_ack:
+            raise ServiceValidationError("This alert cannot be acknowledged")
         self._ack = True
         self.async_write_ha_state()
 

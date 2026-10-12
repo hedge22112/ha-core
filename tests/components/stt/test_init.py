@@ -10,13 +10,20 @@ import pytest
 
 from homeassistant.components.stt import (
     DOMAIN,
+    AudioBitRates,
+    AudioChannels,
+    AudioCodecs,
+    AudioFormats,
+    AudioSampleRates,
+    SpeechAudioProcessing,
     async_default_engine,
     async_get_provider,
     async_get_speech_to_text_engine,
 )
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState, ConfigFlow
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, State
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.setup import async_setup_component
 
 from .common import (
@@ -34,7 +41,6 @@ from tests.common import (
     mock_integration,
     mock_platform,
     mock_restore_cache,
-    reset_translation_cache,
 )
 from tests.typing import ClientSessionGenerator, WebSocketGenerator
 
@@ -107,7 +113,7 @@ async def mock_setup(
         TEST_DOMAIN,
         async_get_engine=AsyncMock(return_value=mock_provider),
     )
-    assert await async_setup_component(hass, "stt", {"stt": {"platform": TEST_DOMAIN}})
+    assert await async_setup_component(hass, DOMAIN, {"stt": {"platform": TEST_DOMAIN}})
     await hass.async_block_till_done()
 
 
@@ -123,14 +129,16 @@ async def mock_config_entry_setup(
         hass: HomeAssistant, config_entry: ConfigEntry
     ) -> bool:
         """Set up test config entry."""
-        await hass.config_entries.async_forward_entry_setups(config_entry, [DOMAIN])
+        await hass.config_entries.async_forward_entry_setups(
+            config_entry, [Platform.STT]
+        )
         return True
 
     async def async_unload_entry_init(
         hass: HomeAssistant, config_entry: ConfigEntry
     ) -> bool:
         """Unload up test config entry."""
-        await hass.config_entries.async_forward_entry_unload(config_entry, DOMAIN)
+        await hass.config_entries.async_forward_entry_unload(config_entry, Platform.STT)
         return True
 
     mock_integration(
@@ -145,7 +153,7 @@ async def mock_config_entry_setup(
     async def async_setup_entry_platform(
         hass: HomeAssistant,
         config_entry: ConfigEntry,
-        async_add_entities: AddEntitiesCallback,
+        async_add_entities: AddConfigEntryEntitiesCallback,
     ) -> None:
         """Set up test stt platform via config entry."""
         async_add_entities([mock_provider_entity])
@@ -234,6 +242,42 @@ async def test_stream_audio(
 @pytest.mark.parametrize(
     "setup", ["mock_setup", "mock_config_entry_setup"], indirect=True
 )
+async def test_stream_audio_uses_enum_values(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    setup: MockSTTProvider | MockSTTProviderEntity,
+) -> None:
+    """Test that HTTP API passes enum values to async_process_audio_stream."""
+    client = await hass_client()
+    response = await client.post(
+        f"/api/stt/{setup.url_path}",
+        headers={
+            "X-Speech-Content": (
+                "format=wav; codec=pcm; sample_rate=16000; bit_rate=16; channel=1;"
+                " language=en"
+            )
+        },
+    )
+    assert response.status == HTTPStatus.OK
+
+    assert len(setup.calls) == 1
+    metadata, _ = setup.calls[0]
+
+    assert isinstance(metadata.format, AudioFormats)
+    assert metadata.format == AudioFormats.WAV
+    assert isinstance(metadata.codec, AudioCodecs)
+    assert metadata.codec == AudioCodecs.PCM
+    assert isinstance(metadata.bit_rate, AudioBitRates)
+    assert metadata.bit_rate == AudioBitRates.BITRATE_16
+    assert isinstance(metadata.sample_rate, AudioSampleRates)
+    assert metadata.sample_rate == AudioSampleRates.SAMPLERATE_16000
+    assert isinstance(metadata.channel, AudioChannels)
+    assert metadata.channel == AudioChannels.CHANNEL_MONO
+
+
+@pytest.mark.parametrize(
+    "setup", ["mock_setup", "mock_config_entry_setup"], indirect=True
+)
 @pytest.mark.parametrize(
     ("header", "status", "error"),
     [
@@ -256,11 +300,13 @@ async def test_stream_audio(
         ),
         (
             (
-                "format=wav; codec=pcm; sample_rate=16000; bit_rate=16; channel=bad channel;"
+                "format=wav; codec=pcm; sample_rate=16000;"
+                " bit_rate=16; channel=bad channel;"
                 " language=en"
             ),
             400,
-            "Wrong format of X-Speech-Content: invalid literal for int() with base 10: 'bad channel'",
+            "Wrong format of X-Speech-Content: invalid literal"
+            " for int() with base 10: 'bad channel'",
         ),
         (
             "format=wav; codec=pcm; sample_rate=16000",
@@ -414,7 +460,7 @@ async def test_ws_list_engines(
 
 async def test_default_engine_none(hass: HomeAssistant, tmp_path: Path) -> None:
     """Test async_default_engine."""
-    assert await async_setup_component(hass, "stt", {"stt": {}})
+    assert await async_setup_component(hass, DOMAIN, {"stt": {}})
     await hass.async_block_till_done()
 
     assert async_default_engine(hass) is None
@@ -432,7 +478,7 @@ async def test_default_engine(
         TEST_DOMAIN,
         async_get_engine=AsyncMock(return_value=mock_provider),
     )
-    assert await async_setup_component(hass, "stt", {"stt": {"platform": TEST_DOMAIN}})
+    assert await async_setup_component(hass, DOMAIN, {"stt": {"platform": TEST_DOMAIN}})
     await hass.async_block_till_done()
 
     assert async_default_engine(hass) == TEST_DOMAIN
@@ -519,9 +565,6 @@ async def test_default_engine_prefer_cloud_entity(
     assert provider_engine.name == "test"
     assert async_default_engine(hass) == "stt.cloud_stt_entity"
 
-    # Reset the `cloud` translations cache to avoid flaky translation checks
-    reset_translation_cache(hass, ["cloud"])
-
 
 async def test_get_engine_legacy(
     hass: HomeAssistant, tmp_path: Path, mock_provider: MockSTTProvider
@@ -540,7 +583,7 @@ async def test_get_engine_legacy(
         async_get_engine=AsyncMock(return_value=mock_provider),
     )
     assert await async_setup_component(
-        hass, "stt", {"stt": [{"platform": TEST_DOMAIN}, {"platform": "cloud"}]}
+        hass, DOMAIN, {"stt": [{"platform": TEST_DOMAIN}, {"platform": "cloud"}]}
     )
     await hass.async_block_till_done()
 
@@ -555,3 +598,79 @@ async def test_get_engine_entity(
     await mock_config_entry_setup(hass, tmp_path, mock_provider_entity)
 
     assert async_get_speech_to_text_engine(hass, "stt.test") is mock_provider_entity
+
+
+async def test_audio_processing_default(
+    hass: HomeAssistant, tmp_path: Path, mock_provider: MockSTTProvider
+) -> None:
+    """Test that the default audio_processing property returns correct values."""
+    await mock_setup(hass, tmp_path, mock_provider)
+
+    engine = async_get_speech_to_text_engine(hass, TEST_DOMAIN)
+    assert engine is not None
+
+    assert engine.audio_processing.requires_external_vad is True
+    assert engine.audio_processing.prefers_auto_gain_enabled is True
+    assert engine.audio_processing.prefers_noise_reduction_enabled is True
+
+
+async def test_audio_processing_entity_default(
+    hass: HomeAssistant, tmp_path: Path, mock_provider_entity: MockSTTProviderEntity
+) -> None:
+    """Test default audio_processing property returns correct values."""
+    await mock_config_entry_setup(hass, tmp_path, mock_provider_entity)
+
+    engine = async_get_speech_to_text_engine(hass, f"{DOMAIN}.{TEST_DOMAIN}")
+    assert engine is not None
+
+    assert engine.audio_processing.requires_external_vad is True
+    assert engine.audio_processing.prefers_auto_gain_enabled is True
+    assert engine.audio_processing.prefers_noise_reduction_enabled is True
+
+
+async def test_audio_processing_custom(hass: HomeAssistant, tmp_path: Path) -> None:
+    """Test that custom audio_processing values are returned correctly."""
+    custom_processing = SpeechAudioProcessing(
+        requires_external_vad=False,
+        prefers_auto_gain_enabled=False,
+        prefers_noise_reduction_enabled=False,
+    )
+    provider = MockSTTProvider(audio_processing=custom_processing)
+    await mock_setup(hass, tmp_path, provider)
+
+    engine = async_get_speech_to_text_engine(hass, TEST_DOMAIN)
+    assert engine is not None
+
+    assert engine.audio_processing.requires_external_vad is False
+    assert engine.audio_processing.prefers_auto_gain_enabled is False
+    assert engine.audio_processing.prefers_noise_reduction_enabled is False
+
+
+@pytest.mark.parametrize(
+    "setup", ["mock_setup", "mock_config_entry_setup"], indirect=True
+)
+async def test_stream_audio_large_no_newline_block(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    setup: MockSTTProvider | MockSTTProviderEntity,
+) -> None:
+    """Test a newline-free audio stream larger than aiohttp's line limit."""
+    # 600,000 bytes of silence - larger than the 512KB LineTooLong threshold.
+    # This is the reproduction case from issue #180708.
+    test_data = b"\x00" * 600_000
+    client = await hass_client()
+    response = await client.post(
+        f"/api/stt/{setup.url_path}",
+        headers={
+            "X-Speech-Content": (
+                "format=wav; codec=pcm; sample_rate=16000; bit_rate=16; channel=1;"
+                " language=en"
+            )
+        },
+        data=test_data,
+    )
+    assert response.status == HTTPStatus.OK
+    assert await response.json() == {"text": "test_result", "result": "success"}
+
+    received_data = b"".join(setup.received)
+    assert received_data == test_data

@@ -1,8 +1,6 @@
 """Support for Big Ass Fans auto comfort."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -12,7 +10,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BAFConfigEntry
 from .entity import BAFEntity
@@ -21,7 +19,7 @@ from .entity import BAFEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BAFConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up BAF fan auto comfort."""
     device = entry.runtime_data
@@ -37,24 +35,27 @@ class BAFAutoComfort(BAFEntity, ClimateEntity):
         | ClimateEntityFeature.TURN_OFF
         | ClimateEntityFeature.TURN_ON
     )
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.FAN_ONLY]
     _attr_translation_key = "auto_comfort"
 
     @callback
+    @override
     def _async_update_attrs(self) -> None:
         """Update attrs from device."""
         device = self._device
         auto_on = device.auto_comfort_enable
         self._attr_hvac_mode = HVACMode.FAN_ONLY if auto_on else HVACMode.OFF
         self._attr_hvac_action = HVACAction.FAN if device.speed else HVACAction.OFF
-        self._attr_target_temperature = device.comfort_ideal_temperature
-        self._attr_current_temperature = device.temperature
+        self._attr_native_target_temperature = device.comfort_ideal_temperature
+        self._attr_native_current_temperature = device.temperature
 
+    @override
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set the HVAC mode."""
         self._device.auto_comfort_enable = hvac_mode == HVACMode.FAN_ONLY
 
+    @override
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature."""
         if not self._device.auto_comfort_enable:

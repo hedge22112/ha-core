@@ -1,25 +1,23 @@
 """Support for Magic Home sensors."""
 
-from __future__ import annotations
+from typing import override
 
-from homeassistant import config_entries
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import FluxLedUpdateCoordinator
+from .coordinator import FluxLedConfigEntry
 from .entity import FluxEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: config_entries.ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: FluxLedConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Magic Home sensors."""
-    coordinator: FluxLedUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     if coordinator.device.paired_remotes is not None:
         async_add_entities(
             [
@@ -39,6 +37,7 @@ class FluxPairedRemotes(FluxEntity, SensorEntity):
     _attr_translation_key = "paired_remotes"
 
     @property
+    @override
     def native_value(self) -> int:
         """Return the number of paired remotes."""
         assert self._device.paired_remotes is not None

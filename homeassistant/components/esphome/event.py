@@ -1,8 +1,7 @@
 """Support for ESPHome event components."""
 
-from __future__ import annotations
-
 from functools import partial
+from typing import override
 
 from aioesphomeapi import EntityInfo, Event, EventInfo
 
@@ -12,11 +11,14 @@ from homeassistant.util.enum import try_parse_enum
 
 from .entity import EsphomeEntity, platform_async_setup_entry
 
+PARALLEL_UPDATES = 0
+
 
 class EsphomeEvent(EsphomeEntity[EventInfo, Event], EventEntity):
     """An event implementation for ESPHome."""
 
     @callback
+    @override
     def _on_static_info_update(self, static_info: EntityInfo) -> None:
         """Set attrs from static info."""
         super()._on_static_info_update(static_info)
@@ -28,10 +30,22 @@ class EsphomeEvent(EsphomeEntity[EventInfo, Event], EventEntity):
         )
 
     @callback
+    @override
     def _on_state_update(self) -> None:
         self._update_state_from_entry_data()
         self._trigger_event(self._state.event_type)
         self.async_write_ha_state()
+
+    @callback
+    @override
+    def _on_device_update(self) -> None:
+        """Call when device updates or entry data changes."""
+        super()._on_device_update()
+        if self._entry_data.available:
+            # Event entities should go available directly
+            # when the device comes online and not wait
+            # for the next data push.
+            self.async_write_ha_state()
 
 
 async_setup_entry = partial(

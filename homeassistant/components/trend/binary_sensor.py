@@ -1,15 +1,13 @@
 """A sensor that monitors trends in other components."""
 
-from __future__ import annotations
-
 from collections import deque
 from collections.abc import Mapping
 import logging
 import math
-from typing import Any
+from typing import Any, override
 
 import numpy as np
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASSES_SCHEMA,
@@ -21,22 +19,25 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    ATTR_FRIENDLY_NAME,
     CONF_ATTRIBUTE,
     CONF_DEVICE_CLASS,
     CONF_ENTITY_ID,
     CONF_FRIENDLY_NAME,
     CONF_SENSORS,
+    CONF_UNIQUE_ID,
     STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.device import async_device_info_to_link_from_entity
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.device import async_entity_id_to_device
+from homeassistant.helpers.device_registry import AnyDeviceEntry
 from homeassistant.helpers.entity import generate_entity_id
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -71,29 +72,32 @@ def _validate_min_max(data: dict[str, Any]) -> dict[str, Any]:
         and CONF_MAX_SAMPLES in data
         and data[CONF_MAX_SAMPLES] < data[CONF_MIN_SAMPLES]
     ):
-        raise vol.Invalid("min_samples must be smaller than or equal to max_samples")
+        raise probatio.Invalid(
+            "min_samples must be smaller than or equal to max_samples"
+        )
     return data
 
 
-SENSOR_SCHEMA = vol.All(
-    vol.Schema(
+SENSOR_SCHEMA = probatio.All(
+    probatio.Schema(
         {
-            vol.Required(CONF_ENTITY_ID): cv.entity_id,
-            vol.Optional(CONF_ATTRIBUTE): cv.string,
-            vol.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
-            vol.Optional(CONF_FRIENDLY_NAME): cv.string,
-            vol.Optional(CONF_INVERT, default=False): cv.boolean,
-            vol.Optional(CONF_MAX_SAMPLES, default=2): cv.positive_int,
-            vol.Optional(CONF_MIN_GRADIENT, default=0.0): vol.Coerce(float),
-            vol.Optional(CONF_SAMPLE_DURATION, default=0): cv.positive_int,
-            vol.Optional(CONF_MIN_SAMPLES, default=2): cv.positive_int,
+            probatio.Required(CONF_ENTITY_ID): cv.entity_id,
+            probatio.Optional(CONF_ATTRIBUTE): cv.string,
+            probatio.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
+            probatio.Optional(CONF_FRIENDLY_NAME): cv.string,
+            probatio.Optional(CONF_INVERT, default=False): cv.boolean,
+            probatio.Optional(CONF_MAX_SAMPLES, default=2): cv.positive_int,
+            probatio.Optional(CONF_MIN_GRADIENT, default=0.0): probatio.Coerce(float),
+            probatio.Optional(CONF_SAMPLE_DURATION, default=0): cv.positive_int,
+            probatio.Optional(CONF_MIN_SAMPLES, default=2): cv.positive_int,
+            probatio.Optional(CONF_UNIQUE_ID): cv.string,
         }
     ),
     _validate_min_max,
 )
 
 PLATFORM_SCHEMA = BINARY_SENSOR_PLATFORM_SCHEMA.extend(
-    {vol.Required(CONF_SENSORS): cv.schema_with_slug_keys(SENSOR_SCHEMA)}
+    {probatio.Required(CONF_SENSORS): cv.schema_with_slug_keys(SENSOR_SCHEMA)}
 )
 
 
@@ -119,6 +123,7 @@ async def async_setup_platform(
                 min_samples=sensor_config[CONF_MIN_SAMPLES],
                 max_samples=sensor_config[CONF_MAX_SAMPLES],
                 device_class=sensor_config.get(CONF_DEVICE_CLASS),
+                unique_id=sensor_config.get(CONF_UNIQUE_ID),
                 sensor_entity_id=generate_entity_id(
                     ENTITY_ID_FORMAT, sensor_name, hass=hass
                 ),
@@ -131,14 +136,9 @@ async def async_setup_platform(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up trend sensor from config entry."""
-
-    device_info = async_device_info_to_link_from_entity(
-        hass,
-        entry.options[CONF_ENTITY_ID],
-    )
 
     async_add_entities(
         [
@@ -154,7 +154,7 @@ async def async_setup_entry(
                 min_samples=entry.options.get(CONF_MIN_SAMPLES, DEFAULT_MIN_SAMPLES),
                 max_samples=entry.options.get(CONF_MAX_SAMPLES, DEFAULT_MAX_SAMPLES),
                 unique_id=entry.entry_id,
-                device_info=device_info,
+                device=async_entity_id_to_device(hass, entry.options[CONF_ENTITY_ID]),
             )
         ]
     )
@@ -169,6 +169,7 @@ class SensorTrend(BinarySensorEntity, RestoreEntity):
 
     def __init__(
         self,
+        *,
         name: str,
         entity_id: str,
         attribute: str | None,
@@ -180,7 +181,7 @@ class SensorTrend(BinarySensorEntity, RestoreEntity):
         unique_id: str | None = None,
         device_class: BinarySensorDeviceClass | None = None,
         sensor_entity_id: str | None = None,
-        device_info: dr.DeviceInfo | None = None,
+        device: AnyDeviceEntry | None = None,
     ) -> None:
         """Initialize the sensor."""
         self._entity_id = entity_id
@@ -194,17 +195,17 @@ class SensorTrend(BinarySensorEntity, RestoreEntity):
         self._attr_name = name
         self._attr_device_class = device_class
         self._attr_unique_id = unique_id
-        self._attr_device_info = device_info
+        self.device_entry = device
 
         if sensor_entity_id:
             self.entity_id = sensor_entity_id
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return the state attributes of the sensor."""
         return {
             ATTR_ENTITY_ID: self._entity_id,
-            ATTR_FRIENDLY_NAME: self._attr_name,
             ATTR_GRADIENT: self._gradient,
             ATTR_INVERT: self._invert,
             ATTR_MIN_GRADIENT: self._min_gradient,
@@ -212,6 +213,7 @@ class SensorTrend(BinarySensorEntity, RestoreEntity):
             ATTR_SAMPLE_DURATION: self._sample_duration,
         }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Complete device setup after being added to hass."""
 
@@ -237,7 +239,14 @@ class SensorTrend(BinarySensorEntity, RestoreEntity):
 
                 self.async_schedule_update_ha_state(True)
             except (ValueError, TypeError) as ex:
-                _LOGGER.error(ex)
+                _LOGGER.error(
+                    "Error processing sensor state change for "
+                    "entity_id=%s, attribute=%s, state=%s: %s",
+                    self._entity_id,
+                    self._attribute,
+                    new_state.state,
+                    ex,
+                )
 
         self.async_on_remove(
             async_track_state_change_event(

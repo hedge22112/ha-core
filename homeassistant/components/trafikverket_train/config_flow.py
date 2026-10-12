@@ -1,11 +1,10 @@
 """Adds config flow for Trafikverket Train integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 
+import probatio
 from pytrafikverket import (
     InvalidAuthentication,
     NoTrainStationFound,
@@ -13,19 +12,18 @@ from pytrafikverket import (
     TrafikverketTrain,
     UnknownError,
 )
-import voluptuous as vol
 
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_API_KEY, CONF_NAME, CONF_WEEKDAY, WEEKDAYS
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -40,16 +38,16 @@ from .const import CONF_FILTER_PRODUCT, CONF_FROM, CONF_TIME, CONF_TO, DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 OPTION_SCHEMA = {
-    vol.Optional(CONF_FILTER_PRODUCT, default=""): TextSelector(),
+    probatio.Optional(CONF_FILTER_PRODUCT, default=""): TextSelector(),
 }
 
-DATA_SCHEMA = vol.Schema(
+DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_API_KEY): TextSelector(),
-        vol.Required(CONF_FROM): TextSelector(),
-        vol.Required(CONF_TO): TextSelector(),
-        vol.Optional(CONF_TIME): TimeSelector(),
-        vol.Required(CONF_WEEKDAY, default=WEEKDAYS): SelectSelector(
+        probatio.Required(probatio.Secret(CONF_API_KEY)): TextSelector(),
+        probatio.Required(CONF_FROM): TextSelector(),
+        probatio.Required(CONF_TO): TextSelector(),
+        probatio.Optional(CONF_TIME): TimeSelector(),
+        probatio.Required(CONF_WEEKDAY, default=WEEKDAYS): SelectSelector(
             SelectSelectorConfig(
                 options=WEEKDAYS,
                 multiple=True,
@@ -59,9 +57,9 @@ DATA_SCHEMA = vol.Schema(
         ),
     }
 ).extend(OPTION_SCHEMA)
-DATA_SCHEMA_REAUTH = vol.Schema(
+DATA_SCHEMA_REAUTH = probatio.Schema(
     {
-        vol.Required(CONF_API_KEY): cv.string,
+        probatio.Required(probatio.Secret(CONF_API_KEY)): cv.string,
     }
 )
 
@@ -86,8 +84,8 @@ async def validate_station(
     except UnknownError as error:
         _LOGGER.error("Unknown error occurred during validation %s", str(error))
         errors["base"] = "cannot_connect"
-    except Exception as error:  # noqa: BLE001
-        _LOGGER.error("Unknown exception occurred during validation %s", str(error))
+    except Exception:
+        _LOGGER.exception("Unknown exception occurred during validation")
         errors["base"] = "cannot_connect"
 
     return (stations, errors)
@@ -101,10 +99,14 @@ class TVTrainConfigFlow(ConfigFlow, domain=DOMAIN):
 
     _from_stations: list[StationInfoModel]
     _to_stations: list[StationInfoModel]
+    _time: str | None
+    _days: list
+    _product: str | None
     _data: dict[str, Any]
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: ConfigEntry,
     ) -> TVTrainOptionsFlowHandler:
@@ -145,6 +147,7 @@ class TVTrainConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -243,8 +246,10 @@ class TVTrainConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the select station step."""
         if user_input is not None:
             api_key: str = self._data[CONF_API_KEY]
-            train_from: str = user_input[CONF_FROM]
-            train_to: str = user_input[CONF_TO]
+            train_from: str = (
+                user_input.get(CONF_FROM) or self._from_stations[0].signature
+            )
+            train_to: str = user_input.get(CONF_TO) or self._to_stations[0].signature
             train_time: str | None = self._data.get(CONF_TIME)
             train_days: list = self._data[CONF_WEEKDAY]
             filter_product: str | None = self._data[CONF_FILTER_PRODUCT]
@@ -261,7 +266,7 @@ class TVTrainConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     CONF_API_KEY: api_key,
                     CONF_FROM: train_from,
-                    CONF_TO: user_input[CONF_TO],
+                    CONF_TO: train_to,
                     CONF_TIME: train_time,
                     CONF_WEEKDAY: train_days,
                     CONF_FILTER_PRODUCT: filter_product,
@@ -304,13 +309,13 @@ class TVTrainConfigFlow(ConfigFlow, domain=DOMAIN):
         ]
         schema = {}
         if len(from_options) > 1:
-            schema[vol.Required(CONF_FROM)] = SelectSelector(
+            schema[probatio.Required(CONF_FROM)] = SelectSelector(
                 SelectSelectorConfig(
                     options=from_options, mode=SelectSelectorMode.DROPDOWN, sort=True
                 )
             )
         if len(to_options) > 1:
-            schema[vol.Required(CONF_TO)] = SelectSelector(
+            schema[probatio.Required(CONF_TO)] = SelectSelector(
                 SelectSelectorConfig(
                     options=to_options, mode=SelectSelectorMode.DROPDOWN, sort=True
                 )
@@ -319,12 +324,12 @@ class TVTrainConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="select_stations",
             data_schema=self.add_suggested_values_to_schema(
-                vol.Schema(schema), user_input or {}
+                probatio.Schema(schema), user_input or {}
             ),
         )
 
 
-class TVTrainOptionsFlowHandler(OptionsFlow):
+class TVTrainOptionsFlowHandler(OptionsFlowWithReload):
     """Handle Trafikverket Train options."""
 
     async def async_step_init(
@@ -341,7 +346,7 @@ class TVTrainOptionsFlowHandler(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                vol.Schema(OPTION_SCHEMA),
+                probatio.Schema(OPTION_SCHEMA),
                 user_input or self.config_entry.options,
             ),
             errors=errors,

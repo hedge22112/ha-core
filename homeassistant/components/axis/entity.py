@@ -1,11 +1,9 @@
 """Base classes for Axis entities."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from axis.models.event import Event, EventTopic
 
@@ -14,7 +12,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity, EntityDescription
 
-from .const import DOMAIN as AXIS_DOMAIN
+from .const import DOMAIN
 
 if TYPE_CHECKING:
     from .hub import AxisHub
@@ -61,10 +59,11 @@ class AxisEntity(Entity):
         self.hub = hub
 
         self._attr_device_info = DeviceInfo(
-            identifiers={(AXIS_DOMAIN, hub.unique_id)},
+            identifiers={(DOMAIN, hub.unique_id)},
             serial_number=hub.unique_id,
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe device events."""
         self.async_on_remove(
@@ -110,6 +109,7 @@ class AxisEventEntity(AxisEntity):
     def async_event_callback(self, event: Event) -> None:
         """Update the entities state."""
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe sensors events."""
         await super().async_added_to_hass()

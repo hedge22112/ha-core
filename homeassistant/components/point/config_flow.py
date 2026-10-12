@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.webhook import async_generate_id
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlowResult
@@ -11,6 +11,8 @@ from homeassistant.helpers.config_entry_oauth2_flow import AbstractOAuth2FlowHan
 
 from .const import DOMAIN
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
     """Config flow to handle Minut Point OAuth2 authentication."""
@@ -18,13 +20,10 @@ class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
     DOMAIN = DOMAIN
 
     @property
+    @override
     def logger(self) -> logging.Logger:
         """Return logger."""
         return logging.getLogger(__name__)
-
-    async def async_step_import(self, data: dict[str, Any]) -> ConfigFlowResult:
-        """Handle import from YAML."""
-        return await self.async_step_user()
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
@@ -40,6 +39,7 @@ class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
             return self.async_show_form(step_id="reauth_confirm")
         return await self.async_step_user()
 
+    @override
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:
         """Create an oauth config entry or update existing entry for reauth."""
         user_id = str(data[CONF_TOKEN]["user_id"])
@@ -56,7 +56,7 @@ class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
         if reauth_entry.unique_id is not None:
             self._abort_if_unique_id_mismatch(reason="wrong_account")
 
-        logging.debug("user_id: %s", user_id)
+        _LOGGER.debug("user_id: %s", user_id)
         return self.async_update_reload_and_abort(
             reauth_entry, data_updates=data, unique_id=user_id
         )

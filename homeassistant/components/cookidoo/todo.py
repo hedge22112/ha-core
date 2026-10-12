@@ -1,8 +1,6 @@
 """Todo platform for the Cookidoo integration."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from cookidoo_api import (
     CookidooAdditionalItem,
@@ -18,7 +16,7 @@ from homeassistant.components.todo import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import CookidooConfigEntry, CookidooDataUpdateCoordinator
@@ -30,7 +28,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: CookidooConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the todo list from a config entry created in the integrations UI."""
     coordinator = config_entry.runtime_data
@@ -56,6 +54,7 @@ class CookidooIngredientsTodoListEntity(CookidooBaseEntity, TodoListEntity):
         self._attr_unique_id = f"{coordinator.config_entry.unique_id}_ingredients"
 
     @property
+    @override
     def todo_items(self) -> list[TodoItem]:
         """Return the todo ingredients."""
         return [
@@ -72,10 +71,14 @@ class CookidooIngredientsTodoListEntity(CookidooBaseEntity, TodoListEntity):
             for item in self.coordinator.data.ingredient_items
         ]
 
+    @override
     async def async_update_todo_item(self, item: TodoItem) -> None:
         """Update an ingredient to the To-do list.
 
-        Cookidoo ingredients can be changed in state, but not in summary or description. This is currently not possible to distinguish in home assistant and just fails silently.
+        Cookidoo ingredients can be changed in state, but not
+        in summary or description. This is currently not
+        possible to distinguish in Home Assistant and just
+        fails silently.
         """
         try:
             if TYPE_CHECKING:
@@ -101,7 +104,7 @@ class CookidooIngredientsTodoListEntity(CookidooBaseEntity, TodoListEntity):
 
 
 class CookidooAdditionalItemTodoListEntity(CookidooBaseEntity, TodoListEntity):
-    """A To-do List representation of the additional items in the Cookidoo Shopping List."""
+    """A To-do List representation of additional Cookidoo Shopping List items."""
 
     _attr_translation_key = "additional_item_list"
     _attr_supported_features = (
@@ -117,6 +120,7 @@ class CookidooAdditionalItemTodoListEntity(CookidooBaseEntity, TodoListEntity):
         self._attr_unique_id = f"{coordinator.config_entry.unique_id}_additional_items"
 
     @property
+    @override
     def todo_items(self) -> list[TodoItem]:
         """Return the todo items."""
 
@@ -133,6 +137,7 @@ class CookidooAdditionalItemTodoListEntity(CookidooBaseEntity, TodoListEntity):
             for item in self.coordinator.data.additional_items
         ]
 
+    @override
     async def async_create_todo_item(self, item: TodoItem) -> None:
         """Add an item to the To-do list."""
 
@@ -149,6 +154,7 @@ class CookidooAdditionalItemTodoListEntity(CookidooBaseEntity, TodoListEntity):
 
         await self.coordinator.async_refresh()
 
+    @override
     async def async_update_todo_item(self, item: TodoItem) -> None:
         """Update an item to the To-do list."""
 
@@ -172,6 +178,7 @@ class CookidooAdditionalItemTodoListEntity(CookidooBaseEntity, TodoListEntity):
 
         await self.coordinator.async_refresh()
 
+    @override
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         """Delete an item from the To-do list."""
 

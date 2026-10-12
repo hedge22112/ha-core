@@ -1,10 +1,8 @@
 """Binary sensors for Fyta."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, override
 
 from fyta_cli.fyta_models import Plant
 
@@ -15,9 +13,9 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import FytaConfigEntry
+from .coordinator import FytaConfigEntry
 from .entity import FytaPlantEntity
 
 
@@ -83,7 +81,9 @@ BINARY_SENSORS: Final[list[FytaBinarySensorEntityDescription]] = [
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: FytaConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: FytaConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the FYTA binary sensors."""
     coordinator = entry.runtime_data
@@ -111,6 +111,7 @@ class FytaPlantBinarySensor(FytaPlantEntity, BinarySensorEntity):
     entity_description: FytaBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return value of the binary sensor."""
 

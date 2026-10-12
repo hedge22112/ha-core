@@ -1,10 +1,9 @@
 """Base entity for Mill devices."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
+from typing import override
 
-from mill import Heater, MillDevice
+from mill import MillDevice
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -38,6 +37,7 @@ class MillBaseEntity(CoordinatorEntity[MillDataUpdateCoordinator]):
         self._update_attr(mill_device)
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._update_attr(self.coordinator.data[self._id])
@@ -45,10 +45,11 @@ class MillBaseEntity(CoordinatorEntity[MillDataUpdateCoordinator]):
 
     @abstractmethod
     @callback
-    def _update_attr(self, device: MillDevice | Heater) -> None:
+    def _update_attr(self, device: MillDevice) -> None:
         """Update the attribute of the entity."""
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return super().available and self._available

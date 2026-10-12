@@ -1,7 +1,5 @@
 """Test the browse and resolve methods of DmsDeviceSource."""
 
-from __future__ import annotations
-
 from typing import Final
 from unittest.mock import ANY, Mock, call
 
@@ -130,7 +128,7 @@ async def test_catch_request_error(hass: HomeAssistant, dms_device_mock: Mock) -
 async def test_catch_upnp_connection_error(
     hass: HomeAssistant, dms_device_mock: Mock
 ) -> None:
-    """Test UpnpConnectionError causes the device source to disconnect from the device."""
+    """Test UpnpConnectionError causes the device source to disconnect."""
     # First check the source can be used
     object_id = "foo"
     didl_item = didl_lite.Item(
@@ -275,7 +273,7 @@ async def test_resolve_media_path(hass: HomeAssistant, dms_device_mock: Mock) ->
             requested_count=1,
         )
         for parent_id, title in zip(
-            ["0"] + object_ids[:-1], path.split("/"), strict=False
+            ["0", *object_ids[:-1]], path.split("/"), strict=False
         )
     ]
     assert result.url == res_abs_url
@@ -293,7 +291,7 @@ async def test_resolve_media_path(hass: HomeAssistant, dms_device_mock: Mock) ->
             requested_count=1,
         )
         for parent_id, title in zip(
-            ["0"] + object_ids[:-1], path.split("/"), strict=False
+            ["0", *object_ids[:-1]], path.split("/"), strict=False
         )
     ]
     assert result.url == res_abs_url
@@ -351,7 +349,7 @@ async def test_resolve_path_browsed(hass: HomeAssistant, dms_device_mock: Mock) 
             requested_count=1,
         )
         for parent_id, title in zip(
-            ["0"] + object_ids[:-1], path.split("/"), strict=False
+            ["0", *object_ids[:-1]], path.split("/"), strict=False
         )
     ]
     assert result.didl_metadata.id == object_ids[-1]
@@ -391,7 +389,7 @@ async def test_resolve_path_browsed_nothing(
 
 
 async def test_resolve_path_quoted(hass: HomeAssistant, dms_device_mock: Mock) -> None:
-    """Test async_resolve_path: quotes and backslashes in the path get escaped correctly."""
+    """Test async_resolve_path: quotes and backslashes get escaped correctly."""
     dms_device_mock.async_search_directory.side_effect = [
         DmsDevice.BrowseResult(
             [
@@ -419,7 +417,10 @@ async def test_resolve_path_quoted(hass: HomeAssistant, dms_device_mock: Mock) -
         ),
         call(
             r'id_with quote" and back\slash',
-            search_criteria=r'@parentID="id_with quote\" and back\\slash" and dc:title="quote\"back\\slash"',
+            search_criteria=(
+                r'@parentID="id_with quote\" and back\\slash"'
+                r' and dc:title="quote\"back\\slash"'
+            ),
             metadata_filter=["id", "upnp:class", "dc:title"],
             requested_count=1,
         ),

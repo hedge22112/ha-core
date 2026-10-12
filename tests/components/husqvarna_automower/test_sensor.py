@@ -4,13 +4,22 @@ import datetime
 from unittest.mock import AsyncMock, patch
 import zoneinfo
 
-from aioautomower.model import MowerAttributes, MowerModes, MowerStates
+from aioautomower.model import (
+    ExternalReasons,
+    MowerAttributes,
+    MowerModes,
+    MowerStates,
+    RestrictedReasons,
+    WorkArea,
+    WorkAreaType,
+)
+from aioautomower.model.model_mower import UNKNOWN_ERROR
 from freezegun.api import FrozenDateTimeFactory
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.husqvarna_automower.coordinator import SCAN_INTERVAL
-from homeassistant.const import STATE_UNKNOWN, Platform
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -29,7 +38,7 @@ async def test_sensor_unknown_states(
 ) -> None:
     """Test a sensor which returns unknown."""
     await setup_integration(hass, mock_config_entry)
-    state = hass.states.get("sensor.test_mower_1_mode")
+    state = hass.states.get("sensor.garden_test_mower_1_mode")
     assert state is not None
     assert state.state == "main_area"
 
@@ -38,8 +47,8 @@ async def test_sensor_unknown_states(
     freezer.tick(SCAN_INTERVAL)
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.test_mower_1_mode")
-    assert state.state == STATE_UNKNOWN
+    state = hass.states.get("sensor.garden_test_mower_1_mode")
+    assert state.state == STATE_UNAVAILABLE
 
 
 async def test_cutting_blade_usage_time_sensor(
@@ -51,9 +60,9 @@ async def test_cutting_blade_usage_time_sensor(
     """Test if this sensor is only added, if data is available."""
 
     await setup_integration(hass, mock_config_entry)
-    state = hass.states.get("sensor.test_mower_1_cutting_blade_usage_time")
+    state = hass.states.get("sensor.garden_test_mower_1_cutting_blade_usage_time")
     assert state is not None
-    assert state.state == "0.034"
+    assert float(state.state) == pytest.approx(0.03416666)
 
 
 @pytest.mark.freeze_time(
@@ -68,7 +77,7 @@ async def test_next_start_sensor(
 ) -> None:
     """Test if this sensor is only added, if data is available."""
     await setup_integration(hass, mock_config_entry)
-    state = hass.states.get("sensor.test_mower_1_next_start")
+    state = hass.states.get("sensor.garden_test_mower_1_next_start")
     assert state is not None
     assert state.state == "2023-06-05T17:00:00+00:00"
 
@@ -77,8 +86,8 @@ async def test_next_start_sensor(
     freezer.tick(SCAN_INTERVAL)
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.test_mower_1_next_start")
-    assert state.state == STATE_UNKNOWN
+    state = hass.states.get("sensor.garden_test_mower_1_next_start")
+    assert state.state == STATE_UNAVAILABLE
 
 
 async def test_work_area_sensor(
@@ -90,7 +99,7 @@ async def test_work_area_sensor(
 ) -> None:
     """Test the work area sensor."""
     await setup_integration(hass, mock_config_entry)
-    state = hass.states.get("sensor.test_mower_1_work_area")
+    state = hass.states.get("sensor.garden_test_mower_1_work_area")
     assert state is not None
     assert state.state == "Front lawn"
 
@@ -99,7 +108,7 @@ async def test_work_area_sensor(
     freezer.tick(SCAN_INTERVAL)
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.test_mower_1_work_area")
+    state = hass.states.get("sensor.garden_test_mower_1_work_area")
     assert state.state == "no_work_area_active"
 
     values[TEST_MOWER_ID].mower.work_area_id = 0
@@ -107,8 +116,132 @@ async def test_work_area_sensor(
     freezer.tick(SCAN_INTERVAL)
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.test_mower_1_work_area")
+    state = hass.states.get("sensor.garden_test_mower_1_work_area")
     assert state.state == "my_lawn"
+
+    # Test EPOS mower, which returns work_area_id = 0, when no
+    # work area is active and has no default work_area_id=0
+    values[TEST_MOWER_ID].mower.work_area_id = 0
+    del values[TEST_MOWER_ID].work_areas[0]
+    del values[TEST_MOWER_ID].work_area_dict[0]
+    mock_automower_client.get_status.return_value = values
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.garden_test_mower_1_work_area")
+    assert state.state == "no_work_area_active"
+
+    values[TEST_MOWER_ID].capabilities.work_areas = False
+    values[TEST_MOWER_ID].work_areas = None
+    mock_automower_client.get_status.return_value = values
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    for entity_id in (
+        "sensor.garden_test_mower_1_work_area",
+        "sensor.garden_test_mower_1_front_lawn_progress",
+    ):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == STATE_UNAVAILABLE
+
+
+async def test_work_area_sensor_creation(
+    hass: HomeAssistant,
+    mock_automower_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    values: dict[str, MowerAttributes],
+) -> None:
+    """Test the work area sensor depending on mower pattern."""
+    values[TEST_MOWER_ID].work_area_names.append("new systematic work area")
+    values[TEST_MOWER_ID].work_area_dict.update({1: "new systematic work area"})
+    values[TEST_MOWER_ID].work_areas.update(
+        {
+            1: WorkArea(
+                name="new systematic work area",
+                cutting_height=12,
+                enabled=True,
+                type=WorkAreaType.SYSTEMATIC,
+                use_global_cutting_height=False,
+            )
+        }
+    )
+    mock_automower_client.get_status.return_value = values
+    await setup_integration(hass, mock_config_entry)
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get(
+        "sensor.garden_test_mower_1_new_systematic_work_area_progress"
+    )
+    assert state is not None
+    assert state.state == STATE_UNKNOWN
+    state = hass.states.get(
+        "sensor.garden_test_mower_1_new_systematic_work_area_last_time_completed"
+    )
+    assert state is not None
+    assert state.state == STATE_UNKNOWN
+
+    values[TEST_MOWER_ID].work_area_names.append("new random work area")
+    values[TEST_MOWER_ID].work_area_dict.update({2: "new random work area"})
+    values[TEST_MOWER_ID].work_areas.update(
+        {
+            2: WorkArea(
+                name="new random work area",
+                cutting_height=12,
+                enabled=True,
+                type=WorkAreaType.RANDOM,
+                use_global_cutting_height=False,
+            )
+        }
+    )
+    mock_automower_client.get_status.return_value = values
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.garden_test_mower_1_new_random_work_area_progress")
+    assert state is None
+    state = hass.states.get(
+        "sensor.garden_test_mower_1_new_random_work_area_last_time_completed"
+    )
+    assert state is None
+
+
+async def test_restricted_reason_sensor(
+    hass: HomeAssistant,
+    mock_automower_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    values: dict[str, MowerAttributes],
+) -> None:
+    """Test the work area sensor."""
+    sensor = "sensor.garden_test_mower_1_restricted_reason"
+    await setup_integration(hass, mock_config_entry)
+    state = hass.states.get(sensor)
+    assert state is not None
+    assert state.state == RestrictedReasons.WEEK_SCHEDULE
+
+    values[TEST_MOWER_ID].planner.restricted_reason = RestrictedReasons.EXTERNAL
+    values[TEST_MOWER_ID].planner.external_reason = None
+    mock_automower_client.get_status.return_value = values
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get(sensor)
+    assert state.state == RestrictedReasons.EXTERNAL
+
+    values[TEST_MOWER_ID].planner.restricted_reason = RestrictedReasons.EXTERNAL
+    values[
+        TEST_MOWER_ID
+    ].planner.external_reason = ExternalReasons.SMART_ROUTINE_WILDLIFE_PROTECTION
+    mock_automower_client.get_status.return_value = values
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get(sensor)
+    assert state.state == ExternalReasons.SMART_ROUTINE_WILDLIFE_PROTECTION
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
@@ -137,7 +270,7 @@ async def test_statistics_not_available(
     delattr(values[TEST_MOWER_ID].statistics, sensor_to_test)
     mock_automower_client.get_status.return_value = values
     await setup_integration(hass, mock_config_entry)
-    state = hass.states.get(f"sensor.test_mower_1_{sensor_to_test}")
+    state = hass.states.get(f"sensor.garden_test_mower_1_{sensor_to_test}")
     assert state is None
 
 
@@ -154,9 +287,11 @@ async def test_error_sensor(
     for state, error_key, expected_state in (
         (MowerStates.IN_OPERATION, None, "no_error"),
         (MowerStates.ERROR, "can_error", "can_error"),
+        (MowerStates.ERROR, "destination_blocked", "destination_blocked"),
         (MowerStates.ERROR, None, MowerStates.ERROR.lower()),
         (MowerStates.ERROR_AT_POWER_UP, None, MowerStates.ERROR_AT_POWER_UP.lower()),
         (MowerStates.FATAL_ERROR, None, MowerStates.FATAL_ERROR.lower()),
+        (MowerStates.ERROR, UNKNOWN_ERROR, STATE_UNKNOWN),
     ):
         values[TEST_MOWER_ID].mower.state = state
         values[TEST_MOWER_ID].mower.error_key = error_key
@@ -164,7 +299,8 @@ async def test_error_sensor(
         freezer.tick(SCAN_INTERVAL)
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
-        state = hass.states.get("sensor.test_mower_1_error")
+        state = hass.states.get("sensor.garden_test_mower_1_error")
+        assert state is not None
         assert state.state == expected_state
 
 

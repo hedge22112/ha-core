@@ -20,7 +20,7 @@ from homeassistant.helpers import config_entry_oauth2_flow
 from . import setup_integration
 from .const import CLIENT_ID, USER_ID
 
-from tests.common import MockConfigEntry, load_fixture
+from tests.common import MockConfigEntry, async_load_fixture
 from tests.test_util.aiohttp import AiohttpClientMocker
 from tests.typing import ClientSessionGenerator
 
@@ -47,7 +47,7 @@ async def test_full_flow(
 ) -> None:
     """Check full flow."""
     result = await hass.config_entries.flow.async_init(
-        "husqvarna_automower", context={"source": config_entries.SOURCE_USER}
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     state = config_entry_oauth2_flow._encode_jwt(
         hass,
@@ -84,7 +84,7 @@ async def test_full_flow(
     )
     aioclient_mock.get(
         f"{API_BASE_URL}/{AutomowerEndpoint.mowers}",
-        text=load_fixture(fixture, DOMAIN),
+        text=await async_load_fixture(hass, fixture, DOMAIN),
         exc=exception,
     )
     with (
@@ -252,7 +252,7 @@ async def test_reauth_wrong_account(
     reason: str,
     scope: str,
 ) -> None:
-    """Test the reauthentication aborts, if user tries to reauthenticate with another account."""
+    """Test reauth aborts when user tries a different account."""
 
     mock_config_entry.add_to_hass(hass)
 

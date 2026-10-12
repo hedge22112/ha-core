@@ -1,9 +1,8 @@
 """Sensoterra devices."""
 
-from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from enum import StrEnum, auto
+from typing import override
 
 from sensoterra.probe import Probe, Sensor
 
@@ -21,13 +20,13 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
-from . import SensoterraConfigEntry
 from .const import CONFIGURATION_URL, DOMAIN, SENSOR_EXPIRATION_DAYS
-from .coordinator import SensoterraCoordinator
+from .coordinator import SensoterraConfigEntry, SensoterraCoordinator
 
 
 class ProbeSensorType(StrEnum):
@@ -85,7 +84,7 @@ SENSORS: dict[ProbeSensorType, SensorEntityDescription] = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SensoterraConfigEntry,
-    async_add_devices: AddEntitiesCallback,
+    async_add_devices: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Sensoterra sensor."""
 
@@ -153,12 +152,14 @@ class SensoterraEntity(CoordinatorEntity[SensoterraCoordinator], SensorEntity):
         return self.coordinator.get_sensor(self._sensor_id)
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the value reported by the sensor."""
         assert self.sensor
         return self.sensor.value
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         if not super().available or (sensor := self.sensor) is None:
@@ -168,5 +169,5 @@ class SensoterraEntity(CoordinatorEntity[SensoterraCoordinator], SensorEntity):
             return False
 
         # Expire sensor if no update within the last few days.
-        expiration = datetime.now(UTC) - timedelta(days=SENSOR_EXPIRATION_DAYS)
+        expiration = dt_util.utcnow() - timedelta(days=SENSOR_EXPIRATION_DAYS)
         return sensor.timestamp >= expiration

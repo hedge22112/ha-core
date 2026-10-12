@@ -1,6 +1,6 @@
 """Number platform for Palazzetti settings."""
 
-from __future__ import annotations
+from typing import override
 
 from pypalazzetti.exceptions import CommunicationError, ValidationError
 from pypalazzetti.fan import FanType
@@ -8,18 +8,17 @@ from pypalazzetti.fan import FanType
 from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import PalazzettiConfigEntry
 from .const import DOMAIN
-from .coordinator import PalazzettiDataUpdateCoordinator
+from .coordinator import PalazzettiConfigEntry, PalazzettiDataUpdateCoordinator
 from .entity import PalazzettiEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: PalazzettiConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Palazzetti number platform."""
 
@@ -54,10 +53,12 @@ class PalazzettiCombustionPowerEntity(PalazzettiEntity, NumberEntity):
         self._attr_unique_id = f"{coordinator.config_entry.unique_id}-combustion_power"
 
     @property
+    @override
     def native_value(self) -> float:
         """Return the state of the setting entity."""
         return self.coordinator.client.power_mode
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the setting."""
         try:
@@ -99,10 +100,12 @@ class PalazzettiFanEntity(PalazzettiEntity, NumberEntity):
         )
 
     @property
+    @override
     def native_value(self) -> float:
         """Return the state of the setting entity."""
         return self.coordinator.client.current_fan_speed(self.fan)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the setting."""
         try:

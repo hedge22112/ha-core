@@ -1,10 +1,8 @@
 """A platform which allows you to get information from Tautulli."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, override
 
 from pytautulli import (
     PyTautulliApiActivity,
@@ -23,12 +21,14 @@ from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityDescription
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, StateType
 
-from . import TautulliConfigEntry
 from .const import ATTR_TOP_USER, DOMAIN
-from .coordinator import TautulliDataUpdateCoordinator
+from .coordinator import TautulliConfigEntry, TautulliDataUpdateCoordinator
 from .entity import TautulliEntity
 
 
@@ -213,7 +213,7 @@ async def async_setup_platform(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TautulliConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tautulli sensor."""
     data = entry.runtime_data
@@ -244,6 +244,7 @@ class TautulliSensor(TautulliEntity, SensorEntity):
     entity_description: TautulliSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(
@@ -270,6 +271,7 @@ class TautulliSessionSensor(TautulliEntity, SensorEntity):
         self._attr_unique_id = f"{entry_id}_{user.user_id}_{description.key}"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         if self.coordinator.activity:

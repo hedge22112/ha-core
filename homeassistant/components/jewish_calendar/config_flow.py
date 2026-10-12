@@ -1,18 +1,16 @@
 """Config flow for Jewish calendar integration."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, get_args, override
 import zoneinfo
 
-import voluptuous as vol
+from hdate.translator import Language
+import probatio
 
 from homeassistant.config_entries import (
-    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import (
     CONF_ELEVATION,
@@ -25,35 +23,73 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    LanguageSelector,
+    LanguageSelectorConfig,
     LocationSelector,
-    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
+    SelectSelectorMode,
 )
 
 from .const import (
     CONF_CANDLE_LIGHT_MINUTES,
+    CONF_DAILY_EVENTS,
     CONF_DIASPORA,
     CONF_HAVDALAH_OFFSET_MINUTES,
+    CONF_LEARNING_SCHEDULE,
+    CONF_YEARLY_EVENTS,
+    DEFAULT_CALENDAR_EVENTS,
     DEFAULT_CANDLE_LIGHT,
     DEFAULT_DIASPORA,
     DEFAULT_HAVDALAH_OFFSET_MINUTES,
     DEFAULT_LANGUAGE,
     DEFAULT_NAME,
     DOMAIN,
+    DailyCalendarEventType,
+    LearningScheduleEventType,
+    YearlyCalendarEventType,
 )
+from .entity import JewishCalendarConfigEntry
 
-LANGUAGE = [
-    SelectOptionDict(value="hebrew", label="Hebrew"),
-    SelectOptionDict(value="english", label="English"),
-]
-
-OPTIONS_SCHEMA = vol.Schema(
+OPTIONS_SCHEMA = probatio.Schema(
     {
-        vol.Optional(CONF_CANDLE_LIGHT_MINUTES, default=DEFAULT_CANDLE_LIGHT): int,
-        vol.Optional(
+        probatio.Optional(CONF_CANDLE_LIGHT_MINUTES, default=DEFAULT_CANDLE_LIGHT): int,
+        probatio.Optional(
             CONF_HAVDALAH_OFFSET_MINUTES, default=DEFAULT_HAVDALAH_OFFSET_MINUTES
         ): int,
+        probatio.Optional(
+            CONF_DAILY_EVENTS,
+            default=DEFAULT_CALENDAR_EVENTS[CONF_DAILY_EVENTS],
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=list(DailyCalendarEventType),
+                multiple=True,
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key=CONF_DAILY_EVENTS,
+            )
+        ),
+        probatio.Optional(
+            CONF_LEARNING_SCHEDULE,
+            default=DEFAULT_CALENDAR_EVENTS[CONF_LEARNING_SCHEDULE],
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=list(LearningScheduleEventType),
+                multiple=True,
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key=CONF_LEARNING_SCHEDULE,
+            )
+        ),
+        probatio.Optional(
+            CONF_YEARLY_EVENTS,
+            default=DEFAULT_CALENDAR_EVENTS[CONF_YEARLY_EVENTS],
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=list(YearlyCalendarEventType),
+                multiple=True,
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key=CONF_YEARLY_EVENTS,
+            )
+        ),
     }
 )
 
@@ -61,24 +97,31 @@ OPTIONS_SCHEMA = vol.Schema(
 _LOGGER = logging.getLogger(__name__)
 
 
-def _get_data_schema(hass: HomeAssistant) -> vol.Schema:
+async def _get_data_schema(hass: HomeAssistant) -> probatio.Schema:
     default_location = {
         CONF_LATITUDE: hass.config.latitude,
         CONF_LONGITUDE: hass.config.longitude,
     }
-    return vol.Schema(
+    get_timezones: list[str] = list(
+        await hass.async_add_executor_job(zoneinfo.available_timezones)
+    )
+    return probatio.Schema(
         {
-            vol.Required(CONF_DIASPORA, default=DEFAULT_DIASPORA): BooleanSelector(),
-            vol.Required(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): SelectSelector(
-                SelectSelectorConfig(options=LANGUAGE)
+            probatio.Required(
+                CONF_DIASPORA, default=DEFAULT_DIASPORA
+            ): BooleanSelector(),
+            probatio.Required(
+                CONF_LANGUAGE, default=DEFAULT_LANGUAGE
+            ): LanguageSelector(
+                LanguageSelectorConfig(languages=list(get_args(Language)))
             ),
-            vol.Optional(CONF_LOCATION, default=default_location): LocationSelector(),
-            vol.Optional(CONF_ELEVATION, default=hass.config.elevation): int,
-            vol.Optional(CONF_TIME_ZONE, default=hass.config.time_zone): SelectSelector(
-                SelectSelectorConfig(
-                    options=sorted(zoneinfo.available_timezones()),
-                )
-            ),
+            probatio.Optional(
+                CONF_LOCATION, default=default_location
+            ): LocationSelector(),
+            probatio.Optional(CONF_ELEVATION, default=hass.config.elevation): int,
+            probatio.Optional(
+                CONF_TIME_ZONE, default=hass.config.time_zone
+            ): SelectSelector(SelectSelectorConfig(options=get_timezones, sort=True)),
         }
     )
 
@@ -86,16 +129,18 @@ def _get_data_schema(hass: HomeAssistant) -> vol.Schema:
 class JewishCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Jewish calendar."""
 
-    VERSION = 1
+    VERSION = 4
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
-        config_entry: ConfigEntry,
+        config_entry: JewishCalendarConfigEntry,
     ) -> JewishCalendarOptionsFlowHandler:
         """Get the options flow for this handler."""
         return JewishCalendarOptionsFlowHandler()
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -109,7 +154,7 @@ class JewishCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(
-                _get_data_schema(self.hass), user_input
+                await _get_data_schema(self.hass), user_input
             ),
         )
 
@@ -121,7 +166,7 @@ class JewishCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
         if not user_input:
             return self.async_show_form(
                 data_schema=self.add_suggested_values_to_schema(
-                    _get_data_schema(self.hass),
+                    await _get_data_schema(self.hass),
                     reconfigure_entry.data,
                 ),
                 step_id="reconfigure",
@@ -130,7 +175,7 @@ class JewishCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_update_reload_and_abort(reconfigure_entry, data=user_input)
 
 
-class JewishCalendarOptionsFlowHandler(OptionsFlow):
+class JewishCalendarOptionsFlowHandler(OptionsFlowWithReload):
     """Handle Jewish Calendar options."""
 
     async def async_step_init(

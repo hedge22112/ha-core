@@ -1,28 +1,28 @@
 """Switch implementation for Energenie-Power-Sockets Platform."""
 
-from typing import Any
+from typing import Any, override
 
 from pyegps import __version__ as PYEGPS_VERSION
 from pyegps.exceptions import EgpsException
 from pyegps.powerstrip import PowerStrip
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import EnergenieConfigEntry
 from .const import DOMAIN
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: EnergenieConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add EGPS sockets for passed config_entry in HA."""
-    powerstrip: PowerStrip = hass.data[DOMAIN][config_entry.entry_id]
+    powerstrip = config_entry.runtime_data
 
     async_add_entities(
         (
@@ -55,6 +55,7 @@ class EGPowerStripSocket(SwitchEntity):
             sw_version=PYEGPS_VERSION,
         )
 
+    @override
     def turn_on(self, **kwargs: Any) -> None:
         """Switch the socket on."""
         try:
@@ -62,6 +63,7 @@ class EGPowerStripSocket(SwitchEntity):
         except EgpsException as err:
             raise HomeAssistantError(f"Couldn't access USB device: {err}") from err
 
+    @override
     def turn_off(self, **kwargs: Any) -> None:
         """Switch the socket off."""
         try:

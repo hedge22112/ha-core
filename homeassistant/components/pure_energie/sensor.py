@@ -1,9 +1,8 @@
 """Support for Pure Energie sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.sensor import (
     DOMAIN as SENSOR_DOMAIN,
@@ -15,12 +14,15 @@ from homeassistant.components.sensor import (
 from homeassistant.const import CONF_HOST, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import PureEnergieConfigEntry
 from .const import DOMAIN
-from .coordinator import PureEnergieData, PureEnergieDataUpdateCoordinator
+from .coordinator import (
+    PureEnergieConfigEntry,
+    PureEnergieData,
+    PureEnergieDataUpdateCoordinator,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -61,7 +63,7 @@ SENSORS: tuple[PureEnergieSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PureEnergieConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Pure Energie Sensors based on a config entry."""
     async_add_entities(
@@ -104,6 +106,7 @@ class PureEnergieSensorEntity(
         )
 
     @property
+    @override
     def native_value(self) -> int | float:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

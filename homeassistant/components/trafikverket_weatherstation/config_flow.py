@@ -1,22 +1,21 @@
 """Adds config flow for Trafikverket Weather integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
-from typing import Any
+import logging
+from typing import Any, override
 
+import probatio
 from pytrafikverket.exceptions import (
     InvalidAuthentication,
     MultipleWeatherStationsFound,
     NoWeatherStationFound,
 )
 from pytrafikverket.trafikverket_weather import TrafikverketWeather
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_API_KEY
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -24,6 +23,8 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import CONF_STATION, DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -37,6 +38,7 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
         weather_api = TrafikverketWeather(web_session, sensor_api)
         await weather_api.async_get_weather(station)
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, str] | None = None
     ) -> ConfigFlowResult:
@@ -56,7 +58,8 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_station"
             except MultipleWeatherStationsFound:
                 errors["base"] = "more_stations"
-            except Exception:  # noqa: BLE001
+            except Exception:
+                _LOGGER.exception("Unexpected error")
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_create_entry(
@@ -69,10 +72,10 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_API_KEY): cv.string,
-                    vol.Required(CONF_STATION): cv.string,
+                    probatio.Required(probatio.Secret(CONF_API_KEY)): cv.string,
+                    probatio.Required(CONF_STATION): cv.string,
                 }
             ),
             errors=errors,
@@ -102,7 +105,8 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_station"
             except MultipleWeatherStationsFound:
                 errors["base"] = "more_stations"
-            except Exception:  # noqa: BLE001
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_update_reload_and_abort(
@@ -111,7 +115,9 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema({vol.Required(CONF_API_KEY): cv.string}),
+            data_schema=probatio.Schema(
+                {probatio.Required(probatio.Secret(CONF_API_KEY)): cv.string}
+            ),
             errors=errors,
         )
 
@@ -132,7 +138,8 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_station"
             except MultipleWeatherStationsFound:
                 errors["base"] = "more_stations"
-            except Exception:  # noqa: BLE001
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_update_reload_and_abort(
@@ -142,12 +149,12 @@ class TVWeatherConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         schema = self.add_suggested_values_to_schema(
-            vol.Schema(
+            probatio.Schema(
                 {
-                    vol.Required(CONF_API_KEY): TextSelector(
+                    probatio.Required(probatio.Secret(CONF_API_KEY)): TextSelector(
                         TextSelectorConfig(type=TextSelectorType.PASSWORD)
                     ),
-                    vol.Required(CONF_STATION): TextSelector(),
+                    probatio.Required(CONF_STATION): TextSelector(),
                 }
             ),
             {**self._get_reconfigure_entry().data, **(user_input or {})},

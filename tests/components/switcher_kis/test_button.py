@@ -2,7 +2,8 @@
 
 from unittest.mock import ANY, patch
 
-from aioswitcher.api import DeviceState, SwitcherBaseResponse, ThermostatSwing
+from aioswitcher.api.messages import SwitcherBaseResponse
+from aioswitcher.device import DeviceState, ThermostatSwing
 import pytest
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
@@ -119,14 +120,9 @@ async def test_control_device_fail(
             ANY, state=DeviceState.ON, update_state=True
         )
 
+        # A single failed command must not flap the entity unavailable.
         state = hass.states.get(ASSUME_ON_EID)
-        assert state.state == STATE_UNAVAILABLE
-
-    # Make device available again
-    mock_bridge.mock_callbacks([DEVICE])
-    await hass.async_block_till_done()
-
-    assert hass.states.get(ASSUME_ON_EID) is not None
+        assert state.state != STATE_UNAVAILABLE
 
     # Test error response during turn on
     with patch(
@@ -147,4 +143,4 @@ async def test_control_device_fail(
         )
 
         state = hass.states.get(ASSUME_ON_EID)
-        assert state.state == STATE_UNAVAILABLE
+        assert state.state != STATE_UNAVAILABLE

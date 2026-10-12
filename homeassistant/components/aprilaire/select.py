@@ -1,16 +1,14 @@
 """The Aprilaire select component."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, override
 
 from pyaprilaire.const import Attribute
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import AprilaireConfigEntry, AprilaireCoordinator
 from .entity import BaseAprilaireEntity
@@ -24,7 +22,7 @@ FRESH_AIR_MODE_MAP = {0: "off", 1: "automatic"}
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AprilaireConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Aprilaire select devices."""
 
@@ -120,6 +118,7 @@ class AprilaireSelectEntity(BaseAprilaireEntity, SelectEntity):
         self._attr_options = list(description.options_map.values())
 
     @property
+    @override
     def current_option(self) -> str:
         """Get the current option."""
 
@@ -132,6 +131,7 @@ class AprilaireSelectEntity(BaseAprilaireEntity, SelectEntity):
 
         return self.entity_description.options_map.get(current_value, "off")
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Set the current option."""
 

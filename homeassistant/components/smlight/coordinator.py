@@ -1,28 +1,43 @@
 """DataUpdateCoordinator for Smlight."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any, override
 
 from pysmlight import Api2, Info, Sensors
 from pysmlight.const import Settings, SettingsProp
 from pysmlight.exceptions import SmlightAuthError, SmlightConnectionError
-from pysmlight.web import Firmware
+from pysmlight.models import AmbilightPayload, FirmwareList
 
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 from homeassistant.helpers.issue_registry import IssueSeverity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, LOGGER, SCAN_FIRMWARE_INTERVAL, SCAN_INTERVAL
+from .const import (
+    ATTR_MANUFACTURER,
+    DOMAIN,
+    LOGGER,
+    SCAN_FIRMWARE_INTERVAL,
+    SCAN_INTERVAL,
+)
 
-if TYPE_CHECKING:
-    from . import SmConfigEntry
+
+@dataclass(kw_only=True)
+class SmlightData:
+    """Coordinator data class."""
+
+    data: SmDataUpdateCoordinator
+    firmware: SmFirmwareUpdateCoordinator
 
 
 @dataclass
@@ -38,8 +53,22 @@ class SmFwData:
     """SMLIGHT firmware data stored in the FirmwareUpdateCoordinator."""
 
     info: Info
-    esp_firmware: list[Firmware] | None
-    zb_firmware: list[Firmware] | None
+    esp_firmware: FirmwareList
+    zb_firmware: list[FirmwareList]
+
+
+type SmConfigEntry = ConfigEntry[SmlightData]
+
+
+def base_device_info(info: Info, host: str) -> DeviceInfo:
+    """Return device registry information."""
+    return DeviceInfo(
+        configuration_url=f"http://{host}",
+        connections={(CONNECTION_NETWORK_MAC, str(info.MAC))},
+        manufacturer=ATTR_MANUFACTURER,
+        model=info.model,
+        sw_version=f"core: {info.sw_version} / zigbee: {info.zb_version}",
+    )
 
 
 class SmBaseDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
@@ -47,12 +76,15 @@ class SmBaseDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
 
     config_entry: SmConfigEntry
 
-    def __init__(self, hass: HomeAssistant, host: str, client: Api2) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: SmConfigEntry, client: Api2
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
             LOGGER,
-            name=f"{DOMAIN}_{host}",
+            config_entry=config_entry,
+            name=f"{DOMAIN}_{config_entry.data[CONF_HOST]}",
             update_interval=SCAN_INTERVAL,
         )
 
@@ -60,6 +92,7 @@ class SmBaseDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
         self.unique_id: str | None = None
         self.legacy_api: int = 0
 
+    @override
     async def _async_setup(self) -> None:
         """Authenticate if needed during initial setup."""
         if await self.client.check_auth_needed():
@@ -81,6 +114,7 @@ class SmBaseDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
         info = await self.client.get_info()
         self.unique_id = format_mac(info.MAC)
         self.legacy_api = info.legacy_api
+
         if info.legacy_api == 2:
             ir.async_create_issue(
                 self.hass,
@@ -93,6 +127,7 @@ class SmBaseDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
                 translation_key="unsupported_firmware",
             )
 
+    @override
     async def _async_update_data(self) -> _DataT:
         try:
             return await self._internal_update_data()
@@ -100,11 +135,37 @@ class SmBaseDataUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
             raise ConfigEntryAuthFailed from err
 
         except SmlightConnectionError as err:
-            raise UpdateFailed(err) from err
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect_device",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
     @abstractmethod
     async def _internal_update_data(self) -> _DataT:
         """Update coordinator data."""
+
+    async def async_execute_command(
+        self,
+        command: Callable[..., Coroutine[Any, Any, Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute an API command and handle connection errors."""
+        try:
+            return await command(*args, **kwargs)
+        except SmlightAuthError as err:
+            self.config_entry.async_start_reauth(self.hass)
+            raise ConfigEntryAuthFailed(
+                translation_domain=DOMAIN,
+                translation_key="invalid_auth",
+            ) from err
+        except SmlightConnectionError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect_device",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
 
 class SmDataUpdateCoordinator(SmBaseDataUpdateCoordinator[SmData]):
@@ -118,6 +179,15 @@ class SmDataUpdateCoordinator(SmBaseDataUpdateCoordinator[SmData]):
 
         self.async_set_updated_data(self.data)
 
+    def update_ambilight(self, changes: dict) -> None:
+        """Update the ambilight state from event."""
+        for key in ("ultLedColor", "ultLedColor2"):
+            if isinstance(color := changes.get(key), int):
+                changes[key] = f"#{color:06x}"
+        self.data.sensors.ambilight = AmbilightPayload(**changes)
+        self.async_set_updated_data(self.data)
+
+    @override
     async def _internal_update_data(self) -> SmData:
         """Fetch sensor data from the SMLIGHT device."""
         sensors = Sensors()
@@ -133,22 +203,46 @@ class SmDataUpdateCoordinator(SmBaseDataUpdateCoordinator[SmData]):
 class SmFirmwareUpdateCoordinator(SmBaseDataUpdateCoordinator[SmFwData]):
     """Class to manage fetching SMLIGHT firmware update data from cloud."""
 
-    def __init__(self, hass: HomeAssistant, host: str, client: Api2) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: SmConfigEntry, client: Api2
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass, host, client)
+        super().__init__(hass, config_entry, client)
 
         self.update_interval = SCAN_FIRMWARE_INTERVAL
         # only one update can run at a time (core or zibgee)
         self.in_progress = False
 
+    @override
     async def _internal_update_data(self) -> SmFwData:
         """Fetch data from the SMLIGHT device."""
         info = await self.client.get_info()
+        assert info.radios is not None
+        esp_firmware = None
+        zb_firmware: list[FirmwareList] = []
+
+        try:
+            esp_firmware = await self.client.get_firmware_version(
+                info.fw_channel, device=info.model
+            )
+            zb_firmware.extend(
+                [
+                    await self.client.get_firmware_version(
+                        info.fw_channel,
+                        device=info.model,
+                        mode="zigbee",
+                        zb_type=r.zb_type,
+                        idx=idx,
+                    )
+                    for idx, r in enumerate(info.radios)
+                ]
+            )
+
+        except SmlightConnectionError as err:
+            self.async_set_update_error(err)
 
         return SmFwData(
             info=info,
-            esp_firmware=await self.client.get_firmware_version(info.fw_channel),
-            zb_firmware=await self.client.get_firmware_version(
-                info.fw_channel, device=info.model, mode="zigbee"
-            ),
+            esp_firmware=esp_firmware,
+            zb_firmware=zb_firmware,
         )

@@ -1,7 +1,5 @@
 """Describe ZHA logbook events."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -10,9 +8,9 @@ from zha.application.const import ZHA_EVENT
 from homeassistant.components.logbook import LOGBOOK_ENTRY_MESSAGE, LOGBOOK_ENTRY_NAME
 from homeassistant.const import ATTR_COMMAND, ATTR_DEVICE_ID
 from homeassistant.core import Event, HomeAssistant, callback
-import homeassistant.helpers.device_registry as dr
+from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN as ZHA_DOMAIN
+from .const import DOMAIN
 from .helpers import async_get_zha_device_proxy
 
 if TYPE_CHECKING:
@@ -38,13 +36,15 @@ def async_describe_events(
         event_subtype: str | None = None
 
         try:
-            device = device_registry.devices[event.data[ATTR_DEVICE_ID]]
+            device = device_registry.async_get(
+                event.data[ATTR_DEVICE_ID], include_child_devices=False
+            )
             if device:
                 device_name = device.name_by_user or device.name or "Unknown device"
             zha_device = async_get_zha_device_proxy(
                 hass, event.data[ATTR_DEVICE_ID]
             ).device
-        except (KeyError, AttributeError):
+        except KeyError, AttributeError:
             pass
 
         if (
@@ -79,9 +79,12 @@ def async_describe_events(
         if params := event_data.get("params"):
             message = f"{message} with parameters: {params}"
 
+        if args := event_data.get("args"):
+            message = f"{message} with arguments: {args}"
+
         return {
             LOGBOOK_ENTRY_NAME: device_name,
             LOGBOOK_ENTRY_MESSAGE: message,
         }
 
-    async_describe_event(ZHA_DOMAIN, ZHA_EVENT, async_describe_zha_event)
+    async_describe_event(DOMAIN, ZHA_EVENT, async_describe_zha_event)

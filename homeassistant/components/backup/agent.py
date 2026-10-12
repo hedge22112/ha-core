@@ -1,27 +1,28 @@
 """Backup agents for the Backup integration."""
 
-from __future__ import annotations
-
 import abc
 from collections.abc import AsyncIterator, Callable, Coroutine
 from pathlib import Path
 from typing import Any, Protocol
 
-from propcache import cached_property
+from propcache.api import cached_property
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 
-from .models import AgentBackup
+from .models import AgentBackup, BackupAgentError
 
 
-class BackupAgentError(HomeAssistantError):
-    """Base class for backup agent errors."""
+class OnProgressCallback(Protocol):
+    """Protocol for on_progress callback."""
+
+    def __call__(self, *, bytes_uploaded: int, **kwargs: Any) -> None:
+        """Report upload progress."""
 
 
 class BackupAgentUnreachableError(BackupAgentError):
     """Raised when the agent can't reach its API."""
 
+    error_code = "backup_agent_unreachable"
     _message = "The backup agent is unreachable."
 
 
@@ -30,11 +31,12 @@ class BackupAgent(abc.ABC):
 
     domain: str
     name: str
+    unique_id: str
 
     @cached_property
     def agent_id(self) -> str:
         """Return the agent_id."""
-        return f"{self.domain}.{self.name}"
+        return f"{self.domain}.{self.unique_id}"
 
     @abc.abstractmethod
     async def async_download_backup(
@@ -43,6 +45,8 @@ class BackupAgent(abc.ABC):
         **kwargs: Any,
     ) -> AsyncIterator[bytes]:
         """Download a backup file.
+
+        Raises BackupNotFound if the backup does not exist.
 
         :param backup_id: The ID of the backup that was returned in async_list_backups.
         :return: An async iterator that yields bytes.
@@ -54,12 +58,14 @@ class BackupAgent(abc.ABC):
         *,
         open_stream: Callable[[], Coroutine[Any, Any, AsyncIterator[bytes]]],
         backup: AgentBackup,
+        on_progress: OnProgressCallback,
         **kwargs: Any,
     ) -> None:
         """Upload a backup.
 
         :param open_stream: A function returning an async iterator that yields bytes.
         :param backup: Metadata about the backup that should be uploaded.
+        :param on_progress: A callback to report the number of uploaded bytes.
         """
 
     @abc.abstractmethod
@@ -69,6 +75,8 @@ class BackupAgent(abc.ABC):
         **kwargs: Any,
     ) -> None:
         """Delete a backup file.
+
+        Raises BackupNotFound if the backup does not exist.
 
         :param backup_id: The ID of the backup that was returned in async_list_backups.
         """
@@ -82,8 +90,11 @@ class BackupAgent(abc.ABC):
         self,
         backup_id: str,
         **kwargs: Any,
-    ) -> AgentBackup | None:
-        """Return a backup."""
+    ) -> AgentBackup:
+        """Return a backup.
+
+        Raises BackupNotFound if the backup does not exist.
+        """
 
 
 class LocalBackupAgent(BackupAgent):
@@ -91,10 +102,15 @@ class LocalBackupAgent(BackupAgent):
 
     @abc.abstractmethod
     def get_backup_path(self, backup_id: str) -> Path:
-        """Return the local path to a backup.
+        """Return the local path to an existing backup.
 
         The method should return the path to the backup file with the specified id.
+        Raises BackupAgentError if the backup does not exist.
         """
+
+    @abc.abstractmethod
+    def get_new_backup_path(self, backup: AgentBackup) -> Path:
+        """Return the local path to a new backup."""
 
 
 class BackupAgentPlatformProtocol(Protocol):

@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_all_entities[indoor][button.airgradient_calibrate_co2_sensor-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Calibrate CO2 sensor',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'Calibrate CO2 sensor',
     'platform': 'airgradient',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'co2_calibration',
     'unique_id': '84fce612f5b8-co2_calibration',
@@ -35,7 +39,7 @@
 # name: test_all_entities[indoor][button.airgradient_calibrate_co2_sensor-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Airgradient Calibrate CO2 sensor',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Airgradient Calibrate CO2 sensor',
     }),
     'context': <ANY>,
     'entity_id': 'button.airgradient_calibrate_co2_sensor',
@@ -47,11 +51,13 @@
 # ---
 # name: test_all_entities[indoor][button.airgradient_test_led_bar-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -65,6 +71,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Test LED bar',
     'options': dict({
     }),
     'original_device_class': None,
@@ -72,6 +79,7 @@
     'original_name': 'Test LED bar',
     'platform': 'airgradient',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'led_bar_test',
     'unique_id': '84fce612f5b8-led_bar_test',
@@ -81,7 +89,7 @@
 # name: test_all_entities[indoor][button.airgradient_test_led_bar-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Airgradient Test LED bar',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Airgradient Test LED bar',
     }),
     'context': <ANY>,
     'entity_id': 'button.airgradient_test_led_bar',
@@ -93,11 +101,13 @@
 # ---
 # name: test_all_entities[outdoor][button.airgradient_calibrate_co2_sensor-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -111,6 +121,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Calibrate CO2 sensor',
     'options': dict({
     }),
     'original_device_class': None,
@@ -118,6 +129,7 @@
     'original_name': 'Calibrate CO2 sensor',
     'platform': 'airgradient',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'co2_calibration',
     'unique_id': '84fce612f5b8-co2_calibration',
@@ -127,7 +139,7 @@
 # name: test_all_entities[outdoor][button.airgradient_calibrate_co2_sensor-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Airgradient Calibrate CO2 sensor',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Airgradient Calibrate CO2 sensor',
     }),
     'context': <ANY>,
     'entity_id': 'button.airgradient_calibrate_co2_sensor',

@@ -1,7 +1,5 @@
 """Jabber (XMPP) notification service."""
 
-from __future__ import annotations
-
 from concurrent.futures import TimeoutError as FutTimeoutError
 from http import HTTPStatus
 import logging
@@ -9,7 +7,9 @@ import mimetypes
 import pathlib
 import random
 import string
+from typing import Any, override
 
+import probatio
 import requests
 import slixmpp
 from slixmpp.exceptions import IqError, IqTimeout, XMPPError
@@ -19,9 +19,10 @@ from slixmpp.plugins.xep_0363.http_upload import (
     UploadServiceNotFound,
 )
 from slixmpp.xmlstream.xmlstream import NotConnectedError
-import voluptuous as vol
 
 from homeassistant.components.notify import (
+    ATTR_DATA,
+    ATTR_TARGET,
     ATTR_TITLE,
     ATTR_TITLE_DEFAULT,
     PLATFORM_SCHEMA as NOTIFY_PLATFORM_SCHEMA,
@@ -35,13 +36,11 @@ from homeassistant.const import (
     CONF_SENDER,
 )
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
-import homeassistant.helpers.template as template_helper
+from homeassistant.helpers import config_validation as cv, template as template_helper
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 _LOGGER = logging.getLogger(__name__)
 
-ATTR_DATA = "data"
 ATTR_PATH = "path"
 ATTR_PATH_TEMPLATE = "path_template"
 ATTR_TIMEOUT = "timeout"
@@ -58,13 +57,15 @@ XEP_0363_TIMEOUT = 10
 
 PLATFORM_SCHEMA = NOTIFY_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_SENDER): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-        vol.Required(CONF_RECIPIENT): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(CONF_RESOURCE, default=DEFAULT_RESOURCE): cv.string,
-        vol.Optional(CONF_ROOM, default=""): cv.string,
-        vol.Optional(CONF_TLS, default=True): cv.boolean,
-        vol.Optional(CONF_VERIFY, default=True): cv.boolean,
+        probatio.Required(CONF_SENDER): cv.string,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): cv.string,
+        probatio.Required(CONF_RECIPIENT): probatio.All(
+            probatio.EnsureList(), [cv.string]
+        ),
+        probatio.Optional(CONF_RESOURCE, default=DEFAULT_RESOURCE): cv.string,
+        probatio.Optional(CONF_ROOM, default=""): cv.string,
+        probatio.Optional(CONF_TLS, default=True): cv.boolean,
+        probatio.Optional(CONF_VERIFY, default=True): cv.boolean,
     }
 )
 
@@ -101,17 +102,19 @@ class XmppNotificationService(BaseNotificationService):
         self._verify = verify
         self._room = room
 
-    async def async_send_message(self, message="", **kwargs):
+    @override
+    async def async_send_message(self, message: str = "", **kwargs: Any) -> None:
         """Send a message to a user."""
         title = kwargs.get(ATTR_TITLE, ATTR_TITLE_DEFAULT)
         text = f"{title}: {message}" if title else message
+        targets = kwargs.get(ATTR_TARGET, self._recipients)
         data = kwargs.get(ATTR_DATA)
         timeout = data.get(ATTR_TIMEOUT, XEP_0363_TIMEOUT) if data else None
 
         await async_send_message(
             f"{self._sender}/{self._resource}",
             self._password,
-            self._recipients,
+            targets,
             self._tls,
             self._verify,
             self._room,
@@ -145,7 +148,10 @@ async def async_send_message(  # noqa: C901
 
             self.loop = hass.loop
 
-            self.force_starttls = use_tls
+            self.enable_starttls = use_tls
+            self.enable_direct_tls = use_tls
+            self.enable_plaintext = not use_tls
+            self["feature_mechanisms"].unencrypted_scram = not use_tls
             self.use_ipv6 = False
             self.add_event_handler("failed_all_auth", self.disconnect_on_login_fail)
             self.add_event_handler("session_start", self.start)
@@ -164,7 +170,7 @@ async def async_send_message(  # noqa: C901
                 self.register_plugin("xep_0128")  # Service Discovery
                 self.register_plugin("xep_0363")  # HTTP upload
 
-            self.connect(force_starttls=self.force_starttls, use_ssl=False)
+            self.connect()
 
         async def start(self, event):
             """Start the communication and sends the message."""

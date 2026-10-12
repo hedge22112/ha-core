@@ -1,11 +1,10 @@
 """Support for Salda Smarty XP/XV Ventilation Unit Sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
+from typing import override
 
 from pysmarty2 import Smarty
 
@@ -16,8 +15,8 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import REVOLUTIONS_PER_MINUTE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import homeassistant.util.dt as dt_util
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .coordinator import SmartyConfigEntry, SmartyCoordinator
 from .entity import SmartyEntity
@@ -85,7 +84,7 @@ ENTITIES: tuple[SmartySensorDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SmartyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smarty Sensor Platform."""
 
@@ -114,6 +113,7 @@ class SmartySensor(SmartyEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> float | datetime | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.client)

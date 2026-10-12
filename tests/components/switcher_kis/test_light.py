@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from aioswitcher.api import SwitcherBaseResponse
+from aioswitcher.api.messages import SwitcherBaseResponse
 from aioswitcher.device import DeviceState
 import pytest
 
@@ -13,7 +13,6 @@ from homeassistant.const import (
     SERVICE_TURN_ON,
     STATE_OFF,
     STATE_ON,
-    STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -111,6 +110,44 @@ async def test_light(
         assert state.state == STATE_OFF
 
 
+@pytest.mark.parametrize("mock_bridge", [[DEVICE]], indirect=True)
+async def test_light_ignore_previous_async_state(
+    hass: HomeAssistant, mock_bridge, mock_api
+) -> None:
+    """Test light ignores previous async state."""
+    await init_integration(hass, USERNAME, TOKEN)
+    assert mock_bridge
+
+    entity_id = f"{LIGHT_DOMAIN}.{slugify(DEVICE.name)}_light_1"
+
+    # Test initial state - light on
+    state = hass.states.get(entity_id)
+    assert state.state == STATE_ON
+
+    # Test turning off light
+    with patch(
+        "homeassistant.components.switcher_kis.entity.SwitcherApi.set_light"
+    ) as mock_set_light:
+        await hass.services.async_call(
+            LIGHT_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: entity_id}, blocking=True
+        )
+
+    # Push old state and makge sure it is ignored
+    mock_bridge.mock_callbacks([DEVICE])
+    await hass.async_block_till_done()
+
+    assert mock_api.call_count == 2
+    mock_set_light.assert_called_once_with(DeviceState.OFF, 0)
+    state = hass.states.get(entity_id)
+    assert state.state == STATE_OFF
+
+    # Verify new state is not ignored
+    mock_bridge.mock_callbacks([DEVICE])
+    await hass.async_block_till_done()
+    state = hass.states.get(entity_id)
+    assert state.state == STATE_ON
+
+
 @pytest.mark.parametrize(
     ("device", "entity_id", "light_id", "device_state"),
     [
@@ -133,7 +170,6 @@ async def test_light_control_fail(
     mock_bridge,
     mock_api,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
     device,
     entity_id: str,
     light_id: int,
@@ -166,17 +202,11 @@ async def test_light_control_fail(
 
         assert mock_api.call_count == 2
         mock_control_device.assert_called_once_with(DeviceState.ON, light_id)
+        # A single failed command must not flap the entity unavailable.
         state = hass.states.get(entity_id)
-        assert state.state == STATE_UNAVAILABLE
+        assert state.state == STATE_OFF
 
-    # Make device available again
-    mock_bridge.mock_callbacks([device])
-    await hass.async_block_till_done()
-
-    state = hass.states.get(entity_id)
-    assert state.state == STATE_OFF
-
-    # Test error response during turn on
+    # Test error response during turn on - the entity stays available.
     with patch(
         "homeassistant.components.switcher_kis.entity.SwitcherApi.set_light",
         return_value=SwitcherBaseResponse(None),
@@ -192,4 +222,4 @@ async def test_light_control_fail(
         assert mock_api.call_count == 4
         mock_control_device.assert_called_once_with(DeviceState.ON, light_id)
         state = hass.states.get(entity_id)
-        assert state.state == STATE_UNAVAILABLE
+        assert state.state == STATE_OFF

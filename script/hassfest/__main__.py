@@ -1,7 +1,5 @@
 """Validate manifests."""
 
-from __future__ import annotations
-
 import argparse
 from operator import attrgetter
 from pathlib import Path
@@ -12,22 +10,31 @@ from . import (
     application_credentials,
     bluetooth,
     codeowners,
+    conditions,
     config_flow,
     config_schema,
+    core_files,
     dependencies,
+    device_classes,
     dhcp,
     docker,
     icons,
+    integration_info,
+    integration_type,
     json,
+    labs,
     manifest,
+    mdi_icons,
     metadata,
     mqtt,
     mypy_config,
     quality_scale,
     requirements,
+    sensor,
     services,
     ssdp,
     translations,
+    triggers,
     usb,
     zeroconf,
 )
@@ -37,11 +44,15 @@ INTEGRATION_PLUGINS = [
     application_credentials,
     bluetooth,
     codeowners,
+    conditions,
     config_schema,
     dependencies,
     dhcp,
     icons,
+    integration_info,
+    integration_type,
     json,
+    labs,
     manifest,
     mqtt,
     quality_scale,
@@ -49,14 +60,19 @@ INTEGRATION_PLUGINS = [
     services,
     ssdp,
     translations,
+    triggers,
     usb,
     zeroconf,
     config_flow,  # This needs to run last, after translations are processed
 ]
 HASS_PLUGINS = [
+    core_files,
+    device_classes,
     docker,
+    mdi_icons,
     mypy_config,
     metadata,
+    sensor,
 ]
 
 ALL_PLUGIN_NAMES = [
@@ -107,7 +123,16 @@ def get_config() -> Config:
         "--plugins",
         type=validate_plugins,
         default=ALL_PLUGIN_NAMES,
-        help="Comma-separate list of plugins to run. Valid plugin names: %(default)s",
+        help="Comma-separated list of plugins to run. Valid plugin names: %(default)s",
+    )
+    parser.add_argument(
+        "--skip-plugins",
+        type=validate_plugins,
+        default=[],
+        help=(
+            "Comma-separated list of plugins to skip."
+            f" Valid plugin names: {ALL_PLUGIN_NAMES}"
+        ),
     )
     parser.add_argument(
         "--core-path",
@@ -130,6 +155,9 @@ def get_config() -> Config:
         and not (parsed.core_path / "requirements_all.txt").is_file()
     ):
         raise RuntimeError("Run from Home Assistant root")
+
+    if parsed.skip_plugins:
+        parsed.plugins = set(parsed.plugins) - set(parsed.skip_plugins)
 
     return Config(
         root=parsed.core_path.absolute(),

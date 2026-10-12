@@ -1,11 +1,12 @@
 """Config flow for Enigma2."""
 
-from typing import Any, cast
+import logging
+from typing import Any, cast, override
 
 from aiohttp.client_exceptions import ClientError
 from openwebif.api import OpenWebIfDevice
 from openwebif.error import InvalidAuthError
-import voluptuous as vol
+import probatio
 from yarl import URL
 
 from homeassistant.config_entries import (
@@ -41,46 +42,48 @@ from .const import (
     DOMAIN,
 )
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_HOST): selector.TextSelector(),
-        vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
+        probatio.Required(CONF_HOST): selector.TextSelector(),
+        probatio.Required(CONF_PORT, default=DEFAULT_PORT): probatio.All(
             selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=65535, mode=selector.NumberSelectorMode.BOX
                 )
             ),
-            vol.Coerce(int),
+            probatio.Coerce(int),
         ),
-        vol.Optional(CONF_USERNAME): selector.TextSelector(),
-        vol.Optional(CONF_PASSWORD): selector.TextSelector(
+        probatio.Optional(CONF_USERNAME): selector.TextSelector(),
+        probatio.Optional(probatio.Secret(CONF_PASSWORD)): selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         ),
-        vol.Required(CONF_SSL, default=DEFAULT_SSL): selector.BooleanSelector(),
-        vol.Required(
+        probatio.Required(CONF_SSL, default=DEFAULT_SSL): selector.BooleanSelector(),
+        probatio.Required(
             CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL
         ): selector.BooleanSelector(),
     }
 )
 
+_LOGGER = logging.getLogger(__name__)
 
-async def get_options_schema(handler: SchemaCommonFlowHandler) -> vol.Schema:
+
+async def get_options_schema(handler: SchemaCommonFlowHandler) -> probatio.Schema:
     """Get the options schema."""
     entry = cast(SchemaOptionsFlowHandler, handler.parent_handler).config_entry
     bouquets = [
         b[1] for b in (await entry.runtime_data.device.get_all_bouquets())["bouquets"]
     ]
 
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Optional(CONF_DEEP_STANDBY): selector.BooleanSelector(),
-            vol.Optional(CONF_SOURCE_BOUQUET): selector.SelectSelector(
+            probatio.Optional(CONF_DEEP_STANDBY): selector.BooleanSelector(),
+            probatio.Optional(CONF_SOURCE_BOUQUET): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=bouquets,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Optional(CONF_USE_CHANNEL_ICON): selector.BooleanSelector(),
+            probatio.Optional(CONF_USE_CHANNEL_ICON): selector.BooleanSelector(),
         }
     )
 
@@ -130,7 +133,8 @@ class Enigma2ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             errors = {"base": "invalid_auth"}
         except ClientError:
             errors = {"base": "cannot_connect"}
-        except Exception:  # noqa: BLE001
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
             errors = {"base": "unknown"}
         else:
             unique_id = about["info"]["ifaces"][0]["mac"] or self.unique_id
@@ -139,6 +143,7 @@ class Enigma2ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return errors
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -154,6 +159,7 @@ class Enigma2ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(config_entry: ConfigEntry) -> SchemaOptionsFlowHandler:
         """Get the options flow for this handler."""
         return SchemaOptionsFlowHandler(config_entry, OPTIONS_FLOW)

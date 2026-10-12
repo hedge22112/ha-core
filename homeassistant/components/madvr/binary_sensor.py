@@ -1,19 +1,17 @@
 """Binary sensor entities for the madVR integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import MadVRConfigEntry
-from .coordinator import MadVRCoordinator
+from .coordinator import MadVRConfigEntry, MadVRCoordinator
 from .entity import MadVREntity
 
 _HDR_FLAG = "hdr_flag"
@@ -56,7 +54,7 @@ BINARY_SENSORS: tuple[MadvrBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: MadVRConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the binary sensor entities."""
     coordinator = entry.runtime_data
@@ -81,6 +79,7 @@ class MadvrBinarySensor(MadVREntity, BinarySensorEntity):
         self._attr_unique_id = f"{coordinator.mac}_{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return self.entity_description.value_fn(self.coordinator)

@@ -1,18 +1,16 @@
 """Support for Fully Kiosk Browser image."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from fullykiosk import FullyKiosk, FullyKioskError
 
 from homeassistant.components.image import ImageEntity, ImageEntityDescription
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import homeassistant.util.dt as dt_util
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import FullyKioskConfigEntry
 from .coordinator import FullyKioskDataUpdateCoordinator
@@ -38,7 +36,7 @@ IMAGES: tuple[FullyImageEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FullyKioskConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Fully Kiosk Browser image entities."""
     coordinator = entry.runtime_data
@@ -64,6 +62,7 @@ class FullyImageEntity(FullyKioskEntity, ImageEntity):
         self.entity_description = description
         self._attr_unique_id = f"{coordinator.data['deviceID']}-{description.key}"
 
+    @override
     async def async_image(self) -> bytes | None:
         """Return bytes of image."""
         try:

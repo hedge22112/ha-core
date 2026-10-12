@@ -1,12 +1,10 @@
 """Config flow to configure the LCN integration."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
+import probatio
 import pypck
-import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import (
@@ -19,8 +17,7 @@ from homeassistant.const import (
     CONF_PORT,
     CONF_USERNAME,
 )
-from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from . import PchkConnectionManager
@@ -29,34 +26,19 @@ from .const import CONF_ACKNOWLEDGE, CONF_DIM_MODE, CONF_SK_NUM_TRIES, DIM_MODES
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_DATA = {
-    vol.Required(CONF_IP_ADDRESS, default=""): str,
-    vol.Required(CONF_PORT, default=4114): cv.positive_int,
-    vol.Required(CONF_USERNAME, default=""): str,
-    vol.Required(CONF_PASSWORD, default=""): str,
-    vol.Required(CONF_SK_NUM_TRIES, default=0): cv.positive_int,
-    vol.Required(CONF_DIM_MODE, default="STEPS200"): vol.In(DIM_MODES),
-    vol.Required(CONF_ACKNOWLEDGE, default=False): cv.boolean,
+    probatio.Required(CONF_IP_ADDRESS, default=""): str,
+    probatio.Required(CONF_PORT, default=4114): cv.positive_int,
+    probatio.Required(CONF_USERNAME, default=""): str,
+    probatio.Required(probatio.Secret(CONF_PASSWORD), default=""): str,
+    probatio.Required(CONF_SK_NUM_TRIES, default=0): cv.positive_int,
+    probatio.Required(CONF_DIM_MODE, default="STEPS200"): probatio.In(DIM_MODES),
+    probatio.Required(CONF_ACKNOWLEDGE, default=False): cv.boolean,
 }
 
-USER_DATA = {vol.Required(CONF_HOST, default="pchk"): str, **CONFIG_DATA}
+USER_DATA = {probatio.Required(CONF_HOST, default="pchk"): str, **CONFIG_DATA}
 
-CONFIG_SCHEMA = vol.Schema(CONFIG_DATA)
-USER_SCHEMA = vol.Schema(USER_DATA)
-
-
-def get_config_entry(
-    hass: HomeAssistant, data: ConfigType
-) -> config_entries.ConfigEntry | None:
-    """Check config entries for already configured entries based on the ip address/port."""
-    return next(
-        (
-            entry
-            for entry in hass.config_entries.async_entries(DOMAIN)
-            if entry.data[CONF_IP_ADDRESS] == data[CONF_IP_ADDRESS]
-            and entry.data[CONF_PORT] == data[CONF_PORT]
-        ),
-        None,
-    )
+CONFIG_SCHEMA = probatio.Schema(CONFIG_DATA)
+USER_SCHEMA = probatio.Schema(USER_DATA)
 
 
 async def validate_connection(data: ConfigType) -> str | None:
@@ -110,9 +92,10 @@ async def validate_connection(data: ConfigType) -> str | None:
 class LcnFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a LCN config flow."""
 
-    VERSION = 2
+    VERSION = 3
     MINOR_VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -120,22 +103,23 @@ class LcnFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=USER_SCHEMA)
 
-        errors = None
-        if get_config_entry(self.hass, user_input):
-            errors = {CONF_BASE: "already_configured"}
-        elif (error := await validate_connection(user_input)) is not None:
-            errors = {CONF_BASE: error}
+        self._async_abort_entries_match(
+            {
+                CONF_IP_ADDRESS: user_input[CONF_IP_ADDRESS],
+                CONF_PORT: user_input[CONF_PORT],
+            }
+        )
 
-        if errors is not None:
+        if (error := await validate_connection(user_input)) is not None:
             return self.async_show_form(
                 step_id="user",
                 data_schema=self.add_suggested_values_to_schema(
                     USER_SCHEMA, user_input
                 ),
-                errors=errors,
+                errors={CONF_BASE: error},
             )
 
-        data: dict = {
+        data: dict[str, Any] = {
             **user_input,
             CONF_DEVICES: [],
             CONF_ENTITIES: [],
@@ -152,15 +136,21 @@ class LcnFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             user_input[CONF_HOST] = reconfigure_entry.data[CONF_HOST]
 
-            await self.hass.config_entries.async_unload(reconfigure_entry.entry_id)
-            if (error := await validate_connection(user_input)) is not None:
-                errors = {CONF_BASE: error}
+            self._async_abort_entries_match(
+                {
+                    CONF_IP_ADDRESS: user_input[CONF_IP_ADDRESS],
+                    CONF_PORT: user_input[CONF_PORT],
+                }
+            )
 
-            if errors is None:
+            await self.hass.config_entries.async_unload(reconfigure_entry.entry_id)
+
+            if (error := await validate_connection(user_input)) is None:
                 return self.async_update_reload_and_abort(
                     reconfigure_entry, data_updates=user_input
                 )
 
+            errors = {CONF_BASE: error}
             await self.hass.config_entries.async_setup(reconfigure_entry.entry_id)
 
         return self.async_show_form(

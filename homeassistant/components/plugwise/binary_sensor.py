@@ -1,10 +1,8 @@
 """Plugwise Binary Sensor component for Home Assistant."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from plugwise.constants import BinarySensorType
 
@@ -15,10 +13,9 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import PlugwiseConfigEntry
-from .coordinator import PlugwiseDataUpdateCoordinator
+from .coordinator import PlugwiseConfigEntry, PlugwiseDataUpdateCoordinator
 from .entity import PlugwiseEntity
 
 SEVERITIES = ["other", "info", "warning", "error"]
@@ -86,7 +83,7 @@ BINARY_SENSORS: tuple[PlugwiseBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PlugwiseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smile binary_sensors from a config entry."""
     coordinator = entry.runtime_data
@@ -100,11 +97,7 @@ async def async_setup_entry(
         async_add_entities(
             PlugwiseBinarySensorEntity(coordinator, device_id, description)
             for device_id in coordinator.new_devices
-            if (
-                binary_sensors := coordinator.data.devices[device_id].get(
-                    "binary_sensors"
-                )
-            )
+            if (binary_sensors := coordinator.data[device_id].get("binary_sensors"))
             for description in BINARY_SENSORS
             if description.key in binary_sensors
         )
@@ -130,18 +123,21 @@ class PlugwiseBinarySensorEntity(PlugwiseEntity, BinarySensorEntity):
         self._attr_unique_id = f"{device_id}-{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return self.device["binary_sensors"][self.entity_description.key]
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return entity specific state attributes."""
         if self.entity_description.key != "plugwise_notification":
             return None
 
         attrs: dict[str, list[str]] = {f"{severity}_msg": [] for severity in SEVERITIES}
-        if notify := self.coordinator.data.gateway["notifications"]:
+        gateway_id = self.coordinator.api.gateway_id
+        if notify := self.coordinator.data[gateway_id]["notifications"]:
             for details in notify.values():
                 for msg_type, msg in details.items():
                     msg_type = msg_type.lower()

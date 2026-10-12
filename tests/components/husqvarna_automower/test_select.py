@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock
 
-from aioautomower.exceptions import ApiException
+from aioautomower.exceptions import ApiError
 from aioautomower.model import HeadlightModes, MowerAttributes
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -26,7 +26,7 @@ async def test_select_states(
 ) -> None:
     """Test states of headlight mode select."""
     await setup_integration(hass, mock_config_entry)
-    state = hass.states.get("select.test_mower_1_headlight_mode")
+    state = hass.states.get("select.garden_test_mower_1_headlight_mode")
     assert state is not None
     assert state.state == "evening_only"
 
@@ -43,7 +43,7 @@ async def test_select_states(
         freezer.tick(SCAN_INTERVAL)
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
-        state = hass.states.get("select.test_mower_1_headlight_mode")
+        state = hass.states.get("select.garden_test_mower_1_headlight_mode")
         assert state.state == expected_state
 
 
@@ -68,16 +68,16 @@ async def test_select_commands(
         domain="select",
         service="select_option",
         service_data={
-            "entity_id": "select.test_mower_1_headlight_mode",
+            "entity_id": "select.garden_test_mower_1_headlight_mode",
             "option": service,
         },
         blocking=True,
     )
     mocked_method = mock_automower_client.commands.set_headlight_mode
-    mocked_method.assert_called_once_with(TEST_MOWER_ID, service.upper())
+    mocked_method.assert_called_once_with(TEST_MOWER_ID, service)
     assert len(mocked_method.mock_calls) == 1
 
-    mocked_method.side_effect = ApiException("Test error")
+    mocked_method.side_effect = ApiError("Test error")
     with pytest.raises(
         HomeAssistantError,
         match="Failed to send command: Test error",
@@ -86,7 +86,7 @@ async def test_select_commands(
             domain="select",
             service="select_option",
             service_data={
-                "entity_id": "select.test_mower_1_headlight_mode",
+                "entity_id": "select.garden_test_mower_1_headlight_mode",
                 "option": service,
             },
             blocking=True,

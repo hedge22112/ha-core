@@ -1,18 +1,18 @@
 """ViCare helpers functions."""
 
-from __future__ import annotations
-
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from datetime import UTC, timedelta
 import logging
 from typing import Any
 
 from PyViCare.PyViCare import PyViCare
 from PyViCare.PyViCareDevice import Device as PyViCareDevice
-from PyViCare.PyViCareDeviceConfig import PyViCareDeviceConfig
 from PyViCare.PyViCareHeatingDevice import (
     HeatingDeviceWithComponent as PyViCareHeatingDeviceComponent,
 )
 from PyViCare.PyViCareUtils import (
+    PyViCareDeviceCommunicationError,
+    PyViCareInternalServerError,
     PyViCareInvalidDataError,
     PyViCareNotSupportedFeatureError,
     PyViCareRateLimitError,
@@ -22,15 +22,11 @@ import requests
 from homeassistant.const import CONF_CLIENT_ID, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import STORAGE_DIR
+from homeassistant.util import dt as dt_util
 
-from .const import (
-    CONF_HEATING_TYPE,
-    DEFAULT_CACHE_DURATION,
-    HEATING_TYPE_TO_CREATOR_METHOD,
-    VICARE_TOKEN_FILENAME,
-    HeatingType,
-)
-from .types import ViCareConfigEntry, ViCareRequiredKeysMixin
+from .const import DEFAULT_CACHE_DURATION, VICARE_TOKEN_FILENAME
+
+MAX_RATE_LIMIT_BACKOFF = 86400  # the quota window is a day
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,16 +48,6 @@ def login(
     return vicare_api
 
 
-def get_device(
-    entry: ViCareConfigEntry, device_config: PyViCareDeviceConfig
-) -> PyViCareDevice:
-    """Get device for device config."""
-    return getattr(
-        device_config,
-        HEATING_TYPE_TO_CREATOR_METHOD[HeatingType(entry.data[CONF_HEATING_TYPE])],
-    )()
-
-
 def get_device_serial(device: PyViCareDevice) -> str | None:
     """Get device serial for device if supported."""
     try:
@@ -72,6 +58,10 @@ def get_device_serial(device: PyViCareDevice) -> str | None:
         _LOGGER.debug("Vicare API rate limit exceeded: %s", limit_exception)
     except PyViCareInvalidDataError as invalid_data_exception:
         _LOGGER.debug("Invalid data from Vicare server: %s", invalid_data_exception)
+    except PyViCareDeviceCommunicationError as comm_exception:
+        _LOGGER.debug("Device communication error: %s", comm_exception)
+    except PyViCareInternalServerError as server_exception:
+        _LOGGER.debug("Vicare server error: %s", server_exception)
     except requests.exceptions.ConnectionError:
         _LOGGER.debug("Unable to retrieve data from ViCare server")
     except ValueError:
@@ -81,12 +71,12 @@ def get_device_serial(device: PyViCareDevice) -> str | None:
 
 def is_supported(
     name: str,
-    entity_description: ViCareRequiredKeysMixin,
+    getter: Callable[[PyViCareDevice], Any],
     vicare_device,
 ) -> bool:
     """Check if the PyViCare device supports the requested sensor."""
     try:
-        entity_description.value_getter(vicare_device)
+        getter(vicare_device)
     except PyViCareNotSupportedFeatureError:
         _LOGGER.debug("Feature not supported %s", name)
         return False
@@ -130,6 +120,54 @@ def get_compressors(device: PyViCareDevice) -> list[PyViCareHeatingDeviceCompone
     return []
 
 
+def get_condensers(device: PyViCareDevice) -> list[PyViCareHeatingDeviceComponent]:
+    """Return the list of condensers."""
+    try:
+        return device.condensors
+    except PyViCareNotSupportedFeatureError:
+        _LOGGER.debug("No condensers found")
+    except AttributeError as error:
+        _LOGGER.debug("No condensers found: %s", error)
+    return []
+
+
+def get_evaporators(device: PyViCareDevice) -> list[PyViCareHeatingDeviceComponent]:
+    """Return the list of evaporators."""
+    try:
+        return device.evaporators
+    except PyViCareNotSupportedFeatureError:
+        _LOGGER.debug("No evaporators found")
+    except AttributeError as error:
+        _LOGGER.debug("No evaporators found: %s", error)
+    return []
+
+
+def get_inverters(device: PyViCareDevice) -> list[PyViCareHeatingDeviceComponent]:
+    """Return the list of inverters."""
+    try:
+        return device.inverters
+    except PyViCareNotSupportedFeatureError:
+        _LOGGER.debug("No inverters found")
+    except AttributeError as error:
+        _LOGGER.debug("No inverters found: %s", error)
+    return []
+
+
 def filter_state(state: str) -> str | None:
-    """Remove invalid states."""
+    """Return the state if not 'nothing' or 'unknown'."""
     return None if state in ("nothing", "unknown") else state
+
+
+def normalize_state(state: str) -> str:
+    """Return the state with underscores instead of hyphens."""
+    return state.replace("-", "_")
+
+
+def retry_after_from(error: PyViCareRateLimitError, floor: timedelta) -> float:
+    """Return seconds to wait after a rate limit, clamped to [floor, one day].
+
+    limitResetDate is naive UTC and can be in the past.
+    """
+    reset = error.limitResetDate.replace(tzinfo=UTC)
+    delay = (reset - dt_util.utcnow()).total_seconds()
+    return min(max(delay, floor.total_seconds()), MAX_RATE_LIMIT_BACKOFF)

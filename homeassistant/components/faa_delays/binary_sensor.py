@@ -1,10 +1,8 @@
 """Platform for FAA Delays sensor component."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from faadelays import Airport
 
@@ -12,13 +10,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import FAADataUpdateCoordinator
+from . import FAAConfigEntry, FAADataUpdateCoordinator
 from .const import DOMAIN
 
 
@@ -84,10 +81,12 @@ FAA_BINARY_SENSORS: tuple[FaaDelaysBinarySensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: FAAConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a FAA sensor based on a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
     entities = [
         FAABinarySensor(coordinator, entry.entry_id, description)
@@ -123,11 +122,13 @@ class FAABinarySensor(CoordinatorEntity[FAADataUpdateCoordinator], BinarySensorE
         )
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return the status of the sensor."""
         return self.entity_description.is_on_fn(self.coordinator.data)
 
     @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return attributes for sensor."""
         return self.entity_description.extra_state_attributes_fn(self.coordinator.data)

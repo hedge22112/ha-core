@@ -1,32 +1,32 @@
 """Support for mill wifi-enabled home heaters."""
 
-from __future__ import annotations
+from typing import override
 
-from mill import MillDevice
+from mill import Heater, MillDevice
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, UnitOfPower
+from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CLOUD, CONNECTION_TYPE, DOMAIN
-from .coordinator import MillDataUpdateCoordinator
+from .const import CLOUD, CONNECTION_TYPE
+from .coordinator import MillConfigEntry, MillDataUpdateCoordinator
 from .entity import MillBaseEntity
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: MillConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Mill Number."""
     if entry.data.get(CONNECTION_TYPE) == CLOUD:
-        mill_data_coordinator: MillDataUpdateCoordinator = hass.data[DOMAIN][CLOUD][
-            entry.data[CONF_USERNAME]
-        ]
+        mill_data_coordinator = entry.runtime_data
 
         async_add_entities(
             MillNumber(mill_data_coordinator, mill_device)
             for mill_device in mill_data_coordinator.data.values()
+            if isinstance(mill_device, Heater)
         )
 
 
@@ -45,17 +45,18 @@ class MillNumber(MillBaseEntity, NumberEntity):
         mill_device: MillDevice,
     ) -> None:
         """Initialize the number."""
-        super().__init__(coordinator, mill_device)
         self._attr_unique_id = f"{mill_device.device_id}_max_heating_power"
-        self._update_attr(mill_device)
+        super().__init__(coordinator, mill_device)
 
     @callback
+    @override
     def _update_attr(self, device: MillDevice) -> None:
         self._attr_native_value = device.data["deviceSettings"]["reported"].get(
             "max_heater_power"
         )
         self._available = device.available and self._attr_native_value is not None
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""
         await self.coordinator.mill_data_connection.max_heating_power(self._id, value)

@@ -24,7 +24,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.util import location
+from homeassistant.util import location as location_util
 
 from tests.common import MockConfigEntry
 
@@ -47,13 +47,11 @@ MOCK_DEVICE_ADDITIONAL = {
 }
 MOCK_CONFIG = {
     CONF_IP_ADDRESS: MOCK_HOST,
-    CONF_NAME: DEFAULT_NAME,
     CONF_REGION: DEFAULT_REGION,
     CONF_CODE: MOCK_CODE,
 }
 MOCK_CONFIG_ADDITIONAL = {
     CONF_IP_ADDRESS: MOCK_HOST_ADDITIONAL,
-    CONF_NAME: DEFAULT_NAME,
     CONF_REGION: DEFAULT_REGION,
     CONF_CODE: MOCK_CODE,
 }
@@ -64,7 +62,7 @@ MOCK_TCP_PORT = 997
 MOCK_AUTO = {"Config Mode": "Auto Discover"}
 MOCK_MANUAL = {"Config Mode": "Manual Entry", CONF_IP_ADDRESS: MOCK_HOST}
 
-MOCK_LOCATION = location.LocationInfo(
+MOCK_LOCATION = location_util.LocationInfo(
     "0.0.0.0",
     "US",
     "USD",
@@ -83,7 +81,8 @@ MOCK_LOCATION = location.LocationInfo(
 def location_info_fixture():
     """Mock location info."""
     with patch(
-        "homeassistant.components.ps4.config_flow.location.async_detect_location_info",
+        "homeassistant.components.ps4."
+        "config_flow.location_util.async_detect_location_info",
         return_value=MOCK_LOCATION,
     ):
         yield
@@ -359,7 +358,8 @@ async def test_0_pin(hass: HomeAssistant) -> None:
             "pyps4_2ndscreen.Helper.has_devices", return_value=[{"host-ip": MOCK_HOST}]
         ),
         patch(
-            "homeassistant.components.ps4.config_flow.location.async_detect_location_info",
+            "homeassistant.components.ps4."
+            "config_flow.location_util.async_detect_location_info",
             return_value=MOCK_LOCATION,
         ),
     ):
@@ -474,6 +474,28 @@ async def test_credential_timeout(hass: HomeAssistant) -> None:
     assert result["step_id"] == "creds"
     assert result["errors"] == {"base": "credential_timeout"}
 
+    with patch("pyps4_2ndscreen.Helper.get_creds", return_value=MOCK_CREDS):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "mode"
+
+    with patch(
+        "pyps4_2ndscreen.Helper.has_devices", return_value=[{"host-ip": MOCK_HOST}]
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_AUTO
+        )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "link"
+
+    with patch("pyps4_2ndscreen.Helper.link", return_value=(True, True)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
 
 async def test_wrong_pin_error(hass: HomeAssistant) -> None:
     """Test that incorrect pin throws an error."""
@@ -505,6 +527,12 @@ async def test_wrong_pin_error(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "link"
     assert result["errors"] == {"base": "login_failed"}
+
+    with patch("pyps4_2ndscreen.Helper.link", return_value=(True, True)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_device_connection_error(hass: HomeAssistant) -> None:
@@ -538,6 +566,12 @@ async def test_device_connection_error(hass: HomeAssistant) -> None:
     assert result["step_id"] == "link"
     assert result["errors"] == {"base": "cannot_connect"}
 
+    with patch("pyps4_2ndscreen.Helper.link", return_value=(True, True)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
 
 async def test_manual_mode_no_ip_error(hass: HomeAssistant) -> None:
     """Test no IP specified in manual mode throws an error."""
@@ -562,3 +596,18 @@ async def test_manual_mode_no_ip_error(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "mode"
     assert result["errors"] == {CONF_IP_ADDRESS: "no_ipaddress"}
+
+    with patch(
+        "pyps4_2ndscreen.Helper.has_devices", return_value=[{"host-ip": MOCK_HOST}]
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_MANUAL
+        )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "link"
+
+    with patch("pyps4_2ndscreen.Helper.link", return_value=(True, True)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY

@@ -2,12 +2,13 @@
 
 from datetime import datetime
 import logging
+from typing import TYPE_CHECKING, override
 
 from aioautomower.model import make_name_string
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import AutomowerConfigEntry
@@ -22,7 +23,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AutomowerConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up lawn mower platform."""
     coordinator = entry.runtime_data
@@ -52,26 +53,40 @@ class AutomowerCalendarEntity(AutomowerBaseEntity, CalendarEntity):
         self._event: CalendarEvent | None = None
 
     @property
+    def device_name(self) -> str:
+        """Return the prefix for the event summary."""
+        device_entry = self.device_entry
+        if TYPE_CHECKING:
+            assert device_entry is not None
+            assert device_entry.name is not None
+
+        return device_entry.name_by_user or device_entry.name
+
+    @property
+    @override
     def event(self) -> CalendarEvent | None:
         """Return the current or next upcoming event."""
+        if not self.available:
+            return None
         schedule = self.mower_attributes.calendar
         cursor = schedule.timeline.active_after(dt_util.now())
         program_event = next(cursor, None)
-        _LOGGER.debug("program_event %s", program_event)
         if not program_event:
             return None
         work_area_name = None
-        if self.mower_attributes.work_area_dict and program_event.work_area_id:
-            work_area_name = self.mower_attributes.work_area_dict[
-                program_event.work_area_id
-            ]
+        if (work_area_dict := self.mower_attributes.work_area_dict) and (
+            work_area_id := program_event.work_area_id
+        ) is not None:
+            work_area_name = work_area_dict.get(work_area_id)
+        name_str = make_name_string(work_area_name, program_event.schedule_no)
         return CalendarEvent(
-            summary=make_name_string(work_area_name, program_event.schedule_no),
+            summary=f"{self.device_name} {name_str}",
             start=program_event.start,
             end=program_event.end,
             rrule=program_event.rrule_str,
         )
 
+    @override
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
@@ -79,6 +94,8 @@ class AutomowerCalendarEntity(AutomowerBaseEntity, CalendarEntity):
 
         This is only called when opening the calendar in the UI.
         """
+        if not self.available:
+            return []
         schedule = self.mower_attributes.calendar
         cursor = schedule.timeline.overlapping(
             start_date,
@@ -87,13 +104,14 @@ class AutomowerCalendarEntity(AutomowerBaseEntity, CalendarEntity):
         calendar_events = []
         for program_event in cursor:
             work_area_name = None
-            if self.mower_attributes.work_area_dict and program_event.work_area_id:
-                work_area_name = self.mower_attributes.work_area_dict[
-                    program_event.work_area_id
-                ]
+            if (work_area_dict := self.mower_attributes.work_area_dict) and (
+                work_area_id := program_event.work_area_id
+            ) is not None:
+                work_area_name = work_area_dict.get(work_area_id)
+            name_str = make_name_string(work_area_name, program_event.schedule_no)
             calendar_events.append(
                 CalendarEvent(
-                    summary=make_name_string(work_area_name, program_event.schedule_no),
+                    summary=f"{self.device_name} {name_str}",
                     start=program_event.start.replace(tzinfo=start_date.tzinfo),
                     end=program_event.end.replace(tzinfo=start_date.tzinfo),
                     rrule=program_event.rrule_str,

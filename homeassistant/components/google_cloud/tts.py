@@ -1,14 +1,13 @@
 """Support for the Google Cloud TTS service."""
 
-from __future__ import annotations
-
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, override
 
 from google.api_core.exceptions import GoogleAPIError, Unauthenticated
+from google.api_core.retry import AsyncRetry
 from google.cloud import texttospeech
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.tts import (
     CONF_LANG,
@@ -21,7 +20,7 @@ from homeassistant.components.tts import (
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .const import (
@@ -88,7 +87,7 @@ async def async_get_engine(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Google Cloud text-to-speech."""
     service_account_info = config_entry.data[CONF_SERVICE_ACCOUNT_INFO]
@@ -127,7 +126,7 @@ class BaseGoogleCloudProvider:
         client: texttospeech.TextToSpeechAsyncClient,
         voices: dict[str, list[str]],
         language: str,
-        options_schema: vol.Schema,
+        options_schema: probatio.Schema,
     ) -> None:
         """Init Google Cloud TTS base provider."""
         self._client = client
@@ -171,7 +170,7 @@ class BaseGoogleCloudProvider:
         """Load TTS from Google Cloud."""
         try:
             options = self._options_schema(options)
-        except vol.Invalid as err:
+        except probatio.Invalid as err:
             _LOGGER.error("Error: %s when validating options: %s", err, options)
             return None, None
 
@@ -194,7 +193,8 @@ class BaseGoogleCloudProvider:
                 ssml_gender=gender,
                 name=voice,
             ),
-            # Avoid: "This voice does not support speaking rate or pitch parameters at this time."
+            # Avoid: "This voice does not support speaking rate
+            # or pitch parameters at this time."
             # by not specifying the fields unless they differ from the defaults
             audio_config=texttospeech.AudioConfig(
                 audio_encoding=encoding,
@@ -215,7 +215,11 @@ class BaseGoogleCloudProvider:
             ),
         )
 
-        response = await self._client.synthesize_speech(request, timeout=10)
+        response = await self._client.synthesize_speech(
+            request,
+            timeout=30,
+            retry=AsyncRetry(initial=0.1, maximum=2.0, multiplier=2.0),
+        )
 
         if encoding == texttospeech.AudioEncoding.MP3:
             extension = "mp3"
@@ -236,7 +240,7 @@ class GoogleCloudTTSEntity(BaseGoogleCloudProvider, TextToSpeechEntity):
         client: texttospeech.TextToSpeechAsyncClient,
         voices: dict[str, list[str]],
         language: str,
-        options_schema: vol.Schema,
+        options_schema: probatio.Schema,
     ) -> None:
         """Init Google Cloud TTS entity."""
         super().__init__(client, voices, language, options_schema)
@@ -250,6 +254,7 @@ class GoogleCloudTTSEntity(BaseGoogleCloudProvider, TextToSpeechEntity):
         )
         self._entry = entry
 
+    @override
     async def async_get_tts_audio(
         self, message: str, language: str, options: dict[str, Any]
     ) -> TtsAudioType:
@@ -271,12 +276,13 @@ class GoogleCloudTTSProvider(BaseGoogleCloudProvider, Provider):
         client: texttospeech.TextToSpeechAsyncClient,
         voices: dict[str, list[str]],
         language: str,
-        options_schema: vol.Schema,
+        options_schema: probatio.Schema,
     ) -> None:
         """Init Google Cloud TTS service."""
         super().__init__(client, voices, language, options_schema)
         self.name = "Google Cloud TTS"
 
+    @override
     async def async_get_tts_audio(
         self, message: str, language: str, options: dict[str, Any]
     ) -> TtsAudioType:

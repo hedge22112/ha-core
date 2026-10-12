@@ -4,12 +4,15 @@ import http
 import time
 from unittest.mock import AsyncMock, patch
 
-from aiohttp.client_exceptions import ClientError
 import pytest
 
 from homeassistant.components.twitch.const import DOMAIN, OAUTH2_TOKEN
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import OAuth2TokenRequestConnectionError
+from homeassistant.helpers.config_entry_oauth2_flow import (
+    ImplementationUnavailableError,
+)
 
 from . import setup_integration
 
@@ -110,7 +113,7 @@ async def test_expired_token_refresh_client_error(
 
     with patch(
         "homeassistant.components.twitch.OAuth2Session.async_ensure_token_valid",
-        side_effect=ClientError,
+        side_effect=OAuth2TokenRequestConnectionError(domain=DOMAIN),
     ):
         config_entry.add_to_hass(hass)
 
@@ -120,3 +123,20 @@ async def test_expired_token_refresh_client_error(
     # Verify a transient failure has occurred
     entries = hass.config_entries.async_entries(DOMAIN)
     assert entries[0].state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_oauth_implementation_not_available(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Test that unavailable OAuth implementation raises ConfigEntryNotReady."""
+    config_entry.add_to_hass(hass)
+
+    with patch(
+        "homeassistant.components.twitch.async_get_config_entry_implementation",
+        side_effect=ImplementationUnavailableError,
+    ):
+        await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY

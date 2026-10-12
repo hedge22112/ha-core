@@ -1,37 +1,77 @@
 """Config flow for Mealie."""
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, override
 
-from aiomealie import MealieAuthenticationError, MealieClient, MealieConnectionError
-import voluptuous as vol
+from aiomealie import (
+    MealieAuthenticationError,
+    MealieClient,
+    MealieConnectionError,
+    RegisteredParser,
+)
+import probatio
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_API_TOKEN, CONF_HOST, CONF_VERIFY_SSL
+from homeassistant.config_entries import (
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
+from homeassistant.const import CONF_API_TOKEN, CONF_HOST, CONF_PORT, CONF_VERIFY_SSL
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
-from .const import DOMAIN, LOGGER, MIN_REQUIRED_MEALIE_VERSION
+from .const import (
+    CONF_PARSE_TODO_EDIT,
+    CONF_PARSE_TODO_NEW,
+    CONF_PARSER,
+    DEFAULT_PARSER,
+    DOMAIN,
+    LOGGER,
+    MIN_REQUIRED_MEALIE_VERSION,
+)
+from .coordinator import MealieConfigEntry
 from .utils import create_version
 
-USER_SCHEMA = vol.Schema(
+USER_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_HOST): str,
-        vol.Required(CONF_API_TOKEN): str,
-        vol.Optional(CONF_VERIFY_SSL, default=True): bool,
+        probatio.Required(CONF_HOST): str,
+        probatio.Required(probatio.Secret(CONF_API_TOKEN)): str,
+        probatio.Optional(CONF_VERIFY_SSL, default=True): bool,
     }
 )
-REAUTH_SCHEMA = vol.Schema(
+REAUTH_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_API_TOKEN): str,
+        probatio.Required(probatio.Secret(CONF_API_TOKEN)): str,
     }
 )
+DISCOVERY_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(probatio.Secret(CONF_API_TOKEN)): str,
+    }
+)
+
+EXAMPLE_URL = "http://192.168.1.123:1234"
 
 
 class MealieConfigFlow(ConfigFlow, domain=DOMAIN):
     """Mealie config flow."""
 
+    VERSION = 1
+
     host: str | None = None
     verify_ssl: bool = True
+    _hassio_discovery: dict[str, Any] | None = None
+
+    @staticmethod
+    @callback
+    @override
+    def async_get_options_flow(
+        config_entry: MealieConfigEntry,
+    ) -> MealieOptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return MealieOptionsFlowHandler()
 
     async def check_connection(
         self, api_token: str
@@ -39,7 +79,7 @@ class MealieConfigFlow(ConfigFlow, domain=DOMAIN):
         """Check connection to the Mealie API."""
         assert self.host is not None
 
-        if "/hassio/ingress/" in self.host:
+        if "/app/" in self.host:
             return {"base": "ingress_url"}, None
 
         client = MealieClient(
@@ -62,6 +102,7 @@ class MealieConfigFlow(ConfigFlow, domain=DOMAIN):
             return {"base": "mealie_version"}, None
         return {}, info.user_id
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -84,6 +125,7 @@ class MealieConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=USER_SCHEMA,
             errors=errors,
+            description_placeholders={"example_url": EXAMPLE_URL},
         )
 
     async def async_step_reauth(
@@ -114,6 +156,7 @@ class MealieConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=REAUTH_SCHEMA,
             errors=errors,
+            description_placeholders={"example_url": EXAMPLE_URL},
         )
 
     async def async_step_reconfigure(
@@ -142,4 +185,97 @@ class MealieConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=USER_SCHEMA,
             errors=errors,
+            description_placeholders={"example_url": EXAMPLE_URL},
+        )
+
+    @override
+    async def async_step_hassio(
+        self, discovery_info: HassioServiceInfo
+    ) -> ConfigFlowResult:
+        """Prepare configuration for a Mealie app.
+
+        This flow is triggered by the discovery component.
+        """
+        await self._async_handle_discovery_without_unique_id()
+
+        self._hassio_discovery = discovery_info.config
+
+        return await self.async_step_hassio_confirm()
+
+    async def async_step_hassio_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm Supervisor discovery and prompt for API token."""
+        if user_input is None:
+            return await self._show_hassio_form()
+
+        assert self._hassio_discovery
+
+        self.host = (
+            f"{self._hassio_discovery[CONF_HOST]}:{self._hassio_discovery[CONF_PORT]}"
+        )
+        self.verify_ssl = True
+
+        errors, user_id = await self.check_connection(
+            user_input[CONF_API_TOKEN],
+        )
+
+        if not errors:
+            await self.async_set_unique_id(user_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title="Mealie",
+                data={
+                    CONF_HOST: self.host,
+                    CONF_API_TOKEN: user_input[CONF_API_TOKEN],
+                    CONF_VERIFY_SSL: self.verify_ssl,
+                },
+            )
+        return await self._show_hassio_form(errors)
+
+    async def _show_hassio_form(
+        self, errors: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
+        """Show the Hass.io confirmation form to the user."""
+        assert self._hassio_discovery
+        return self.async_show_form(
+            step_id="hassio_confirm",
+            data_schema=DISCOVERY_SCHEMA,
+            description_placeholders={"addon": self._hassio_discovery["addon"]},
+            errors=errors or {},
+        )
+
+
+class MealieOptionsFlowHandler(OptionsFlowWithReload):
+    """Handle Mealie options."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the Mealie options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = {
+            probatio.Required(
+                CONF_PARSE_TODO_NEW,
+                default=self.config_entry.options.get(CONF_PARSE_TODO_NEW, True),
+            ): bool,
+            probatio.Required(
+                CONF_PARSE_TODO_EDIT,
+                default=self.config_entry.options.get(CONF_PARSE_TODO_EDIT, True),
+            ): bool,
+            probatio.Required(
+                CONF_PARSER,
+                default=self.config_entry.options.get(CONF_PARSER, DEFAULT_PARSER),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[parser.value for parser in RegisteredParser],
+                    translation_key=CONF_PARSER,
+                )
+            ),
+        }
+
+        return self.async_show_form(
+            step_id="init", data_schema=probatio.Schema(options)
         )

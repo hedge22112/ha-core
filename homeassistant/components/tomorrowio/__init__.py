@@ -1,6 +1,5 @@
 """The Tomorrow.io integration."""
-
-from __future__ import annotations
+# pylint: disable=home-assistant-use-runtime-data  # Uses legacy hass.data[DOMAIN] pattern
 
 from pytomorrowio import TomorrowioV4
 
@@ -49,6 +48,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     coordinator: TomorrowioDataUpdateCoordinator = hass.data[DOMAIN][api_key]
     # If this is true, we can remove the coordinator
     if await coordinator.async_unload_entry(config_entry):
+        await coordinator.async_shutdown()
         hass.data[DOMAIN].pop(api_key)
         if not hass.data[DOMAIN]:
             hass.data.pop(DOMAIN)

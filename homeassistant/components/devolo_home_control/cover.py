@@ -1,25 +1,26 @@
 """Platform for cover integration."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.cover import (
+    ATTR_POSITION,
     CoverDeviceClass,
     CoverEntity,
     CoverEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DevoloHomeControlConfigEntry
-from .devolo_multi_level_switch import DevoloMultiLevelSwitchDeviceEntity
+from .const import DOMAIN
+from .entity import DevoloMultiLevelSwitchDeviceEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DevoloHomeControlConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Get all cover devices and setup them via config entry."""
 
@@ -47,23 +48,36 @@ class DevoloCoverDeviceEntity(DevoloMultiLevelSwitchDeviceEntity, CoverEntity):
     _attr_device_class = CoverDeviceClass.BLIND
 
     @property
+    @override
     def current_cover_position(self) -> int:
         """Return the current position. 0 is closed. 100 is open."""
         return int(self._value)
 
     @property
+    @override
     def is_closed(self) -> bool:
         """Return if the blind is closed or not."""
         return not bool(self._value)
 
+    @override
     def open_cover(self, **kwargs: Any) -> None:
         """Open the blind."""
-        self._multi_level_switch_property.set(100)
+        self._set_cover_position(100)
 
+    @override
     def close_cover(self, **kwargs: Any) -> None:
         """Close the blind."""
-        self._multi_level_switch_property.set(0)
+        self._set_cover_position(0)
 
+    @override
     def set_cover_position(self, **kwargs: Any) -> None:
         """Set the blind to the given position."""
-        self._multi_level_switch_property.set(kwargs["position"])
+        self._set_cover_position(kwargs[ATTR_POSITION])
+
+    def _set_cover_position(self, position: int) -> None:
+        """Set the blind to the given position."""
+        if not self._multi_level_switch_property.set(position):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="set_failed",
+            )

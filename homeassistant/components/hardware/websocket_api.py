@@ -1,49 +1,30 @@
 """The Hardware websocket API."""
 
-from __future__ import annotations
-
 import contextlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any
 
-import psutil_home_assistant as ha_psutil
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
-from .hardware import async_process_hardware_platforms
-from .models import HardwareProtocol
-
-
-@dataclass(slots=True)
-class SystemStatus:
-    """System status."""
-
-    ha_psutil: ha_psutil
-    remove_periodic_timer: CALLBACK_TYPE | None
-    subscribers: set[tuple[websocket_api.ActiveConnection, int]]
+from .const import DATA_HARDWARE
 
 
 async def async_setup(hass: HomeAssistant) -> None:
     """Set up the hardware websocket API."""
     websocket_api.async_register_command(hass, ws_info)
     websocket_api.async_register_command(hass, ws_subscribe_system_status)
-    hass.data[DOMAIN]["system_status"] = SystemStatus(
-        ha_psutil=await hass.async_add_executor_job(ha_psutil.PsutilWrapper),
-        remove_periodic_timer=None,
-        subscribers=set(),
-    )
 
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "hardware/info",
+        probatio.Required("type"): "hardware/info",
     }
 )
 @websocket_api.async_response
@@ -53,13 +34,8 @@ async def ws_info(
     """Return hardware info."""
     hardware_info = []
 
-    if "hardware_platform" not in hass.data[DOMAIN]:
-        await async_process_hardware_platforms(hass)
-
-    hardware_platform: dict[str, HardwareProtocol] = hass.data[DOMAIN][
-        "hardware_platform"
-    ]
-    for platform in hardware_platform.values():
+    platforms = await hass.data[DATA_HARDWARE].hardware_platforms.async_get_platforms()
+    for platform in platforms.values():
         if hasattr(platform, "async_info"):
             with contextlib.suppress(HomeAssistantError):
                 hardware_info.extend([asdict(hw) for hw in platform.async_info(hass)])
@@ -70,7 +46,7 @@ async def ws_info(
 @callback
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "hardware/subscribe_system_status",
+        probatio.Required("type"): "hardware/subscribe_system_status",
     }
 )
 def ws_subscribe_system_status(
@@ -78,7 +54,7 @@ def ws_subscribe_system_status(
 ) -> None:
     """Subscribe to system status updates."""
 
-    system_status: SystemStatus = hass.data[DOMAIN]["system_status"]
+    system_status = hass.data[DATA_HARDWARE].system_status
 
     @callback
     def async_update_status(now: datetime) -> None:

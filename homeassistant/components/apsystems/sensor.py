@@ -1,9 +1,8 @@
 """The read-only sensors for APsystems local API integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from APsystemsEZ1 import ReturnOutputData
 
@@ -15,12 +14,11 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType, StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import ApSystemsConfigEntry, ApSystemsData
-from .coordinator import ApSystemsDataCoordinator
+from .coordinator import ApSystemsConfigEntry, ApSystemsData, ApSystemsDataCoordinator
 from .entity import ApSystemsEntity
 
 
@@ -110,7 +108,7 @@ SENSORS: tuple[ApsystemsLocalApiSensorDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ApSystemsConfigEntry,
-    add_entities: AddEntitiesCallback,
+    add_entities: AddConfigEntryEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up the sensor platform."""
@@ -145,6 +143,7 @@ class ApSystemsSensorWithDescription(
         self._attr_unique_id = f"{data.device_id}_{entity_description.key}"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return value of sensor."""
         return self.entity_description.value_fn(self.coordinator.data.output_data)

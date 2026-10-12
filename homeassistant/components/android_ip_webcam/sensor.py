@@ -1,9 +1,8 @@
 """Support for Android IP Webcam sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from pydroid_ipcam import PyDroidIPCam
 
@@ -15,7 +14,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .coordinator import AndroidIPCamConfigEntry, AndroidIPCamDataUpdateCoordinator
@@ -119,7 +118,7 @@ SENSOR_TYPES: tuple[AndroidIPWebcamSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AndroidIPCamConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the IP Webcam sensors from config entry."""
 
@@ -155,11 +154,13 @@ class IPWebcamSensor(AndroidIPCamBaseEntity, SensorEntity):
         super().__init__(coordinator)
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return native value of sensor."""
         return self.entity_description.value_fn(self.cam)
 
     @property
+    @override
     def native_unit_of_measurement(self) -> str | None:
         """Return native unit of measurement of sensor."""
         return self.entity_description.unit_fn(self.cam)

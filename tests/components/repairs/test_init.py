@@ -8,10 +8,7 @@ import pytest
 
 from homeassistant.components.repairs import repairs_flow_manager
 from homeassistant.components.repairs.const import DOMAIN
-from homeassistant.components.repairs.issue_handler import (
-    RepairsFlowManager,
-    async_process_repairs_platforms,
-)
+from homeassistant.components.repairs.issue_handler import RepairsFlowManager
 from homeassistant.const import __version__ as ha_version
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
@@ -21,16 +18,7 @@ from tests.common import mock_platform
 from tests.typing import WebSocketGenerator
 
 
-@pytest.mark.parametrize(
-    "ignore_translations",
-    [
-        [
-            "component.test.issues.even_worse.title",
-            "component.test.issues.even_worse.description",
-            "component.test.issues.abc_123.title",
-        ]
-    ],
-)
+@pytest.mark.parametrize("ignore_translations_for_mock_domains", ["test"])
 @pytest.mark.freeze_time("2022-07-19 07:53:05")
 async def test_create_update_issue(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
@@ -170,14 +158,7 @@ async def test_create_issue_invalid_version(
     assert msg["result"] == {"issues": []}
 
 
-@pytest.mark.parametrize(
-    "ignore_translations",
-    [
-        [
-            "component.test.issues.abc_123.title",
-        ]
-    ],
-)
+@pytest.mark.parametrize("ignore_translations_for_mock_domains", ["test"])
 @pytest.mark.freeze_time("2022-07-19 07:53:05")
 async def test_ignore_issue(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
@@ -347,10 +328,7 @@ async def test_ignore_issue(
     }
 
 
-@pytest.mark.parametrize(
-    "ignore_translations",
-    ["component.fake_integration.issues.abc_123.title"],
-)
+@pytest.mark.parametrize("ignore_translations_for_mock_domains", ["fake_integration"])
 @pytest.mark.freeze_time("2022-07-19 07:53:05")
 async def test_delete_issue(
     hass: HomeAssistant,
@@ -500,15 +478,12 @@ async def test_non_compliant_platform(
     )
     assert await async_setup_component(hass, DOMAIN, {})
 
-    await async_process_repairs_platforms(hass)
+    platforms = await hass.data[DOMAIN]["platforms"].async_get_platforms()
+    assert "fake_integration" in platforms
+    assert "integration_without_repairs" not in platforms
 
-    assert list(hass.data[DOMAIN]["platforms"].keys()) == ["fake_integration"]
 
-
-@pytest.mark.parametrize(
-    "ignore_translations",
-    ["component.fake_integration.issues.abc_123.title"],
-)
+@pytest.mark.parametrize("ignore_translations_for_mock_domains", ["fake_integration"])
 @pytest.mark.freeze_time("2022-07-21 08:22:00")
 async def test_sync_methods(
     hass: HomeAssistant,

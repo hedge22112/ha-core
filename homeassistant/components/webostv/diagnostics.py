@@ -1,6 +1,4 @@
-"""Diagnostics support for LG webOS Smart TV."""
-
-from __future__ import annotations
+"""Diagnostics support for LG webOS TV."""
 
 from typing import Any
 
@@ -20,6 +18,7 @@ TO_REDACT = {
     "deviceUUID",
     "icon",
     "largeIcon",
+    "macAddress",
 }
 
 
@@ -27,20 +26,13 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: WebOsTvConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    client: WebOsClient = entry.runtime_data
+    client: WebOsClient = entry.runtime_data.client
 
     client_data = {
         "is_registered": client.is_registered(),
         "is_connected": client.is_connected(),
-        "current_app_id": client.current_app_id,
-        "current_channel": client.current_channel,
-        "apps": client.apps,
-        "inputs": client.inputs,
-        "system_info": client.system_info,
-        "software_info": client.software_info,
-        "hello_info": client.hello_info,
-        "sound_output": client.sound_output,
-        "is_on": client.is_on,
+        "tv_info": client.tv_info.__dict__,
+        "tv_state": client.tv_state.__dict__,
     }
 
     return async_redact_data(

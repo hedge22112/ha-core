@@ -1,23 +1,21 @@
 """Support for LaMetric numbers."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from demetriek import Device, LaMetricDevice, Range
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import LaMetricDataUpdateCoordinator
+from .coordinator import LaMetricConfigEntry, LaMetricDataUpdateCoordinator
 from .entity import LaMetricEntity
 from .helpers import lametric_exception_handler
+
+PARALLEL_UPDATES = 1
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,11 +55,11 @@ NUMBERS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: LaMetricConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up LaMetric number based on a config entry."""
-    coordinator: LaMetricDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     async_add_entities(
         LaMetricNumberEntity(
             coordinator=coordinator,
@@ -87,11 +85,13 @@ class LaMetricNumberEntity(LaMetricEntity, NumberEntity):
         self._attr_unique_id = f"{coordinator.data.serial_number}-{description.key}"
 
     @property
+    @override
     def native_value(self) -> int | None:
         """Return the number value."""
         return self.entity_description.value_fn(self.coordinator.data)
 
     @property
+    @override
     def native_min_value(self) -> int:
         """Return the min range."""
         if limits := self.entity_description.range_fn(self.coordinator.data):
@@ -99,6 +99,7 @@ class LaMetricNumberEntity(LaMetricEntity, NumberEntity):
         return 0
 
     @property
+    @override
     def native_max_value(self) -> int:
         """Return the max range."""
         if limits := self.entity_description.range_fn(self.coordinator.data):
@@ -106,6 +107,7 @@ class LaMetricNumberEntity(LaMetricEntity, NumberEntity):
         return 100
 
     @lametric_exception_handler
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Change to new number value."""
         await self.entity_description.set_value_fn(self.coordinator.lametric, value)

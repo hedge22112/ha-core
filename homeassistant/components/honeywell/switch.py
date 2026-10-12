@@ -1,8 +1,6 @@
 """Support for Honeywell switches."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from aiosomecomfort import SomeComfortError
 from aiosomecomfort.device import Device as SomeComfortDevice
@@ -15,7 +13,7 @@ from homeassistant.components.switch import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import HoneywellConfigEntry, HoneywellData
 from .const import DOMAIN
@@ -34,7 +32,7 @@ SWITCH_TYPES: tuple[SwitchEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: HoneywellConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Honeywell switches."""
     data = config_entry.runtime_data
@@ -68,6 +66,7 @@ class HoneywellSwitch(SwitchEntity):
             manufacturer="Honeywell",
         )
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on if heat mode is enabled."""
         try:
@@ -77,6 +76,7 @@ class HoneywellSwitch(SwitchEntity):
                 translation_domain=DOMAIN, translation_key="switch_failed_on"
             ) from err
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off if on."""
         if self.is_on:
@@ -89,6 +89,7 @@ class HoneywellSwitch(SwitchEntity):
                 ) from err
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if Emergency heat is enabled."""
         return self._device.system_mode == "emheat"

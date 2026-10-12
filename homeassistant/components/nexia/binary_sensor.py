@@ -1,8 +1,10 @@
 """Support for Nexia / Trane XL Thermostats."""
 
+from typing import override
+
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import NexiaThermostatEntity
 from .types import NexiaConfigEntry
@@ -11,7 +13,7 @@ from .types import NexiaConfigEntry
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: NexiaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up sensors for a Nexia device."""
     coordinator = config_entry.runtime_data
@@ -53,6 +55,7 @@ class NexiaBinarySensor(NexiaThermostatEntity, BinarySensorEntity):
         self._attr_translation_key = translation_key
 
     @property
-    def is_on(self):
+    @override
+    def is_on(self) -> bool:
         """Return the status of the sensor."""
         return getattr(self._thermostat, self._call)()

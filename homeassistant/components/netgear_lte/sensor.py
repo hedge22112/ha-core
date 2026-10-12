@@ -1,9 +1,8 @@
 """Support for Netgear LTE sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from eternalegypt.eternalegypt import Information
 
@@ -19,10 +18,10 @@ from homeassistant.const import (
     UnitOfInformation,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import NetgearLTEConfigEntry
+from .coordinator import NetgearLTEConfigEntry
 from .entity import LTEEntity
 
 
@@ -127,7 +126,7 @@ SENSORS: tuple[NetgearLTESensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NetgearLTEConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Netgear LTE sensor."""
     async_add_entities(NetgearLTESensor(entry, description) for description in SENSORS)
@@ -139,6 +138,7 @@ class NetgearLTESensor(LTEEntity, SensorEntity):
     entity_description: NetgearLTESensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         if self.entity_description.value_fn is not None:

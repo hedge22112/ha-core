@@ -20,6 +20,7 @@ from homeassistant.components.climate import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
     ATTR_PRESET_MODE,
+    ATTR_SWING_HORIZONTAL_MODE,
     ATTR_SWING_MODE,
     DOMAIN as CLIMATE_DOMAIN,
     FAN_AUTO,
@@ -34,24 +35,24 @@ from homeassistant.components.climate import (
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_PRESET_MODE,
+    SERVICE_SET_SWING_HORIZONTAL_MODE,
     SERVICE_SET_SWING_MODE,
     SERVICE_SET_TEMPERATURE,
-    SWING_BOTH,
-    SWING_HORIZONTAL,
-    SWING_OFF,
-    SWING_VERTICAL,
     HVACMode,
 )
 from homeassistant.components.gree.climate import (
-    FAN_MODES_REVERSE,
+    FAN_MODES_INVERSE,
+    HORIZONTAL_SWING_MODES_INVERSE,
     HVAC_MODES,
-    HVAC_MODES_REVERSE,
+    HVAC_MODES_INVERSE,
+    VERTICAL_SWING_MODES_INVERSE,
     GreeClimateEntity,
 )
 from homeassistant.components.gree.const import (
     DISCOVERY_SCAN_INTERVAL,
     FAN_MEDIUM_HIGH,
     FAN_MEDIUM_LOW,
+    MAX_EXPECTED_RESPONSE_TIME_INTERVAL,
     UPDATE_INTERVAL,
 )
 from homeassistant.const import (
@@ -66,6 +67,11 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_system import (
+    METRIC_SYSTEM,
+    US_CUSTOMARY_SYSTEM,
+    UnitSystem,
+)
 
 from .common import async_setup_gree, build_device_mock
 
@@ -346,7 +352,7 @@ async def test_unresponsive_device(
     await async_setup_gree(hass)
 
     async def run_update():
-        freezer.tick(timedelta(seconds=UPDATE_INTERVAL))
+        freezer.tick(timedelta(seconds=MAX_EXPECTED_RESPONSE_TIME_INTERVAL))
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
 
@@ -410,19 +416,19 @@ async def test_send_power_off_device_timeout(
 
 @pytest.mark.parametrize(
     ("units", "temperature"),
-    [(UnitOfTemperature.CELSIUS, 26), (UnitOfTemperature.FAHRENHEIT, 73)],
+    [(METRIC_SYSTEM, 26), (US_CUSTOMARY_SYSTEM, 73)],
 )
 async def test_send_target_temperature(
-    hass: HomeAssistant, discovery, device, units, temperature
+    hass: HomeAssistant, discovery, device, units: UnitSystem, temperature
 ) -> None:
     """Test for sending target temperature command to the device."""
-    hass.config.units.temperature_unit = units
+    hass.config.units = units
 
     device().power = True
-    device().mode = HVAC_MODES_REVERSE.get(HVACMode.AUTO)
+    device().mode = HVAC_MODES_INVERSE.get(HVACMode.AUTO)
 
     fake_device = device()
-    if units == UnitOfTemperature.FAHRENHEIT:
+    if units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
         fake_device.temperature_units = 1
 
     await async_setup_gree(hass)
@@ -434,7 +440,7 @@ async def test_send_target_temperature(
         ENTITY_ID,
         "off",
         {
-            ATTR_UNIT_OF_MEASUREMENT: units,
+            ATTR_UNIT_OF_MEASUREMENT: units.temperature_unit,
         },
     )
 
@@ -449,10 +455,6 @@ async def test_send_target_temperature(
     assert state is not None
     assert state.attributes.get(ATTR_TEMPERATURE) == temperature
     assert state.state == HVAC_MODES.get(fake_device.mode)
-
-    # Reset config temperature_unit back to CELSIUS, required for
-    # additional tests outside this component.
-    hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
 
 
 @pytest.mark.parametrize(
@@ -492,17 +494,17 @@ async def test_send_target_temperature_with_hvac_mode(
 @pytest.mark.parametrize(
     ("units", "temperature"),
     [
-        (UnitOfTemperature.CELSIUS, 25),
-        (UnitOfTemperature.FAHRENHEIT, 73),
-        (UnitOfTemperature.FAHRENHEIT, 74),
+        (METRIC_SYSTEM, 25),
+        (US_CUSTOMARY_SYSTEM, 73),
+        (US_CUSTOMARY_SYSTEM, 74),
     ],
 )
 async def test_send_target_temperature_device_timeout(
-    hass: HomeAssistant, discovery, device, units, temperature
+    hass: HomeAssistant, discovery, device, units: UnitSystem, temperature
 ) -> None:
-    """Test for sending target temperature command to the device with a device timeout."""
-    hass.config.units.temperature_unit = units
-    if units == UnitOfTemperature.FAHRENHEIT:
+    """Test sending target temperature command with device timeout."""
+    hass.config.units = units
+    if units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
         device().temperature_units = 1
     device().push_state_update.side_effect = DeviceTimeoutError
 
@@ -519,24 +521,21 @@ async def test_send_target_temperature_device_timeout(
     assert state is not None
     assert state.attributes.get(ATTR_TEMPERATURE) == temperature
 
-    # Reset config temperature_unit back to CELSIUS, required for additional tests outside this component.
-    hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
-
 
 @pytest.mark.parametrize(
     ("units", "temperature"),
     [
-        (UnitOfTemperature.CELSIUS, 25),
-        (UnitOfTemperature.FAHRENHEIT, 73),
-        (UnitOfTemperature.FAHRENHEIT, 74),
+        (METRIC_SYSTEM, 25),
+        (US_CUSTOMARY_SYSTEM, 73),
+        (US_CUSTOMARY_SYSTEM, 74),
     ],
 )
 async def test_update_target_temperature(
-    hass: HomeAssistant, discovery, device, units, temperature
+    hass: HomeAssistant, discovery, device, units: UnitSystem, temperature
 ) -> None:
     """Test for updating target temperature from the device."""
-    hass.config.units.temperature_unit = units
-    if units == UnitOfTemperature.FAHRENHEIT:
+    hass.config.units = units
+    if units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
         device().temperature_units = 1
     device().target_temperature = temperature
 
@@ -552,9 +551,6 @@ async def test_update_target_temperature(
     state = hass.states.get(ENTITY_ID)
     assert state is not None
     assert state.attributes.get(ATTR_TEMPERATURE) == temperature
-
-    # Reset config temperature_unit back to CELSIUS, required for additional tests outside this component.
-    hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
 
 
 @pytest.mark.parametrize(
@@ -704,7 +700,7 @@ async def test_update_hvac_mode(
 ) -> None:
     """Test for updating hvac mode from the device."""
     device().power = hvac_mode != HVACMode.OFF
-    device().mode = HVAC_MODES_REVERSE.get(hvac_mode)
+    device().mode = HVAC_MODES_INVERSE.get(hvac_mode)
 
     await async_setup_gree(hass)
 
@@ -782,7 +778,7 @@ async def test_update_fan_mode(
     hass: HomeAssistant, discovery, device, fan_mode
 ) -> None:
     """Test for updating fan mode from the device."""
-    device().fan_speed = FAN_MODES_REVERSE.get(fan_mode)
+    device().fan_speed = FAN_MODES_INVERSE.get(fan_mode)
 
     await async_setup_gree(hass)
 
@@ -792,10 +788,11 @@ async def test_update_fan_mode(
 
 
 @pytest.mark.parametrize(
-    "swing_mode", [SWING_OFF, SWING_BOTH, SWING_VERTICAL, SWING_HORIZONTAL]
+    "swing_mode",
+    ["default", "full_swing", "fixed_upper", "fixed_lower"],
 )
 async def test_send_swing_mode(
-    hass: HomeAssistant, discovery, device, swing_mode
+    hass: HomeAssistant, discovery, device, swing_mode: str
 ) -> None:
     """Test for sending swing mode command to the device."""
     await async_setup_gree(hass)
@@ -830,10 +827,11 @@ async def test_send_invalid_swing_mode(hass: HomeAssistant, discovery, device) -
 
 
 @pytest.mark.parametrize(
-    "swing_mode", [SWING_OFF, SWING_BOTH, SWING_VERTICAL, SWING_HORIZONTAL]
+    "swing_mode",
+    ["default", "full_swing", "fixed_upper", "fixed_lower"],
 )
 async def test_send_swing_mode_device_timeout(
-    hass: HomeAssistant, discovery, device, swing_mode
+    hass: HomeAssistant, discovery, device, swing_mode: str
 ) -> None:
     """Test for sending swing mode command to the device with a device timeout."""
     device().push_state_update.side_effect = DeviceTimeoutError
@@ -853,28 +851,134 @@ async def test_send_swing_mode_device_timeout(
 
 
 @pytest.mark.parametrize(
-    "swing_mode", [SWING_OFF, SWING_BOTH, SWING_VERTICAL, SWING_HORIZONTAL]
+    "vertical_swing",
+    [VerticalSwing.Default, VerticalSwing.FullSwing, VerticalSwing.FixedUpper],
 )
 async def test_update_swing_mode(
-    hass: HomeAssistant, discovery, device, swing_mode
+    hass: HomeAssistant, discovery, device, vertical_swing: VerticalSwing
 ) -> None:
     """Test for updating swing mode from the device."""
-    device().horizontal_swing = (
-        HorizontalSwing.FullSwing
-        if swing_mode in (SWING_BOTH, SWING_HORIZONTAL)
-        else HorizontalSwing.Default
-    )
-    device().vertical_swing = (
-        VerticalSwing.FullSwing
-        if swing_mode in (SWING_BOTH, SWING_VERTICAL)
-        else VerticalSwing.Default
-    )
+    device().vertical_swing = vertical_swing
 
     await async_setup_gree(hass)
 
     state = hass.states.get(ENTITY_ID)
     assert state is not None
-    assert state.attributes.get(ATTR_SWING_MODE) == swing_mode
+    assert (
+        state.attributes.get(ATTR_SWING_MODE)
+        == VERTICAL_SWING_MODES_INVERSE[vertical_swing]
+    )
+
+
+@pytest.mark.parametrize(
+    "swing_horizontal_mode",
+    ["default", "full_swing", "left", "right"],
+)
+async def test_send_swing_horizontal_mode(
+    hass: HomeAssistant, discovery, device, swing_horizontal_mode: str
+) -> None:
+    """Test for sending horizontal swing mode command to the device."""
+    await async_setup_gree(hass)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_SWING_HORIZONTAL_MODE,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_SWING_HORIZONTAL_MODE: swing_horizontal_mode},
+        blocking=True,
+    )
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert state.attributes.get(ATTR_SWING_HORIZONTAL_MODE) == swing_horizontal_mode
+
+
+async def test_send_invalid_swing_horizontal_mode(
+    hass: HomeAssistant, discovery, device
+) -> None:
+    """Test for sending an invalid horizontal swing mode command to the device."""
+    await async_setup_gree(hass)
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_SWING_HORIZONTAL_MODE,
+            {ATTR_ENTITY_ID: ENTITY_ID, ATTR_SWING_HORIZONTAL_MODE: "invalid"},
+            blocking=True,
+        )
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert state.attributes.get(ATTR_SWING_HORIZONTAL_MODE) != "invalid"
+
+
+@pytest.mark.parametrize(
+    "swing_horizontal_mode",
+    ["default", "full_swing", "left", "right"],
+)
+async def test_send_swing_horizontal_mode_device_timeout(
+    hass: HomeAssistant, discovery, device, swing_horizontal_mode: str
+) -> None:
+    """Test for sending horizontal swing mode command to the device with a device timeout."""
+    device().push_state_update.side_effect = DeviceTimeoutError
+
+    await async_setup_gree(hass)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_SWING_HORIZONTAL_MODE,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_SWING_HORIZONTAL_MODE: swing_horizontal_mode},
+        blocking=True,
+    )
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert state.attributes.get(ATTR_SWING_HORIZONTAL_MODE) == swing_horizontal_mode
+
+
+@pytest.mark.parametrize(
+    "horizontal_swing",
+    [HorizontalSwing.Default, HorizontalSwing.FullSwing, HorizontalSwing.Left],
+)
+async def test_update_swing_horizontal_mode(
+    hass: HomeAssistant, discovery, device, horizontal_swing: HorizontalSwing
+) -> None:
+    """Test for updating horizontal swing mode from the device."""
+    device().horizontal_swing = horizontal_swing
+
+    await async_setup_gree(hass)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert (
+        state.attributes.get(ATTR_SWING_HORIZONTAL_MODE)
+        == HORIZONTAL_SWING_MODES_INVERSE[horizontal_swing]
+    )
+
+
+async def test_swing_mode_unknown_device_value(
+    hass: HomeAssistant, discovery, device
+) -> None:
+    """Test that an out-of-range vertical swing value from the device returns None."""
+    device().vertical_swing = 99
+
+    await async_setup_gree(hass)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert state.attributes.get(ATTR_SWING_MODE) is None
+
+
+async def test_swing_horizontal_mode_unknown_device_value(
+    hass: HomeAssistant, discovery, device
+) -> None:
+    """Test that an out-of-range horizontal swing value from the device returns None."""
+    device().horizontal_swing = 99
+
+    await async_setup_gree(hass)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state is not None
+    assert state.attributes.get(ATTR_SWING_HORIZONTAL_MODE) is None
 
 
 async def test_coordinator_update_handler(
@@ -888,7 +992,7 @@ async def test_coordinator_update_handler(
     assert entity is not None
 
     # Initial state
-    assert entity.temperature_unit == UnitOfTemperature.CELSIUS
+    assert entity.native_temperature_unit == UnitOfTemperature.CELSIUS
     assert entity.min_temp == TEMP_MIN
     assert entity.max_temp == TEMP_MAX
 
@@ -897,7 +1001,7 @@ async def test_coordinator_update_handler(
     entity.coordinator.async_set_updated_data(UnitOfTemperature.FAHRENHEIT)
     await hass.async_block_till_done()
 
-    assert entity.temperature_unit == UnitOfTemperature.FAHRENHEIT
+    assert entity.native_temperature_unit == UnitOfTemperature.FAHRENHEIT
     assert entity.min_temp == TEMP_MIN_F
     assert entity.max_temp == TEMP_MAX_F
 
@@ -906,7 +1010,7 @@ async def test_coordinator_update_handler(
     entity.coordinator.async_set_updated_data(UnitOfTemperature.CELSIUS)
     await hass.async_block_till_done()
 
-    assert entity.temperature_unit == UnitOfTemperature.CELSIUS
+    assert entity.native_temperature_unit == UnitOfTemperature.CELSIUS
     assert entity.min_temp == TEMP_MIN
     assert entity.max_temp == TEMP_MAX
 

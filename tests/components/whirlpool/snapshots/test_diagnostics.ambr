@@ -2,23 +2,106 @@
 # name: test_entry_diagnostics
   dict({
     'appliances': dict({
-      'Washer_dryers': dict({
-        'dryer': dict({
-          'NAME': 'dryer',
-          'SAID': '**REDACTED**',
+      'aircons': dict({
+        'Aircon said1': dict({
+          'category': 'aircon',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
         }),
-        'washer': dict({
-          'NAME': 'washer',
-          'SAID': '**REDACTED**',
+        'Aircon said2': dict({
+          'category': 'aircon',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
         }),
       }),
-      'aircons': dict({
-        'TestZone': dict({
-          'NAME': 'TestZone',
-          'SAID': '**REDACTED**',
+      'dryers': dict({
+        'Dryer': dict({
+          'category': 'washer_dryer',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
         }),
       }),
       'ovens': dict({
+        'Dual Cavity Oven': dict({
+          'category': 'oven',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
+        }),
+        'Single Cavity Oven': dict({
+          'category': 'oven',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
+        }),
+      }),
+      'refrigerators': dict({
+        'Beer fridge': dict({
+          'category': 'refrigerator',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
+        }),
+      }),
+      'washers': dict({
+        'Washer': dict({
+          'category': 'washer_dryer',
+          'model_number': '12345',
+          'raw': dict({
+            '_id': '**REDACTED**',
+            'attributes': dict({
+              'Cavity_OpSetHorzLouverSwing': dict({
+                'updateTime': 1626517992782,
+                'value': '1',
+              }),
+            }),
+          }),
+        }),
       }),
     }),
     'config_entry': dict({
@@ -38,8 +121,10 @@
       'pref_disable_new_entities': False,
       'pref_disable_polling': False,
       'source': 'user',
+      'subentries': list([
+      ]),
       'title': 'Mock Title',
-      'unique_id': None,
+      'unique_id': '**REDACTED**',
       'version': 1,
     }),
   })

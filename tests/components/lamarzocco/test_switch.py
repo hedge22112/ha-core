@@ -3,16 +3,17 @@
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from pylamarzocco.exceptions import RequestNotSuccessful
+from pylamarzocco.const import MachineState, SmartStandByType, WidgetType
+from pylamarzocco.exceptions import AuthFail, RequestNotSuccessful
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
 )
-from homeassistant.const import ATTR_ENTITY_ID, Platform
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -24,7 +25,6 @@ from tests.common import MockConfigEntry, snapshot_platform
 
 async def test_switches(
     hass: HomeAssistant,
-    mock_lamarzocco: MagicMock,
     mock_config_entry: MockConfigEntry,
     entity_registry: er.EntityRegistry,
     snapshot: SnapshotAssertion,
@@ -47,7 +47,7 @@ async def test_switches(
         (
             "_smart_standby_enabled",
             "set_smart_standby",
-            {"mode": "LastBrewing", "minutes": 10},
+            {"mode": SmartStandByType.POWER_ON, "minutes": 10},
         ),
     ],
 )
@@ -119,34 +119,50 @@ async def test_auto_on_off_switches(
             SWITCH_DOMAIN,
             SERVICE_TURN_OFF,
             {
-                ATTR_ENTITY_ID: f"switch.{serial_number}_auto_on_off_{wake_up_sleep_entry_id}",
+                ATTR_ENTITY_ID: (
+                    f"switch.{serial_number}_auto_on_off_{wake_up_sleep_entry_id}"
+                ),
             },
             blocking=True,
         )
 
-        wake_up_sleep_entry = mock_lamarzocco.config.wake_up_sleep_entries[
-            wake_up_sleep_entry_id
-        ]
+        wake_up_sleep_entry = (
+            mock_lamarzocco.schedule.smart_wake_up_sleep.schedules_dict[
+                wake_up_sleep_entry_id
+            ]
+        )
+        assert wake_up_sleep_entry
         wake_up_sleep_entry.enabled = False
 
-        mock_lamarzocco.set_wake_up_sleep.assert_called_with(wake_up_sleep_entry)
+        mock_lamarzocco.set_wakeup_schedule.assert_called_with(wake_up_sleep_entry)
 
         await hass.services.async_call(
             SWITCH_DOMAIN,
             SERVICE_TURN_ON,
             {
-                ATTR_ENTITY_ID: f"switch.{serial_number}_auto_on_off_{wake_up_sleep_entry_id}",
+                ATTR_ENTITY_ID: (
+                    f"switch.{serial_number}_auto_on_off_{wake_up_sleep_entry_id}"
+                ),
             },
             blocking=True,
         )
         wake_up_sleep_entry.enabled = True
-        mock_lamarzocco.set_wake_up_sleep.assert_called_with(wake_up_sleep_entry)
+        mock_lamarzocco.set_wakeup_schedule.assert_called_with(wake_up_sleep_entry)
 
 
+@pytest.mark.parametrize(
+    "side_effect",
+    [
+        pytest.param(RequestNotSuccessful("Boom"), id="request_not_successful"),
+        pytest.param(AuthFail("Boom"), id="auth_fail"),
+        pytest.param(TimeoutError, id="timeout"),
+    ],
+)
 async def test_switch_exceptions(
     hass: HomeAssistant,
     mock_lamarzocco: MagicMock,
     mock_config_entry: MockConfigEntry,
+    side_effect: Exception | type[Exception],
 ) -> None:
     """Test the La Marzocco switches."""
     await async_init_integration(hass, mock_config_entry)
@@ -156,7 +172,7 @@ async def test_switch_exceptions(
     state = hass.states.get(f"switch.{serial_number}")
     assert state
 
-    mock_lamarzocco.set_power.side_effect = RequestNotSuccessful("Boom")
+    mock_lamarzocco.set_power.side_effect = side_effect
 
     with pytest.raises(HomeAssistantError) as exc_info:
         await hass.services.async_call(
@@ -183,7 +199,7 @@ async def test_switch_exceptions(
     state = hass.states.get(f"switch.{serial_number}_auto_on_off_os2oswx")
     assert state
 
-    mock_lamarzocco.set_wake_up_sleep.side_effect = RequestNotSuccessful("Boom")
+    mock_lamarzocco.set_wakeup_schedule.side_effect = side_effect
     with pytest.raises(HomeAssistantError) as exc_info:
         await hass.services.async_call(
             SWITCH_DOMAIN,
@@ -194,3 +210,25 @@ async def test_switch_exceptions(
             blocking=True,
         )
     assert exc_info.value.translation_key == "auto_on_off_error"
+
+
+async def test_switches_unavailable_if_machine_off(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    mock_lamarzocco: MagicMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test the La Marzocco switches are unavailable when the device is offline."""
+    mock_lamarzocco.dashboard.config[
+        WidgetType.CM_MACHINE_STATUS
+    ].status = MachineState.OFF
+    with patch("homeassistant.components.lamarzocco.PLATFORMS", [Platform.SWITCH]):
+        await async_init_integration(hass, mock_config_entry)
+
+    switches = er.async_entries_for_config_entry(
+        entity_registry, mock_config_entry.entry_id
+    )
+    for switch in switches:
+        state = hass.states.get(switch.entity_id)
+        assert state
+        assert state.state == STATE_UNAVAILABLE

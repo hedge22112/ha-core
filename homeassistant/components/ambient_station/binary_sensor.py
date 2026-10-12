@@ -1,9 +1,7 @@
 """Support for Ambient Weather Station binary sensors."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -12,7 +10,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import ATTR_NAME, EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AmbientStationConfigEntry
 from .const import ATTR_LAST_DATA
@@ -381,7 +379,7 @@ BINARY_SENSOR_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AmbientStationConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Ambient PWS binary sensors based on a config entry."""
     ambient = entry.runtime_data
@@ -402,6 +400,7 @@ class AmbientWeatherBinarySensor(AmbientWeatherEntity, BinarySensorEntity):
     entity_description: AmbientBinarySensorDescription
 
     @callback
+    @override
     def update_from_latest_data(self) -> None:
         """Fetch new state data for the entity."""
         description = self.entity_description

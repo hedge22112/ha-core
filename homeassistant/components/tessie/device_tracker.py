@@ -1,10 +1,10 @@
 """Device Tracker platform for Tessie integration."""
 
-from __future__ import annotations
+from typing import override
 
-from homeassistant.components.device_tracker.config_entry import TrackerEntity
+from homeassistant.components.device_tracker import TrackerEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from . import TessieConfigEntry
@@ -17,7 +17,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TessieConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tessie device tracker platform from a config entry."""
     data = entry.runtime_data
@@ -49,16 +49,19 @@ class TessieDeviceTrackerLocationEntity(TessieDeviceTrackerEntity):
     key = "location"
 
     @property
+    @override
     def longitude(self) -> float | None:
         """Return the longitude of the device tracker."""
         return self.get("drive_state_longitude")
 
     @property
+    @override
     def latitude(self) -> float | None:
         """Return the latitude of the device tracker."""
         return self.get("drive_state_latitude")
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, StateType] | None:
         """Return device state attributes."""
         return {
@@ -73,11 +76,13 @@ class TessieDeviceTrackerRouteEntity(TessieDeviceTrackerEntity):
     key = "route"
 
     @property
+    @override
     def longitude(self) -> float | None:
         """Return the longitude of the device tracker."""
         return self.get("drive_state_active_route_longitude")
 
     @property
+    @override
     def latitude(self) -> float | None:
         """Return the latitude of the device tracker."""
         return self.get("drive_state_active_route_latitude")

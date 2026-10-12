@@ -1,13 +1,12 @@
 """Base Entity for Jellyfin."""
 
-from __future__ import annotations
+from typing import Any, override
 
-from typing import Any
-
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEFAULT_NAME, DOMAIN
+from .const import DOMAIN
 from .coordinator import JellyfinDataUpdateCoordinator
 
 
@@ -24,11 +23,7 @@ class JellyfinServerEntity(JellyfinEntity):
         """Initialize the Jellyfin entity."""
         super().__init__(coordinator)
         self._attr_device_info = DeviceInfo(
-            entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, coordinator.server_id)},
-            manufacturer=DEFAULT_NAME,
-            name=coordinator.server_name,
-            sw_version=coordinator.server_version,
         )
 
 
@@ -56,7 +51,11 @@ class JellyfinClientEntity(JellyfinEntity):
                 model=self.client_name,
                 name=self.device_name,
                 sw_version=self.app_version,
-                via_device=(DOMAIN, coordinator.server_id),
+                via_device_id=dr.async_get_device_id_by_identifier(
+                    coordinator.hass,
+                    (DOMAIN, coordinator.server_id),
+                    config_entry_id=coordinator.config_entry.entry_id,
+                ),
             )
             self._attr_name = None
         else:
@@ -70,6 +69,7 @@ class JellyfinClientEntity(JellyfinEntity):
         return self.coordinator.data[self.session_id]
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available."""
         return super().available and self.session_id in self.coordinator.data

@@ -1,13 +1,11 @@
 """Support for representing current time of the day as binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import datetime, time, timedelta
 import logging
-from typing import Any, Literal, TypeGuard
+from typing import Any, Literal, TypeGuard, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.binary_sensor import (
     PLATFORM_SCHEMA as BINARY_SENSOR_PLATFORM_SCHEMA,
@@ -24,7 +22,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, event
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.sun import get_astral_event_date, get_astral_event_next
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
@@ -46,12 +47,16 @@ ATTR_NEXT_UPDATE = "next_update"
 
 PLATFORM_SCHEMA = BINARY_SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_AFTER): vol.Any(cv.time, vol.All(vol.Lower, cv.sun_event)),
-        vol.Required(CONF_BEFORE): vol.Any(cv.time, vol.All(vol.Lower, cv.sun_event)),
-        vol.Required(CONF_NAME): cv.string,
-        vol.Optional(CONF_AFTER_OFFSET, default=timedelta(0)): cv.time_period,
-        vol.Optional(CONF_BEFORE_OFFSET, default=timedelta(0)): cv.time_period,
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
+        probatio.Required(CONF_AFTER): probatio.Any(
+            cv.time, probatio.All(probatio.Lower, cv.sun_event)
+        ),
+        probatio.Required(CONF_BEFORE): probatio.Any(
+            cv.time, probatio.All(probatio.Lower, cv.sun_event)
+        ),
+        probatio.Required(CONF_NAME): cv.string,
+        probatio.Optional(CONF_AFTER_OFFSET, default=timedelta(0)): cv.time_period,
+        probatio.Optional(CONF_BEFORE_OFFSET, default=timedelta(0)): cv.time_period,
+        probatio.Optional(CONF_UNIQUE_ID): cv.string,
     }
 )
 
@@ -59,7 +64,7 @@ PLATFORM_SCHEMA = BINARY_SENSOR_PLATFORM_SCHEMA.extend(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Initialize Times of the Day config entry."""
     if hass.config.time_zone is None:
@@ -132,6 +137,7 @@ class TodSensor(BinarySensorEntity):
         self._unsub_update: Callable[[], None] | None = None
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return True is sensor is on."""
         if self._time_after < self._time_before:
@@ -139,6 +145,7 @@ class TodSensor(BinarySensorEntity):
         return False
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return the state attributes of the sensor."""
         if time_zone := dt_util.get_default_time_zone():
@@ -259,6 +266,7 @@ class TodSensor(BinarySensorEntity):
                 self._time_before, self._before
             )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to Home Assistant."""
         self._calculate_boundary_time()

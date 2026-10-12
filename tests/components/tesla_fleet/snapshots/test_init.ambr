@@ -2,7 +2,8 @@
 # name: test_devices[{('tesla_fleet', '123456')}]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -16,7 +17,6 @@
         '123456',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Tesla',
@@ -24,9 +24,7 @@
     'model_id': None,
     'name': 'Energy Site',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': '123456',
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -34,7 +32,8 @@
 # name: test_devices[{('tesla_fleet', 'LRWXF7EK4KC700000')}]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -48,7 +47,6 @@
         'LRWXF7EK4KC700000',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Tesla',
@@ -56,9 +54,7 @@
     'model_id': None,
     'name': 'Test',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': 'LRWXF7EK4KC700000',
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -66,7 +62,8 @@
 # name: test_devices[{('tesla_fleet', 'abd-123')}]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -80,7 +77,6 @@
         'abd-123',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Tesla',
@@ -88,9 +84,7 @@
     'model_id': None,
     'name': 'Wall Connector',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': '123',
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': <ANY>,
   })
@@ -98,7 +92,8 @@
 # name: test_devices[{('tesla_fleet', 'bcd-234')}]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -112,7 +107,6 @@
         'bcd-234',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Tesla',
@@ -120,9 +114,7 @@
     'model_id': None,
     'name': 'Wall Connector',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': '234',
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': <ANY>,
   })

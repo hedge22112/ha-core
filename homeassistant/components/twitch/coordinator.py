@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import override
 
 from twitchAPI.helper import first
 from twitchAPI.object.api import FollowedChannel, Stream, TwitchUser, UserSubscription
@@ -68,6 +69,7 @@ class TwitchCoordinator(DataUpdateCoordinator[dict[str, TwitchUpdate]]):
         )
         self.session = session
 
+    @override
     async def _async_setup(self) -> None:
         channels = self.config_entry.options[CONF_CHANNELS]
         self.users = []
@@ -79,7 +81,9 @@ class TwitchCoordinator(DataUpdateCoordinator[dict[str, TwitchUpdate]]):
         if not (user := await first(self.twitch.get_users())):
             raise UpdateFailed("Logged in user not found")
         self.current_user = user
+        self.users.append(self.current_user)  # Add current_user to users list.
 
+    @override
     async def _async_update_data(self) -> dict[str, TwitchUpdate]:
         await self.session.async_ensure_token_valid()
         await self.twitch.set_user_authentication(
@@ -95,6 +99,8 @@ class TwitchCoordinator(DataUpdateCoordinator[dict[str, TwitchUpdate]]):
                 user_id=self.current_user.id, first=100
             )
         }
+        async for s in self.twitch.get_streams(user_id=[self.current_user.id]):
+            streams.update({s.user_id: s})
         follows: dict[str, FollowedChannel] = {
             f.broadcaster_id: f
             async for f in await self.twitch.get_followed_channels(
@@ -122,7 +128,7 @@ class TwitchCoordinator(DataUpdateCoordinator[dict[str, TwitchUpdate]]):
                 stream.game_name if stream else None,
                 stream.title if stream else None,
                 stream.started_at if stream else None,
-                stream.thumbnail_url if stream else None,
+                stream.thumbnail_url.format(width="", height="") if stream else None,
                 channel.profile_image_url,
                 bool(sub),
                 sub.is_gift if sub else None,

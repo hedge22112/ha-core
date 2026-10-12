@@ -1,6 +1,6 @@
 """Generic platform."""
 
-from __future__ import annotations
+from typing import override
 
 from devolo_plc_api.device_api import (
     ConnectedStationInfo,
@@ -8,20 +8,20 @@ from devolo_plc_api.device_api import (
     WifiGuestAccessGet,
 )
 from devolo_plc_api.plcnet_api import DataRate, LogicalNetwork
+from yarl import URL
 
 from homeassistant.const import ATTR_CONNECTIONS
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import DevoloHomeNetworkConfigEntry
 from .const import DOMAIN
-from .coordinator import DevoloDataUpdateCoordinator
+from .coordinator import DevoloDataUpdateCoordinator, DevoloHomeNetworkConfigEntry
 
 type _DataType = (
     LogicalNetwork
     | DataRate
-    | list[ConnectedStationInfo]
+    | dict[str, ConnectedStationInfo]
     | list[NeighborAPInfo]
     | WifiGuestAccessGet
     | bool
@@ -43,7 +43,7 @@ class DevoloEntity(Entity):
         self.entry = entry
 
         self._attr_device_info = DeviceInfo(
-            configuration_url=f"http://{self.device.ip}",
+            configuration_url=URL.build(scheme="http", host=self.device.ip),
             identifiers={(DOMAIN, str(self.device.serial_number))},
             manufacturer="devolo",
             model=self.device.product,
@@ -74,3 +74,10 @@ class DevoloCoordinatorEntity[_DataT: _DataType](
         """Initialize a devolo home network device."""
         super().__init__(coordinator)
         DevoloEntity.__init__(self, entry)
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Handle entity which will be added."""
+        await super().async_added_to_hass()
+        if self.coordinator.expensive:
+            await self.coordinator.async_refresh()

@@ -1,7 +1,5 @@
 """Support for sensor value(s) stored in local files."""
 
-from __future__ import annotations
-
 import logging
 import os
 
@@ -16,7 +14,7 @@ from homeassistant.const import (
     CONF_VALUE_TEMPLATE,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.template import Template
 
 from .const import DEFAULT_NAME, FILE_ICON
@@ -27,7 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the file sensor."""
     config = dict(entry.data)
@@ -74,7 +72,7 @@ class FileSensor(SensorEntity):
                     data = line
                     break
                 data = data.strip()
-        except (IndexError, FileNotFoundError, IsADirectoryError, UnboundLocalError):
+        except IndexError, FileNotFoundError, IsADirectoryError, UnboundLocalError:
             _LOGGER.warning(
                 "File or data not present at the moment: %s",
                 os.path.basename(self._file_path),

@@ -1,9 +1,8 @@
 """Support for PurpleAir sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from aiopurpleair.models.sensors import SensorModel
 
@@ -13,22 +12,21 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfDensity,
     UnitOfPressure,
+    UnitOfRatio,
     UnitOfTemperature,
     UnitOfTime,
     UnitOfVolume,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_SENSOR_INDICES, DOMAIN
-from .coordinator import PurpleAirDataUpdateCoordinator
+from .const import CONF_SENSOR_INDICES
+from .coordinator import PurpleAirConfigEntry
 from .entity import PurpleAirEntity
 
 CONCENTRATION_PARTICLES_PER_100_MILLILITERS = f"particles/100{UnitOfVolume.MILLILITERS}"
@@ -45,7 +43,7 @@ SENSOR_DESCRIPTIONS = [
     PurpleAirSensorEntityDescription(
         key="humidity",
         device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda sensor: sensor.humidity,
     ),
@@ -76,7 +74,7 @@ SENSOR_DESCRIPTIONS = [
     PurpleAirSensorEntityDescription(
         key="pm1.0_mass_concentration",
         device_class=SensorDeviceClass.PM1,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda sensor: sensor.pm1_0,
     ),
@@ -91,7 +89,7 @@ SENSOR_DESCRIPTIONS = [
     PurpleAirSensorEntityDescription(
         key="pm10.0_mass_concentration",
         device_class=SensorDeviceClass.PM10,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda sensor: sensor.pm10_0,
     ),
@@ -106,7 +104,7 @@ SENSOR_DESCRIPTIONS = [
     PurpleAirSensorEntityDescription(
         key="pm2.5_mass_concentration",
         device_class=SensorDeviceClass.PM25,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda sensor: sensor.pm2_5,
     ),
@@ -133,7 +131,7 @@ SENSOR_DESCRIPTIONS = [
         entity_registry_enabled_default=False,
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda sensor: sensor.pressure,
+        value_fn=lambda sensor: sensor.rssi,
     ),
     PurpleAirSensorEntityDescription(
         key="temperature",
@@ -165,13 +163,12 @@ SENSOR_DESCRIPTIONS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: PurpleAirConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up PurpleAir sensors based on a config entry."""
-    coordinator: PurpleAirDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        PurpleAirSensorEntity(coordinator, entry, sensor_index, description)
+        PurpleAirSensorEntity(entry, sensor_index, description)
         for sensor_index in entry.options[CONF_SENSOR_INDICES]
         for description in SENSOR_DESCRIPTIONS
     )
@@ -184,18 +181,18 @@ class PurpleAirSensorEntity(PurpleAirEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: PurpleAirDataUpdateCoordinator,
-        entry: ConfigEntry,
+        entry: PurpleAirConfigEntry,
         sensor_index: int,
         description: PurpleAirSensorEntityDescription,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator, entry, sensor_index)
+        super().__init__(entry, sensor_index)
 
         self._attr_unique_id = f"{self._sensor_index}-{description.key}"
         self.entity_description = description
 
     @property
+    @override
     def native_value(self) -> float | str | None:
         """Return the sensor value."""
         return self.entity_description.value_fn(self.sensor_data)

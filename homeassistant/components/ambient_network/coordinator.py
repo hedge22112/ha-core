@@ -1,9 +1,7 @@
 """DataUpdateCoordinator for the Ambient Weather Network integration."""
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, cast, override
 
 from aioambient import OpenAPI
 from aioambient.errors import RequestError
@@ -19,19 +17,30 @@ from .helper import get_station_name
 
 SCAN_INTERVAL = timedelta(minutes=5)
 
+type AmbientNetworkConfigEntry = ConfigEntry[AmbientNetworkDataUpdateCoordinator]
+
 
 class AmbientNetworkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """The Ambient Network Data Update Coordinator."""
 
-    config_entry: ConfigEntry
+    config_entry: AmbientNetworkConfigEntry
     station_name: str
     last_measured: datetime | None = None
 
-    def __init__(self, hass: HomeAssistant, api: OpenAPI) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: AmbientNetworkConfigEntry, api: OpenAPI
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass, LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL)
+        super().__init__(
+            hass,
+            LOGGER,
+            config_entry=config_entry,
+            name=DOMAIN,
+            update_interval=SCAN_INTERVAL,
+        )
         self.api = api
 
+    @override
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch the latest data from the Ambient Network."""
 

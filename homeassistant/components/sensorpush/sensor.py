@@ -1,6 +1,6 @@
 """Support for sensorpush ble sensors."""
 
-from __future__ import annotations
+from typing import override
 
 from sensorpush_ble import DeviceClass, DeviceKey, SensorUpdate, Units
 
@@ -23,7 +23,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 
 from . import SensorPushConfigEntry
@@ -97,7 +97,7 @@ def sensor_update_to_bluetooth_data_update(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SensorPushConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the SensorPush BLE sensors."""
     coordinator = entry.runtime_data
@@ -121,6 +121,7 @@ class SensorPushBluetoothSensorEntity(
     """Representation of a sensorpush ble sensor."""
 
     @property
+    @override
     def native_value(self) -> int | float | None:
         """Return the native value."""
         return self.processor.entity_data.get(self.entity_key)

@@ -1,10 +1,10 @@
 """Support for Genius Hub binary_sensor devices."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import GeniusHubConfigEntry
 from .entity import GeniusDevice
@@ -16,7 +16,7 @@ GH_TYPE = "Receiver"
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GeniusHubConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Genius Hub binary sensor entities."""
 
@@ -44,6 +44,7 @@ class GeniusBinarySensor(GeniusDevice, BinarySensorEntity):
             self._attr_name = f"{device.type} {device.id}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the status of the sensor."""
         return self._device.data["state"][self._state_attr]

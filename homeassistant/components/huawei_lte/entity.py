@@ -1,9 +1,7 @@
 """Support for Huawei LTE routers."""
 
-from __future__ import annotations
-
-from collections.abc import Callable
 from datetime import timedelta
+from typing import override
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -25,7 +23,6 @@ class HuaweiLteBaseEntity(Entity):
     def __init__(self, router: Router) -> None:
         """Initialize."""
         self.router = router
-        self._unsub_handlers: list[Callable] = []
 
     @property
     def _device_unique_id(self) -> str:
@@ -33,11 +30,13 @@ class HuaweiLteBaseEntity(Entity):
         raise NotImplementedError
 
     @property
+    @override
     def unique_id(self) -> str:
         """Return unique ID for entity."""
         return f"{self.router.config_entry.unique_id}-{self._device_unique_id}"
 
     @property
+    @override
     def available(self) -> bool:
         """Return whether the entity is available."""
         return self._available
@@ -46,9 +45,10 @@ class HuaweiLteBaseEntity(Entity):
         """Update state."""
         raise NotImplementedError
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Connect to update signals."""
-        self._unsub_handlers.append(
+        self.async_on_remove(
             async_dispatcher_connect(self.hass, UPDATE_SIGNAL, self._async_maybe_update)
         )
 
@@ -57,17 +57,12 @@ class HuaweiLteBaseEntity(Entity):
         if config_entry_unique_id == self.router.config_entry.unique_id:
             self.async_schedule_update_ha_state(True)
 
-    async def async_will_remove_from_hass(self) -> None:
-        """Invoke unsubscription handlers."""
-        for unsub in self._unsub_handlers:
-            unsub()
-        self._unsub_handlers.clear()
-
 
 class HuaweiLteBaseEntityWithDevice(HuaweiLteBaseEntity):
     """Base entity with device info."""
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Get info for matching with parent router."""
         return DeviceInfo(

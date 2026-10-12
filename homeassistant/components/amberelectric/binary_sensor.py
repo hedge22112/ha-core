@@ -1,20 +1,17 @@
 """Amber Electric Binary Sensor definitions."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import AmberConfigEntry
 from .const import ATTRIBUTION
-from .coordinator import AmberUpdateCoordinator
+from .coordinator import AmberConfigEntry, AmberUpdateCoordinator
 
 PRICE_SPIKE_ICONS = {
     "none": "mdi:power-plug",
@@ -42,6 +39,7 @@ class AmberPriceGridSensor(
         self._attr_unique_id = f"{coordinator.site_id}-{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
         return self.coordinator.data["grid"][self.entity_description.key]  # type: ignore[no-any-return]
@@ -51,17 +49,20 @@ class AmberPriceSpikeBinarySensor(AmberPriceGridSensor):
     """Sensor to show single grid binary values."""
 
     @property
+    @override
     def icon(self) -> str:
         """Return the sensor icon."""
         status = self.coordinator.data["grid"]["price_spike"]
         return PRICE_SPIKE_ICONS[status]
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
         return self.coordinator.data["grid"]["price_spike"] == "spike"  # type: ignore[no-any-return]
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional pieces of information about the price spike."""
 
@@ -75,6 +76,7 @@ class AmberDemandWindowBinarySensor(AmberPriceGridSensor):
     """Sensor to show whether demand window is active."""
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
         grid = self.coordinator.data["grid"]
@@ -86,7 +88,7 @@ class AmberDemandWindowBinarySensor(AmberPriceGridSensor):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AmberConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a config entry."""
     coordinator = entry.runtime_data

@@ -1,12 +1,10 @@
 """Platform for Kostal Plenticore sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -14,7 +12,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
@@ -25,12 +22,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .coordinator import ProcessDataUpdateCoordinator
+from .coordinator import PlenticoreConfigEntry, ProcessDataUpdateCoordinator
 from .helper import PlenticoreDataFormatter
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,7 +54,6 @@ SENSOR_PROCESS_DATA = [
         name="Solar Power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
-        entity_registry_enabled_default=True,
         state_class=SensorStateClass.MEASUREMENT,
         formatter="format_round",
     ),
@@ -68,7 +63,6 @@ SENSOR_PROCESS_DATA = [
         name="Grid Power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
-        entity_registry_enabled_default=True,
         state_class=SensorStateClass.MEASUREMENT,
         formatter="format_round",
     ),
@@ -123,7 +117,6 @@ SENSOR_PROCESS_DATA = [
         name="AC Power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
-        entity_registry_enabled_default=True,
         state_class=SensorStateClass.MEASUREMENT,
         formatter="format_round",
     ),
@@ -247,6 +240,7 @@ SENSOR_PROCESS_DATA = [
         name="Battery SoC",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
         formatter="format_round",
     ),
     PlenticoreSensorEntityDescription(
@@ -573,7 +567,6 @@ SENSOR_PROCESS_DATA = [
         name="Energy Yield Day",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        entity_registry_enabled_default=True,
         state_class=SensorStateClass.TOTAL_INCREASING,
         formatter="format_energy",
     ),
@@ -763,7 +756,6 @@ SENSOR_PROCESS_DATA = [
         name="Sum power of all PV DC inputs",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
-        entity_registry_enabled_default=True,
         state_class=SensorStateClass.MEASUREMENT,
         formatter="format_round",
     ),
@@ -807,20 +799,18 @@ SENSOR_PROCESS_DATA = [
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: PlenticoreConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add kostal plenticore Sensors."""
-    plenticore = hass.data[DOMAIN][entry.entry_id]
+    plenticore = entry.runtime_data
 
     entities = []
 
     available_process_data = await plenticore.client.get_process_data()
     process_data_update_coordinator = ProcessDataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        "Process Data",
-        timedelta(seconds=10),
-        plenticore,
+        hass, entry, _LOGGER, "Process Data", timedelta(seconds=10), plenticore
     )
     for description in SENSOR_PROCESS_DATA:
         module_id = description.module_id
@@ -878,6 +868,7 @@ class PlenticoreDataSensor(
         self._attr_name = f"{platform_name} {description.name}"
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available."""
         return (
@@ -887,6 +878,7 @@ class PlenticoreDataSensor(
             and self.data_id in self.coordinator.data[self.module_id]
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register this entity on the Update Coordinator."""
         await super().async_added_to_hass()
@@ -894,12 +886,14 @@ class PlenticoreDataSensor(
             self.coordinator.start_fetch_data(self.module_id, self.data_id)
         )
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Unregister this entity from the Update Coordinator."""
         self.coordinator.stop_fetch_data(self.module_id, self.data_id)
         await super().async_will_remove_from_hass()
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         if self.coordinator.data is None:

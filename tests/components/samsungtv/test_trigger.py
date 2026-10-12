@@ -8,16 +8,17 @@ from homeassistant.components import automation
 from homeassistant.components.samsungtv.const import DOMAIN
 from homeassistant.const import SERVICE_RELOAD, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 
 from . import setup_samsungtv_entry
-from .const import MOCK_ENTRYDATA_ENCRYPTED_WS
+from .const import ENTRYDATA_ENCRYPTED_WEBSOCKET
 
 from tests.common import MockEntity, MockEntityPlatform
 
 
-@pytest.mark.usefixtures("remoteencws", "rest_api")
+@pytest.mark.usefixtures("remote_encrypted_websocket", "rest_api")
 @pytest.mark.parametrize("entity_domain", ["media_player", "remote"])
 async def test_turn_on_trigger_device_id(
     hass: HomeAssistant,
@@ -26,12 +27,14 @@ async def test_turn_on_trigger_device_id(
     entity_domain: str,
 ) -> None:
     """Test for turn_on triggers by device_id firing."""
-    await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
+    entry = await setup_samsungtv_entry(hass, ENTRYDATA_ENCRYPTED_WEBSOCKET)
 
-    entity_id = f"{entity_domain}.fake"
+    entity_id = f"{entity_domain}.mock_title"
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "any")})
-    assert device, repr(device_registry.devices)
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "be9554b9-c9fb-41f4-8920-22da015376a4"), entry.entry_id
+    )
+    assert device, repr(device_registry._devices)
 
     assert await async_setup_component(
         hass,
@@ -69,28 +72,26 @@ async def test_turn_on_trigger_device_id(
 
     service_calls.clear()
 
-    # Ensure WOL backup is called when trigger not present
-    with patch(
-        "homeassistant.components.samsungtv.entity.send_magic_packet"
-    ) as mock_send_magic_packet:
+    # Turn on fails when trigger not present
+    with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
             entity_domain, SERVICE_TURN_ON, {"entity_id": entity_id}, blocking=True
         )
-        await hass.async_block_till_done()
+    await hass.async_block_till_done()
 
+    # Only the turn_on call itself was recorded, the automation did not fire
     assert len(service_calls) == 1
-    mock_send_magic_packet.assert_called()
 
 
-@pytest.mark.usefixtures("remoteencws", "rest_api")
+@pytest.mark.usefixtures("remote_encrypted_websocket", "rest_api")
 @pytest.mark.parametrize("entity_domain", ["media_player", "remote"])
 async def test_turn_on_trigger_entity_id(
     hass: HomeAssistant, service_calls: list[ServiceCall], entity_domain: str
 ) -> None:
     """Test for turn_on triggers by entity_id firing."""
-    await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
+    await setup_samsungtv_entry(hass, ENTRYDATA_ENCRYPTED_WEBSOCKET)
 
-    entity_id = f"{entity_domain}.fake"
+    entity_id = f"{entity_domain}.mock_title"
 
     assert await async_setup_component(
         hass,
@@ -124,13 +125,13 @@ async def test_turn_on_trigger_entity_id(
     assert service_calls[1].data["id"] == 0
 
 
-@pytest.mark.usefixtures("remoteencws", "rest_api")
+@pytest.mark.usefixtures("remote_encrypted_websocket", "rest_api")
 @pytest.mark.parametrize("entity_domain", ["media_player", "remote"])
 async def test_wrong_trigger_platform_type(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture, entity_domain: str
 ) -> None:
     """Test wrong trigger platform type."""
-    await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
+    await setup_samsungtv_entry(hass, ENTRYDATA_ENCRYPTED_WEBSOCKET)
     entity_id = f"{entity_domain}.fake"
 
     await async_setup_component(
@@ -161,13 +162,13 @@ async def test_wrong_trigger_platform_type(
     )
 
 
-@pytest.mark.usefixtures("remoteencws", "rest_api")
+@pytest.mark.usefixtures("remote_encrypted_websocket", "rest_api")
 @pytest.mark.parametrize("entity_domain", ["media_player", "remote"])
 async def test_trigger_invalid_entity_id(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture, entity_domain: str
 ) -> None:
     """Test turn on trigger using invalid entity_id."""
-    await setup_samsungtv_entry(hass, MOCK_ENTRYDATA_ENCRYPTED_WS)
+    await setup_samsungtv_entry(hass, ENTRYDATA_ENCRYPTED_WEBSOCKET)
     entity_id = f"{entity_domain}.fake"
 
     platform = MockEntityPlatform(hass)

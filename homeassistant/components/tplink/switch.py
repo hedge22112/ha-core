@@ -1,10 +1,8 @@
 """Support for TPLink switch entities."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import logging
-from typing import Any, cast
+from typing import Any, cast, override
 
 from kasa import Feature
 
@@ -14,10 +12,9 @@ from homeassistant.components.switch import (
     SwitchEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TPLinkConfigEntry
-from .deprecate import async_cleanup_deprecated
 from .entity import (
     CoordinatedTPLinkFeatureEntity,
     TPLinkFeatureEntityDescription,
@@ -75,6 +72,9 @@ SWITCH_DESCRIPTIONS: tuple[TPLinkSwitchEntityDescription, ...] = (
     TPLinkSwitchEntityDescription(
         key="baby_cry_detection",
     ),
+    TPLinkSwitchEntityDescription(
+        key="carpet_boost",
+    ),
 )
 
 SWITCH_DESCRIPTIONS_MAP = {desc.key: desc for desc in SWITCH_DESCRIPTIONS}
@@ -83,7 +83,7 @@ SWITCH_DESCRIPTIONS_MAP = {desc.key: desc for desc in SWITCH_DESCRIPTIONS}
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: TPLinkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up switches."""
     data = config_entry.runtime_data
@@ -100,10 +100,10 @@ async def async_setup_entry(
             feature_type=Feature.Switch,
             entity_class=TPLinkSwitch,
             descriptions=SWITCH_DESCRIPTIONS_MAP,
+            platform_domain=SWITCH_DOMAIN,
             known_child_device_ids=known_child_device_ids,
             first_check=first_check,
         )
-        async_cleanup_deprecated(hass, SWITCH_DOMAIN, config_entry.entry_id, entities)
         async_add_entities(entities)
 
     _check_device()
@@ -117,16 +117,19 @@ class TPLinkSwitch(CoordinatedTPLinkFeatureEntity, SwitchEntity):
     entity_description: TPLinkSwitchEntityDescription
 
     @async_refresh_after
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self._feature.set_value(True)
 
     @async_refresh_after
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self._feature.set_value(False)
 
     @callback
+    @override
     def _async_update_attrs(self) -> bool:
         """Update the entity's attributes."""
         self._attr_is_on = cast(bool | None, self._feature.value)

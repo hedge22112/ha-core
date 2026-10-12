@@ -1,24 +1,22 @@
 """Support for TPLink number entities."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import logging
-from typing import Final, cast
+from typing import Final, cast, override
 
 from kasa import Device, Feature
 
 from homeassistant.components.number import (
     DOMAIN as NUMBER_DOMAIN,
+    NumberDeviceClass,
     NumberEntity,
     NumberEntityDescription,
     NumberMode,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TPLinkConfigEntry
-from .deprecate import async_cleanup_deprecated
 from .entity import (
     CoordinatedTPLinkFeatureEntity,
     TPLinkDataUpdateCoordinator,
@@ -57,6 +55,7 @@ NUMBER_DESCRIPTIONS: Final = (
     TPLinkNumberEntityDescription(
         key="temperature_offset",
         mode=NumberMode.BOX,
+        device_class=NumberDeviceClass.TEMPERATURE_DELTA,
     ),
     TPLinkNumberEntityDescription(
         key="pan_step",
@@ -66,6 +65,14 @@ NUMBER_DESCRIPTIONS: Final = (
         key="tilt_step",
         mode=NumberMode.BOX,
     ),
+    TPLinkNumberEntityDescription(
+        key="power_protection_threshold",
+        mode=NumberMode.SLIDER,
+    ),
+    TPLinkNumberEntityDescription(
+        key="clean_count",
+        mode=NumberMode.SLIDER,
+    ),
 )
 
 NUMBER_DESCRIPTIONS_MAP = {desc.key: desc for desc in NUMBER_DESCRIPTIONS}
@@ -74,7 +81,7 @@ NUMBER_DESCRIPTIONS_MAP = {desc.key: desc for desc in NUMBER_DESCRIPTIONS}
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: TPLinkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up number entities."""
     data = config_entry.runtime_data
@@ -91,10 +98,10 @@ async def async_setup_entry(
             feature_type=Feature.Type.Number,
             entity_class=TPLinkNumberEntity,
             descriptions=NUMBER_DESCRIPTIONS_MAP,
+            platform_domain=NUMBER_DOMAIN,
             known_child_device_ids=known_child_device_ids,
             first_check=first_check,
         )
-        async_cleanup_deprecated(hass, NUMBER_DOMAIN, config_entry.entry_id, entities)
         async_add_entities(entities)
 
     _check_device()
@@ -124,11 +131,13 @@ class TPLinkNumberEntity(CoordinatedTPLinkFeatureEntity, NumberEntity):
         self._attr_native_max_value = self._feature.maximum_value
 
     @async_refresh_after
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set feature value."""
         await self._feature.set_value(int(value))
 
     @callback
+    @override
     def _async_update_attrs(self) -> bool:
         """Update the entity's attributes."""
         self._attr_native_value = cast(float | None, self._feature.value)

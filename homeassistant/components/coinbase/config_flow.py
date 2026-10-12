@@ -1,28 +1,24 @@
 """Config flow for Coinbase integration."""
 
-from __future__ import annotations
-
+from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 
 from coinbase.rest import RESTClient
 from coinbase.rest.rest_base import HTTPError
-from coinbase.wallet.client import Client as LegacyClient
-from coinbase.wallet.error import AuthenticationError
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import (
-    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_API_KEY, CONF_API_TOKEN, CONF_API_VERSION
+from homeassistant.const import CONF_API_KEY, CONF_API_TOKEN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 
-from . import get_accounts
+from . import CoinbaseConfigEntry, get_accounts
 from .const import (
     ACCOUNT_IS_VAULT,
     API_ACCOUNT_CURRENCY,
@@ -40,19 +36,16 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
+STEP_USER_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_API_KEY): str,
-        vol.Required(CONF_API_TOKEN): str,
+        probatio.Required(probatio.Secret(CONF_API_KEY)): str,
+        probatio.Required(probatio.Secret(CONF_API_TOKEN)): str,
     }
 )
 
 
 def get_user_from_client(api_key, api_token):
     """Get the user name from Coinbase API credentials."""
-    if "organizations" not in api_key:
-        client = LegacyClient(api_key, api_token)
-        return client.get_current_user()["name"]
     client = RESTClient(api_key=api_key, api_secret=api_token)
     return client.get_portfolios()["portfolios"][0]["name"]
 
@@ -64,7 +57,7 @@ async def validate_api(hass: HomeAssistant, data):
         user = await hass.async_add_executor_job(
             get_user_from_client, data[CONF_API_KEY], data[CONF_API_TOKEN]
         )
-    except (AuthenticationError, HTTPError) as error:
+    except HTTPError as error:
         if "api key" in str(error) or " 401 Client Error" in str(error):
             _LOGGER.debug("Coinbase rejected API credentials due to an invalid API key")
             raise InvalidKey from error
@@ -79,29 +72,28 @@ async def validate_api(hass: HomeAssistant, data):
         raise InvalidAuth from error
     except ConnectionError as error:
         raise CannotConnect from error
-    api_version = "v3" if "organizations" in data[CONF_API_KEY] else "v2"
-    return {"title": user, "api_version": api_version}
+
+    return {"title": user}
 
 
-async def validate_options(hass: HomeAssistant, config_entry: ConfigEntry, options):
+async def validate_options(
+    hass: HomeAssistant, config_entry: CoinbaseConfigEntry, options
+):
     """Validate the requested resources are provided by API."""
 
-    client = hass.data[DOMAIN][config_entry.entry_id].client
+    client = config_entry.runtime_data.client
 
-    accounts = await hass.async_add_executor_job(
-        get_accounts, client, config_entry.data.get("api_version", "v2")
-    )
+    accounts = await hass.async_add_executor_job(get_accounts, client)
 
     accounts_currencies = [
         account[API_ACCOUNT_CURRENCY]
         for account in accounts
         if not account[ACCOUNT_IS_VAULT]
     ]
-    if config_entry.data.get("api_version", "v2") == "v2":
-        available_rates = await hass.async_add_executor_job(client.get_exchange_rates)
-    else:
-        resp = await hass.async_add_executor_job(client.get, "/v2/exchange-rates")
-        available_rates = resp[API_DATA]
+
+    resp = await hass.async_add_executor_job(client.get, "/v2/exchange-rates")
+    available_rates = resp[API_DATA]
+
     if CONF_CURRENCIES in options:
         for currency in options[CONF_CURRENCIES]:
             if currency not in accounts_currencies:
@@ -120,6 +112,9 @@ class CoinbaseConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    reauth_entry: CoinbaseConfigEntry
+
+    @override
     async def async_step_user(
         self, user_input: dict[str, str] | None = None
     ) -> ConfigFlowResult:
@@ -146,22 +141,76 @@ class CoinbaseConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
-            user_input[CONF_API_VERSION] = info["api_version"]
             return self.async_create_entry(title=info["title"], data=user_input)
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
 
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle reauthentication flow."""
+        self.reauth_entry = self._get_reauth_entry()
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reauthentication confirmation."""
+        errors: dict[str, str] = {}
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=STEP_USER_DATA_SCHEMA,
+                description_placeholders={
+                    "account_name": self.reauth_entry.title,
+                    "developer_url": "https://www.coinbase.com/developer-platform",
+                },
+                errors=errors,
+            )
+
+        try:
+            await validate_api(self.hass, user_input)
+        except CannotConnect:
+            errors["base"] = "cannot_connect"
+        except InvalidKey:
+            errors["base"] = "invalid_auth_key"
+        except InvalidSecret:
+            errors["base"] = "invalid_auth_secret"
+        except InvalidAuth:
+            errors["base"] = "invalid_auth"
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
+            errors["base"] = "unknown"
+        else:
+            return self.async_update_reload_and_abort(
+                self.reauth_entry,
+                data_updates=user_input,
+                reason="reauth_successful",
+            )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            description_placeholders={
+                "account_name": self.reauth_entry.title,
+                "developer_url": "https://www.coinbase.com/developer-platform",
+            },
+            errors=errors,
+        )
+
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
-        config_entry: ConfigEntry,
+        config_entry: CoinbaseConfigEntry,
     ) -> OptionsFlowHandler:
         """Get the options flow for this handler."""
         return OptionsFlowHandler()
 
 
-class OptionsFlowHandler(OptionsFlow):
+class OptionsFlowHandler(OptionsFlowWithReload):
     """Handle a option flow for Coinbase."""
 
     async def async_step_init(
@@ -205,21 +254,21 @@ class OptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_CURRENCIES,
                         default=default_currencies,
                     ): cv.multi_select(WALLETS),
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_EXCHANGE_RATES,
                         default=default_exchange_rates,
                     ): cv.multi_select(RATES),
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_EXCHANGE_BASE,
                         default=default_exchange_base,
-                    ): vol.In(WALLETS),
-                    vol.Optional(
+                    ): probatio.In(WALLETS),
+                    probatio.Optional(
                         CONF_EXCHANGE_PRECISION, default=default_exchange_precision
                     ): int,
                 }
@@ -253,4 +302,4 @@ class CurrencyUnavailable(HomeAssistantError):
 
 
 class ExchangeRateUnavailable(HomeAssistantError):
-    """Error to indicate the requested exchange rate resource is not provided by the API."""
+    """Error to indicate the requested exchange rate is not provided by the API."""

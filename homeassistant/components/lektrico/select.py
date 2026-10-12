@@ -2,14 +2,14 @@
 
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from lektricowifi import Device
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import ATTR_SERIAL_NUMBER, CONF_TYPE, EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import LektricoConfigEntry, LektricoDeviceDataUpdateCoordinator
 from .entity import LektricoEntity
@@ -46,7 +46,7 @@ SELECTS: tuple[LektricoSelectEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: LektricoConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Lektrico select entities based on a config entry."""
 
@@ -79,10 +79,12 @@ class LektricoSelect(LektricoEntity, SelectEntity):
         self._attr_unique_id = f"{coordinator.serial_number}_{description.key}"
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return the state of the select."""
         return self.entity_description.value_fn(self.coordinator.data)
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         await self.entity_description.set_value_fn(

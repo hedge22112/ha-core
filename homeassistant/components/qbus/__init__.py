@@ -44,7 +44,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: QbusConfigEntry) -> bool
     _LOGGER.debug("%s - Loading entry", entry.unique_id)
 
     if not await async_wait_for_mqtt_client(hass):
-        _LOGGER.error("MQTT integration not available")
         raise ConfigEntryNotReady("MQTT integration not available")
 
     coordinator = QbusControllerCoordinator(hass, entry)
@@ -71,17 +70,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: QbusConfigEntry) -> boo
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         entry.runtime_data.shutdown()
-        cleanup(hass, entry)
+        _cleanup(hass, entry)
 
     return unload_ok
 
 
-def cleanup(hass: HomeAssistant, entry: QbusConfigEntry) -> None:
+def _cleanup(hass: HomeAssistant, entry: QbusConfigEntry) -> None:
     """Shutdown if no more entries are loaded."""
-    entries = hass.config_entries.async_loaded_entries(DOMAIN)
-    count = len(entries)
-
-    # During unloading of the entry, it is not marked as unloaded yet. So
-    # count can be 1 if it is the last one.
-    if count <= 1 and (config_coordinator := hass.data.get(QBUS_KEY)):
+    if not hass.config_entries.async_loaded_entries(DOMAIN) and (
+        config_coordinator := hass.data.get(QBUS_KEY)
+    ):
         config_coordinator.shutdown()

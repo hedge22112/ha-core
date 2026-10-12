@@ -1,12 +1,11 @@
 """The Recorder websocket API."""
 
-from __future__ import annotations
-
 import asyncio
 from datetime import datetime as dt
+import logging
 from typing import Any, Literal, cast
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import messages
@@ -14,10 +13,13 @@ from homeassistant.core import HomeAssistant, callback, valid_entity_id
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.json import json_bytes
+from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import (
+    ApparentPowerConverter,
     AreaConverter,
     BloodGlucoseConcentrationConverter,
+    CarbonMonoxideConcentrationConverter,
     ConductivityConverter,
     DataRateConverter,
     DistanceConverter,
@@ -25,24 +27,36 @@ from homeassistant.util.unit_conversion import (
     ElectricCurrentConverter,
     ElectricPotentialConverter,
     EnergyConverter,
+    EnergyDistanceConverter,
+    FrequencyConverter,
     InformationConverter,
     MassConverter,
+    MassVolumeConcentrationConverter,
+    NitrogenDioxideConcentrationConverter,
+    NitrogenMonoxideConcentrationConverter,
+    OzoneConcentrationConverter,
     PowerConverter,
     PressureConverter,
+    RadiationConcentrationConverter,
+    ReactiveEnergyConverter,
+    ReactivePowerConverter,
     SpeedConverter,
+    SulphurDioxideConcentrationConverter,
     TemperatureConverter,
+    TemperatureDeltaConverter,
     UnitlessRatioConverter,
     VolumeConverter,
     VolumeFlowRateConverter,
 )
 
-from .models import StatisticPeriod
+from .models import StatisticMeanType, StatisticPeriod
 from .statistics import (
-    STATISTIC_UNIT_TO_UNIT_CONVERTER,
+    UNIT_CLASS_TO_UNIT_CONVERTER,
     async_add_external_statistics,
     async_change_statistics_unit,
     async_import_statistics,
     async_list_statistic_ids,
+    async_update_statistics_metadata,
     list_statistic_ids,
     statistic_during_period,
     statistics_during_period,
@@ -51,31 +65,78 @@ from .statistics import (
 )
 from .util import PERIOD_SCHEMA, get_instance, resolve_period
 
+_LOGGER = logging.getLogger(__name__)
+
 CLEAR_STATISTICS_TIME_OUT = 10
 UPDATE_STATISTICS_METADATA_TIME_OUT = 10
 
-UNIT_SCHEMA = vol.Schema(
+UNIT_SCHEMA = probatio.Schema(
     {
-        vol.Optional("area"): vol.In(AreaConverter.VALID_UNITS),
-        vol.Optional("blood_glucose_concentration"): vol.In(
+        probatio.Optional("apparent_power"): probatio.In(
+            ApparentPowerConverter.VALID_UNITS
+        ),
+        probatio.Optional("area"): probatio.In(AreaConverter.VALID_UNITS),
+        probatio.Optional("blood_glucose_concentration"): probatio.In(
             BloodGlucoseConcentrationConverter.VALID_UNITS
         ),
-        vol.Optional("conductivity"): vol.In(ConductivityConverter.VALID_UNITS),
-        vol.Optional("data_rate"): vol.In(DataRateConverter.VALID_UNITS),
-        vol.Optional("distance"): vol.In(DistanceConverter.VALID_UNITS),
-        vol.Optional("duration"): vol.In(DurationConverter.VALID_UNITS),
-        vol.Optional("electric_current"): vol.In(ElectricCurrentConverter.VALID_UNITS),
-        vol.Optional("voltage"): vol.In(ElectricPotentialConverter.VALID_UNITS),
-        vol.Optional("energy"): vol.In(EnergyConverter.VALID_UNITS),
-        vol.Optional("information"): vol.In(InformationConverter.VALID_UNITS),
-        vol.Optional("mass"): vol.In(MassConverter.VALID_UNITS),
-        vol.Optional("power"): vol.In(PowerConverter.VALID_UNITS),
-        vol.Optional("pressure"): vol.In(PressureConverter.VALID_UNITS),
-        vol.Optional("speed"): vol.In(SpeedConverter.VALID_UNITS),
-        vol.Optional("temperature"): vol.In(TemperatureConverter.VALID_UNITS),
-        vol.Optional("unitless"): vol.In(UnitlessRatioConverter.VALID_UNITS),
-        vol.Optional("volume"): vol.In(VolumeConverter.VALID_UNITS),
-        vol.Optional("volume_flow_rate"): vol.In(VolumeFlowRateConverter.VALID_UNITS),
+        probatio.Optional("carbon_monoxide"): probatio.In(
+            CarbonMonoxideConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("concentration"): probatio.In(
+            MassVolumeConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("conductivity"): probatio.In(
+            ConductivityConverter.VALID_UNITS
+        ),
+        probatio.Optional("data_rate"): probatio.In(DataRateConverter.VALID_UNITS),
+        probatio.Optional("distance"): probatio.In(DistanceConverter.VALID_UNITS),
+        probatio.Optional("duration"): probatio.In(DurationConverter.VALID_UNITS),
+        probatio.Optional("electric_current"): probatio.In(
+            ElectricCurrentConverter.VALID_UNITS
+        ),
+        probatio.Optional("energy"): probatio.In(EnergyConverter.VALID_UNITS),
+        probatio.Optional("energy_distance"): probatio.In(
+            EnergyDistanceConverter.VALID_UNITS
+        ),
+        probatio.Optional("frequency"): probatio.In(FrequencyConverter.VALID_UNITS),
+        probatio.Optional("information"): probatio.In(InformationConverter.VALID_UNITS),
+        probatio.Optional("mass"): probatio.In(MassConverter.VALID_UNITS),
+        probatio.Optional("nitrogen_dioxide"): probatio.In(
+            NitrogenDioxideConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("nitrogen_monoxide"): probatio.In(
+            NitrogenMonoxideConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("ozone"): probatio.In(
+            OzoneConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("power"): probatio.In(PowerConverter.VALID_UNITS),
+        probatio.Optional("pressure"): probatio.In(PressureConverter.VALID_UNITS),
+        probatio.Optional("radiation_concentration"): probatio.In(
+            RadiationConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("reactive_energy"): probatio.In(
+            ReactiveEnergyConverter.VALID_UNITS
+        ),
+        probatio.Optional("reactive_power"): probatio.In(
+            ReactivePowerConverter.VALID_UNITS
+        ),
+        probatio.Optional("speed"): probatio.In(SpeedConverter.VALID_UNITS),
+        probatio.Optional("sulphur_dioxide"): probatio.In(
+            SulphurDioxideConcentrationConverter.VALID_UNITS
+        ),
+        probatio.Optional("temperature"): probatio.In(TemperatureConverter.VALID_UNITS),
+        probatio.Optional("temperature_delta"): probatio.In(
+            TemperatureDeltaConverter.VALID_UNITS
+        ),
+        probatio.Optional("unitless"): probatio.In(UnitlessRatioConverter.VALID_UNITS),
+        probatio.Optional("voltage"): probatio.In(
+            ElectricPotentialConverter.VALID_UNITS
+        ),
+        probatio.Optional("volume"): probatio.In(VolumeConverter.VALID_UNITS),
+        probatio.Optional("volume_flow_rate"): probatio.In(
+            VolumeFlowRateConverter.VALID_UNITS
+        ),
     }
 )
 
@@ -118,12 +179,12 @@ def _ws_get_statistic_during_period(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/statistic_during_period",
-        vol.Required("statistic_id"): str,
-        vol.Optional("types"): vol.All(
-            [vol.Any("max", "mean", "min", "change")], vol.Coerce(set)
+        probatio.Required("type"): "recorder/statistic_during_period",
+        probatio.Required("statistic_id"): str,
+        probatio.Optional("types"): probatio.All(
+            [probatio.Any("max", "mean", "min", "change")], probatio.Coerce(set)
         ),
-        vol.Optional("units"): UNIT_SCHEMA,
+        probatio.Optional("units"): UNIT_SCHEMA,
         **PERIOD_SCHEMA.schema,
     }
 )
@@ -159,7 +220,7 @@ def _ws_get_statistics_during_period(
     start_time: dt,
     end_time: dt | None,
     statistic_ids: set[str] | None,
-    period: Literal["5minute", "day", "hour", "week", "month"],
+    period: Literal["5minute", "day", "hour", "week", "month", "year"],
     units: dict[str, str],
     types: set[Literal["change", "last_reset", "max", "mean", "min", "state", "sum"]],
 ) -> bytes:
@@ -224,15 +285,21 @@ async def ws_handle_get_statistics_during_period(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/statistics_during_period",
-        vol.Required("start_time"): str,
-        vol.Optional("end_time"): str,
-        vol.Required("statistic_ids"): vol.All([str], vol.Length(min=1)),
-        vol.Required("period"): vol.Any("5minute", "hour", "day", "week", "month"),
-        vol.Optional("units"): UNIT_SCHEMA,
-        vol.Optional("types"): vol.All(
-            [vol.Any("change", "last_reset", "max", "mean", "min", "state", "sum")],
-            vol.Coerce(set),
+        probatio.Required("type"): "recorder/statistics_during_period",
+        probatio.Required("start_time"): str,
+        probatio.Optional("end_time"): str,
+        probatio.Required("statistic_ids"): probatio.All([str], probatio.NonEmpty()),
+        probatio.Required("period"): probatio.Any(
+            "5minute", "hour", "day", "week", "month", "year"
+        ),
+        probatio.Optional("units"): UNIT_SCHEMA,
+        probatio.Optional("types"): probatio.All(
+            [
+                probatio.Any(
+                    "change", "last_reset", "max", "mean", "min", "state", "sum"
+                )
+            ],
+            probatio.Coerce(set),
         ),
     }
 )
@@ -274,8 +341,8 @@ async def ws_handle_list_statistic_ids(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/list_statistic_ids",
-        vol.Optional("statistic_type"): vol.Any("sum", "mean"),
+        probatio.Required("type"): "recorder/list_statistic_ids",
+        probatio.Optional("statistic_type"): probatio.Any("sum", "mean"),
     }
 )
 @websocket_api.async_response
@@ -288,25 +355,25 @@ async def ws_list_statistic_ids(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/validate_statistics",
+        probatio.Required("type"): "recorder/validate_statistics",
     }
 )
 @websocket_api.async_response
 async def ws_validate_statistics(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Fetch a list of available statistic_id."""
+    """Validate statistics and return issues found."""
     instance = get_instance(hass)
-    statistic_ids = await instance.async_add_executor_job(
+    validation_issues = await instance.async_add_executor_job(
         validate_statistics,
         hass,
     )
-    connection.send_result(msg["id"], statistic_ids)
+    connection.send_result(msg["id"], validation_issues)
 
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/update_statistics_issues",
+        probatio.Required("type"): "recorder/update_statistics_issues",
     }
 )
 @websocket_api.async_response
@@ -325,8 +392,8 @@ async def ws_update_statistics_issues(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/clear_statistics",
-        vol.Required("statistic_ids"): [str],
+        probatio.Required("type"): "recorder/clear_statistics",
+        probatio.Required("statistic_ids"): [str],
     }
 )
 @websocket_api.async_response
@@ -360,8 +427,8 @@ async def ws_clear_statistics(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/get_statistics_metadata",
-        vol.Optional("statistic_ids"): [str],
+        probatio.Required("type"): "recorder/get_statistics_metadata",
+        probatio.Optional("statistic_ids"): [str],
     }
 )
 @websocket_api.async_response
@@ -378,9 +445,10 @@ async def ws_get_statistics_metadata(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/update_statistics_metadata",
-        vol.Required("statistic_id"): str,
-        vol.Required("unit_of_measurement"): vol.Any(str, None),
+        probatio.Required("type"): "recorder/update_statistics_metadata",
+        probatio.Required("statistic_id"): str,
+        probatio.Optional("unit_class"): probatio.Any(str, None),
+        probatio.Required("unit_of_measurement"): probatio.Any(str, None),
     }
 )
 @websocket_api.async_response
@@ -389,6 +457,8 @@ async def ws_update_statistics_metadata(
 ) -> None:
     """Update statistics metadata for a statistic_id.
 
+    The unit_class specifies which unit conversion class to use, if applicable.
+
     Only the normalized unit of measurement can be updated.
     """
     done_event = asyncio.Event()
@@ -396,10 +466,20 @@ async def ws_update_statistics_metadata(
     def update_statistics_metadata_done() -> None:
         hass.loop.call_soon_threadsafe(done_event.set)
 
-    get_instance(hass).async_update_statistics_metadata(
+    if "unit_class" not in msg:
+        _LOGGER.warning(
+            "WS command recorder/update_statistics_metadata called without "
+            "specifying unit_class in metadata, this is deprecated and will "
+            "stop working in HA Core 2026.11"
+        )
+
+    async_update_statistics_metadata(
+        hass,
         msg["statistic_id"],
+        new_unit_class=msg.get("unit_class", UNDEFINED),
         new_unit_of_measurement=msg["unit_of_measurement"],
         on_done=update_statistics_metadata_done,
+        _called_from_ws_api=True,
     )
     try:
         async with asyncio.timeout(UPDATE_STATISTICS_METADATA_TIME_OUT):
@@ -416,21 +496,21 @@ async def ws_update_statistics_metadata(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/change_statistics_unit",
-        vol.Required("statistic_id"): str,
-        vol.Required("new_unit_of_measurement"): vol.Any(str, None),
-        vol.Required("old_unit_of_measurement"): vol.Any(str, None),
+        probatio.Required("type"): "recorder/change_statistics_unit",
+        probatio.Required("statistic_id"): str,
+        probatio.Required("new_unit_of_measurement"): probatio.Any(str, None),
+        probatio.Required("old_unit_of_measurement"): probatio.Any(str, None),
     }
 )
-@callback
-def ws_change_statistics_unit(
+@websocket_api.async_response
+async def ws_change_statistics_unit(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Change the unit_of_measurement for a statistic_id.
 
     All existing statistics will be converted to the new unit.
     """
-    async_change_statistics_unit(
+    await async_change_statistics_unit(
         hass,
         msg["statistic_id"],
         new_unit_of_measurement=msg["new_unit_of_measurement"],
@@ -442,11 +522,11 @@ def ws_change_statistics_unit(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/adjust_sum_statistics",
-        vol.Required("statistic_id"): str,
-        vol.Required("start_time"): str,
-        vol.Required("adjustment"): vol.Any(float, int),
-        vol.Required("adjustment_unit_of_measurement"): vol.Any(str, None),
+        probatio.Required("type"): "recorder/adjust_sum_statistics",
+        probatio.Required("statistic_id"): str,
+        probatio.Required("start_time"): str,
+        probatio.Required("adjustment"): probatio.Any(int, float),
+        probatio.Required("adjustment_unit_of_measurement"): probatio.Any(str, None),
     }
 )
 @websocket_api.async_response
@@ -475,17 +555,23 @@ async def ws_adjust_sum_statistics(
         return
     metadata = metadatas[0]
 
-    def valid_units(statistics_unit: str | None, adjustment_unit: str | None) -> bool:
+    def valid_units(
+        unit_class: str | None, statistics_unit: str | None, adjustment_unit: str | None
+    ) -> bool:
         if statistics_unit == adjustment_unit:
             return True
-        converter = STATISTIC_UNIT_TO_UNIT_CONVERTER.get(statistics_unit)
-        if converter is not None and adjustment_unit in converter.VALID_UNITS:
+        if (
+            (converter := UNIT_CLASS_TO_UNIT_CONVERTER.get(unit_class)) is not None
+            and statistics_unit in converter.VALID_UNITS
+            and adjustment_unit in converter.VALID_UNITS
+        ):
             return True
         return False
 
+    unit_class = metadata["unit_class"]
     stat_unit = metadata["statistics_unit_of_measurement"]
     adjustment_unit = msg["adjustment_unit_of_measurement"]
-    if not valid_units(stat_unit, adjustment_unit):
+    if not valid_units(unit_class, stat_unit, adjustment_unit):
         connection.send_error(
             msg["id"],
             "invalid_units",
@@ -502,24 +588,29 @@ async def ws_adjust_sum_statistics(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "recorder/import_statistics",
-        vol.Required("metadata"): {
-            vol.Required("has_mean"): bool,
-            vol.Required("has_sum"): bool,
-            vol.Required("name"): vol.Any(str, None),
-            vol.Required("source"): str,
-            vol.Required("statistic_id"): str,
-            vol.Required("unit_of_measurement"): vol.Any(str, None),
+        probatio.Required("type"): "recorder/import_statistics",
+        probatio.Required("metadata"): {
+            probatio.Optional("has_mean"): bool,
+            probatio.Optional("mean_type"): probatio.All(
+                probatio.In(StatisticMeanType.__members__.values()),
+                probatio.Coerce(StatisticMeanType),
+            ),
+            probatio.Required("has_sum"): bool,
+            probatio.Required("name"): probatio.Any(str, None),
+            probatio.Required("source"): str,
+            probatio.Required("statistic_id"): str,
+            probatio.Optional("unit_class"): probatio.Any(str, None),
+            probatio.Required("unit_of_measurement"): probatio.Any(str, None),
         },
-        vol.Required("stats"): [
+        probatio.Required("stats"): [
             {
-                vol.Required("start"): cv.datetime,
-                vol.Optional("mean"): vol.Any(float, int),
-                vol.Optional("min"): vol.Any(float, int),
-                vol.Optional("max"): vol.Any(float, int),
-                vol.Optional("last_reset"): vol.Any(cv.datetime, None),
-                vol.Optional("state"): vol.Any(float, int),
-                vol.Optional("sum"): vol.Any(float, int),
+                probatio.Required("start"): cv.datetime,
+                probatio.Optional("mean"): probatio.Any(int, float),
+                probatio.Optional("min"): probatio.Any(int, float),
+                probatio.Optional("max"): probatio.Any(int, float),
+                probatio.Optional("last_reset"): probatio.Any(cv.datetime, None),
+                probatio.Optional("state"): probatio.Any(int, float),
+                probatio.Optional("sum"): probatio.Any(int, float),
             }
         ],
     }
@@ -528,12 +619,27 @@ async def ws_adjust_sum_statistics(
 def ws_import_statistics(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Import statistics."""
+    """Import statistics.
+
+    The unit_class specifies which unit conversion class to use, if applicable.
+    """
     metadata = msg["metadata"]
+    if "mean_type" not in metadata:
+        _LOGGER.warning(
+            "WS command recorder/import_statistics called without specifying "
+            "mean_type in metadata, this is deprecated and will stop working "
+            "in HA Core 2026.11"
+        )
+    if "unit_class" not in metadata:
+        _LOGGER.warning(
+            "WS command recorder/import_statistics called without specifying "
+            "unit_class in metadata, this is deprecated and will stop working "
+            "in HA Core 2026.11"
+        )
     stats = msg["stats"]
 
     if valid_entity_id(metadata["statistic_id"]):
-        async_import_statistics(hass, metadata, stats)
+        async_import_statistics(hass, metadata, stats, _called_from_ws_api=True)
     else:
-        async_add_external_statistics(hass, metadata, stats)
+        async_add_external_statistics(hass, metadata, stats, _called_from_ws_api=True)
     connection.send_result(msg["id"])

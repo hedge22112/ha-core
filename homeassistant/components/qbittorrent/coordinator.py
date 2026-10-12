@@ -1,9 +1,8 @@
 """The QBittorrent coordinator."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
+from typing import override
 
 from qbittorrentapi import (
     APIConnectionError,
@@ -15,6 +14,7 @@ from qbittorrentapi import (
 )
 from qbittorrentapi.torrents import TorrentStatusesT
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -23,11 +23,17 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+type QBittorrentConfigEntry = ConfigEntry[QBittorrentDataCoordinator]
+
 
 class QBittorrentDataCoordinator(DataUpdateCoordinator[SyncMainDataDictionary]):
     """Coordinator for updating QBittorrent data."""
 
-    def __init__(self, hass: HomeAssistant, client: Client) -> None:
+    config_entry: QBittorrentConfigEntry
+
+    def __init__(
+        self, hass: HomeAssistant, config_entry: QBittorrentConfigEntry, client: Client
+    ) -> None:
         """Initialize coordinator."""
         self.client = client
         self._is_alternative_mode_enabled = False
@@ -42,10 +48,12 @@ class QBittorrentDataCoordinator(DataUpdateCoordinator[SyncMainDataDictionary]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=timedelta(seconds=30),
         )
 
+    @override
     async def _async_update_data(self) -> SyncMainDataDictionary:
         try:
             data = await self.hass.async_add_executor_job(self.client.sync_maindata)

@@ -1,19 +1,21 @@
 """Support for Nanoleaf event entity."""
 
+from typing import override
+
 from homeassistant.components.event import EventEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import NanoleafConfigEntry, NanoleafCoordinator
 from .const import TOUCH_MODELS
+from .coordinator import NanoleafConfigEntry, NanoleafCoordinator
 from .entity import NanoleafEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NanoleafConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Nanoleaf event."""
     coordinator = entry.runtime_data
@@ -25,6 +27,8 @@ class NanoleafGestureEvent(NanoleafEntity, EventEntity):
     """Representation of a Nanoleaf event entity."""
 
     _attr_event_types = [
+        "single_tap",
+        "double_tap",
         "swipe_up",
         "swipe_down",
         "swipe_left",
@@ -37,6 +41,7 @@ class NanoleafGestureEvent(NanoleafEntity, EventEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{self._nanoleaf.serial_no}_gesture"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe to Nanoleaf events."""
         await super().async_added_to_hass()

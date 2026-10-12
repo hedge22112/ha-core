@@ -1,9 +1,8 @@
 """Sensor for monitoring the size of a file."""
 
-from __future__ import annotations
-
 from datetime import datetime
 import logging
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -14,12 +13,11 @@ from homeassistant.components.sensor import (
 from homeassistant.const import EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import FileSizeConfigEntry
 from .const import DOMAIN
-from .coordinator import FileSizeCoordinator
+from .coordinator import FileSizeConfigEntry, FileSizeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,7 +58,7 @@ SENSOR_TYPES = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FileSizeConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the platform from config entry."""
     async_add_entities(
@@ -92,6 +90,7 @@ class FilesizeEntity(CoordinatorEntity[FileSizeCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> float | int | datetime:
         """Return the value of the sensor."""
         value: float | int | datetime = self.coordinator.data[

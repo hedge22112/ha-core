@@ -1,10 +1,9 @@
 """Zerproc light platform."""
-
-from __future__ import annotations
+# pylint: disable=home-assistant-use-runtime-data  # Uses legacy hass.data[DOMAIN] pattern
 
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 import pyzerproc
 
@@ -18,9 +17,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
-import homeassistant.util.color as color_util
+from homeassistant.util import color as color_util
 
 from .const import DATA_ADDRESSES, DATA_DISCOVERY_SUBSCRIPTION, DOMAIN
 
@@ -51,7 +50,7 @@ async def discover_entities(hass: HomeAssistant) -> list[ZerprocLight]:
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Zerproc light devices."""
     warned = False
@@ -96,6 +95,7 @@ class ZerprocLight(LightEntity):
             name=light.name,
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         self.async_on_remove(
@@ -106,6 +106,7 @@ class ZerprocLight(LightEntity):
         """Run on EVENT_HOMEASSISTANT_STOP."""
         await self.async_will_remove_from_hass()
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
         try:
@@ -115,6 +116,7 @@ class ZerprocLight(LightEntity):
                 "Exception disconnecting from %s", self._light.address, exc_info=True
             )
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Instruct the light to turn on."""
         if ATTR_BRIGHTNESS in kwargs or ATTR_HS_COLOR in kwargs:
@@ -131,6 +133,7 @@ class ZerprocLight(LightEntity):
         else:
             await self._light.turn_on()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Instruct the light to turn off."""
         await self._light.turn_off()
@@ -152,4 +155,4 @@ class ZerprocLight(LightEntity):
         self._attr_is_on = state.is_on
         hsv = color_util.color_RGB_to_hsv(*state.color)
         self._attr_hs_color = hsv[:2]
-        self._attr_brightness = int(round((hsv[2] / 100) * 255))
+        self._attr_brightness = round((hsv[2] / 100) * 255)

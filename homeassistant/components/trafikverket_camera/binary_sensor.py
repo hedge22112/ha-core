@@ -1,16 +1,15 @@
 """Binary sensor platform for Trafikverket Camera integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TVCameraConfigEntry
 from .coordinator import CameraData
@@ -36,7 +35,7 @@ BINARY_SENSOR_TYPE = TVCameraSensorEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TVCameraConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Trafikverket Camera binary sensor platform."""
 
@@ -58,6 +57,7 @@ class TrafikverketCameraBinarySensor(
     entity_description: TVCameraSensorEntityDescription
 
     @callback
+    @override
     def _update_attr(self) -> None:
         """Update _attr."""
         self._attr_is_on = self.entity_description.value_fn(self.coordinator.data)

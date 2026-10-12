@@ -1,15 +1,13 @@
 """Support for MQTT lights."""
 
-from __future__ import annotations
-
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import light
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, VolSchemaType
 
 from ..entity import async_setup_entity_entry_helper
@@ -55,13 +53,13 @@ def validate_mqtt_light_modern(config_value: dict[str, Any]) -> ConfigType:
     return config
 
 
-DISCOVERY_SCHEMA = vol.All(
-    MQTT_LIGHT_SCHEMA_SCHEMA.extend({}, extra=vol.ALLOW_EXTRA),
+DISCOVERY_SCHEMA = probatio.All(
+    MQTT_LIGHT_SCHEMA_SCHEMA.extend({}, extra=probatio.ALLOW_EXTRA),
     validate_mqtt_light_discovery,
 )
 
-PLATFORM_SCHEMA_MODERN = vol.All(
-    MQTT_LIGHT_SCHEMA_SCHEMA.extend({}, extra=vol.ALLOW_EXTRA),
+PLATFORM_SCHEMA_MODERN = probatio.All(
+    MQTT_LIGHT_SCHEMA_SCHEMA.extend({}, extra=probatio.ALLOW_EXTRA),
     validate_mqtt_light_modern,
 )
 
@@ -69,7 +67,7 @@ PLATFORM_SCHEMA_MODERN = vol.All(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up MQTT lights through YAML and through MQTT discovery."""
     async_setup_entity_entry_helper(

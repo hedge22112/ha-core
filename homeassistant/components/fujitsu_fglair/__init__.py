@@ -1,23 +1,18 @@
 """The Fujitsu HVAC (based on Ayla IOT) integration."""
 
-from __future__ import annotations
-
 from contextlib import suppress
 
 from ayla_iot_unofficial import new_ayla_api
 from ayla_iot_unofficial.fujitsu_consts import FGLAIR_APP_CREDENTIALS
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
+from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 
-from .const import API_TIMEOUT, CONF_EUROPE, CONF_REGION, REGION_DEFAULT, REGION_EU
-from .coordinator import FGLairCoordinator
+from .const import API_TIMEOUT, CONF_EUROPE, REGION_DEFAULT, REGION_EU
+from .coordinator import FGLairConfigEntry, FGLairCoordinator
 
 PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR]
-
-type FGLairConfigEntry = ConfigEntry[FGLairCoordinator]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FGLairConfigEntry) -> bool:
@@ -33,7 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FGLairConfigEntry) -> bo
         timeout=API_TIMEOUT,
     )
 
-    coordinator = FGLairCoordinator(hass, api)
+    coordinator = FGLairCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
@@ -53,8 +48,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: FGLairConfigEntry) -> b
 
 async def async_migrate_entry(hass: HomeAssistant, entry: FGLairConfigEntry) -> bool:
     """Migrate old entry."""
-    if entry.version > 1:
-        return False
 
     if entry.version == 1:
         new_data = {**entry.data}

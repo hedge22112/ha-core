@@ -1,15 +1,13 @@
 """Helper to import modules from asyncio."""
 
-from __future__ import annotations
-
 import asyncio
-from contextlib import suppress
 import importlib
 import logging
 import sys
 from types import ModuleType
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util.async_ import wait_shared_future
 from homeassistant.util.hass_dict import HassKey
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,7 +37,7 @@ async def async_import_module(hass: HomeAssistant, name: str) -> ModuleType:
 
     import_futures = hass.data.setdefault(DATA_IMPORT_FUTURES, {})
     if future := import_futures.get(name):
-        return await future
+        return await wait_shared_future(future)
 
     if name in sys.modules:
         return _get_module(cache, name)
@@ -53,11 +51,10 @@ async def async_import_module(hass: HomeAssistant, name: str) -> ModuleType:
         if isinstance(ex, ModuleNotFoundError):
             failure_cache[name] = True
         import_future.set_exception(ex)
-        with suppress(BaseException):
-            # Set the exception retrieved flag on the future since
-            # it will never be retrieved unless there
-            # are concurrent calls
-            import_future.result()
+        # Set the exception retrieved flag on the future since
+        # it will never be retrieved unless there
+        # are concurrent calls
+        import_future.exception()
         raise
     finally:
         del import_futures[name]

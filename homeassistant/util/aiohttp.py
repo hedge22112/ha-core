@@ -1,7 +1,5 @@
 """Utilities to help with aiohttp."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 import io
 from typing import Any
@@ -28,14 +26,28 @@ class MockStreamReader:
         return self._content.read(byte_count)
 
 
+class MockStreamReaderChunked(MockStreamReader):
+    """Mock a stream reader with simulated chunked data."""
+
+    async def readchunk(self) -> tuple[bytes, bool]:
+        """Read bytes."""
+        return (self._content.read(), False)
+
+
 class MockPayloadWriter:
     """Small mock to imitate payload writer."""
 
     def enable_chunking(self) -> None:
         """Enable chunking."""
 
+    def send_headers(self, *args: Any, **kwargs: Any) -> None:
+        """Write headers."""
+
     async def write_headers(self, *args: Any, **kwargs: Any) -> None:
         """Write headers."""
+
+    async def write(self, *args: Any, **kwargs: Any) -> None:
+        """Write payload."""
 
 
 _MOCK_PAYLOAD_WRITER = MockPayloadWriter()
@@ -44,7 +56,7 @@ _MOCK_PAYLOAD_WRITER = MockPayloadWriter()
 class MockRequest:
     """Mock an aiohttp request."""
 
-    mock_source: str | None = None
+    mock_source: str
 
     def __init__(
         self,
@@ -55,6 +67,7 @@ class MockRequest:
         headers: dict[str, str] | None = None,
         query_string: str | None = None,
         url: str = "",
+        remote: str | None = None,
     ) -> None:
         """Initialize a request."""
         self.method = method
@@ -67,6 +80,7 @@ class MockRequest:
         self._content = content
         self.mock_source = mock_source
         self._payload_writer = _MOCK_PAYLOAD_WRITER
+        self.remote = remote
 
     async def _prepare_hook(self, response: Any) -> None:
         """Prepare hook."""

@@ -2,7 +2,7 @@
 
 import logging
 
-import voluptuous as vol
+import probatio
 import xs1_api_client
 
 from homeassistant.const import (
@@ -14,8 +14,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import discovery
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv, discovery
 from homeassistant.helpers.typing import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,19 +24,19 @@ ACTUATORS = "actuators"
 SENSORS = "sensors"
 
 # define configuration parameters
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        DOMAIN: vol.Schema(
+        DOMAIN: probatio.Schema(
             {
-                vol.Required(CONF_HOST): cv.string,
-                vol.Optional(CONF_PASSWORD): cv.string,
-                vol.Optional(CONF_PORT, default=80): cv.string,
-                vol.Optional(CONF_SSL, default=False): cv.boolean,
-                vol.Optional(CONF_USERNAME): cv.string,
+                probatio.Required(CONF_HOST): cv.string,
+                probatio.Optional(probatio.Secret(CONF_PASSWORD)): cv.string,
+                probatio.Optional(CONF_PORT, default=80): cv.string,
+                probatio.Optional(CONF_SSL, default=False): cv.boolean,
+                probatio.Optional(CONF_USERNAME): cv.string,
             }
         )
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=probatio.ALLOW_EXTRA,
 )
 
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH]

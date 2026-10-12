@@ -1,28 +1,26 @@
 """Config flow for Switcher integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
-from typing import Any, Final
+from typing import Any, Final, override
 
-from aioswitcher.bridge import SwitcherBase
+from aioswitcher.device import SwitcherBase
 from aioswitcher.device.tools import validate_token
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_TOKEN, CONF_USERNAME
 
-from .const import DOMAIN
+from .const import DOMAIN, PREREQUISITES_URL
 from .utils import async_discover_devices
 
 _LOGGER = logging.getLogger(__name__)
 
 
-CONFIG_SCHEMA: Final = vol.Schema(
+CONFIG_SCHEMA: Final = probatio.Schema(
     {
-        vol.Required(CONF_USERNAME, default=""): str,
-        vol.Required(CONF_TOKEN, default=""): str,
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(probatio.Secret(CONF_TOKEN)): str,
     }
 )
 
@@ -32,10 +30,14 @@ class SwitcherFlowHandler(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    username: str | None = None
-    token: str | None = None
-    discovered_devices: dict[str, SwitcherBase] = {}
+    def __init__(self) -> None:
+        """Init the config flow."""
+        super().__init__()
+        self.discovered_devices: dict[str, SwitcherBase] = {}
+        self.username: str | None = None
+        self.token: str | None = None
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -74,7 +76,10 @@ class SwitcherFlowHandler(ConfigFlow, domain=DOMAIN):
             errors["base"] = "invalid_auth"
 
         return self.async_show_form(
-            step_id="credentials", data_schema=CONFIG_SCHEMA, errors=errors
+            step_id="credentials",
+            data_schema=CONFIG_SCHEMA,
+            errors=errors,
+            description_placeholders={"prerequisites_url": PREREQUISITES_URL},
         )
 
     async def async_step_reauth(
@@ -103,6 +108,7 @@ class SwitcherFlowHandler(ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=CONFIG_SCHEMA,
             errors=errors,
+            description_placeholders={"prerequisites_url": PREREQUISITES_URL},
         )
 
     async def _create_entry(self) -> ConfigFlowResult:

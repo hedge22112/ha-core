@@ -1,11 +1,9 @@
 """Valves for the Elexa Guardian integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, override
 
 from aioguardian import Client
 
@@ -15,12 +13,11 @@ from homeassistant.components.valve import (
     ValveEntityDescription,
     ValveEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import GuardianData
-from .const import API_VALVE_STATUS, DOMAIN
+from . import GuardianConfigEntry, GuardianData
+from .const import API_VALVE_STATUS
 from .entity import ValveControllerEntity, ValveControllerEntityDescription
 from .util import convert_exceptions_to_homeassistant_error
 
@@ -109,10 +106,12 @@ VALVE_CONTROLLER_DESCRIPTIONS = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: GuardianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Guardian switches based on a config entry."""
-    data: GuardianData = hass.data[DOMAIN][entry.entry_id]
+    data = entry.runtime_data
 
     async_add_entities(
         ValveControllerValve(entry, data, description)
@@ -130,7 +129,7 @@ class ValveControllerValve(ValveControllerEntity, ValveEntity):
 
     def __init__(
         self,
-        entry: ConfigEntry,
+        entry: GuardianConfigEntry,
         data: GuardianData,
         description: ValveControllerValveDescription,
     ) -> None:
@@ -140,33 +139,39 @@ class ValveControllerValve(ValveControllerEntity, ValveEntity):
         self._client = data.client
 
     @property
+    @override
     def is_closing(self) -> bool:
         """Return if the valve is closing or not."""
         return self.entity_description.is_closing_fn(self.coordinator.data)
 
     @property
+    @override
     def is_closed(self) -> bool:
         """Return if the valve is closed or not."""
         return self.entity_description.is_closed_fn(self.coordinator.data)
 
     @property
+    @override
     def is_opening(self) -> bool:
         """Return if the valve is opening or not."""
         return self.entity_description.is_opening_fn(self.coordinator.data)
 
     @convert_exceptions_to_homeassistant_error
+    @override
     async def async_close_valve(self) -> None:
         """Close the valve."""
         await self.entity_description.close_coro_fn(self._client)
         await self.coordinator.async_request_refresh()
 
     @convert_exceptions_to_homeassistant_error
+    @override
     async def async_open_valve(self) -> None:
         """Open the valve."""
         await self.entity_description.open_coro_fn(self._client)
         await self.coordinator.async_request_refresh()
 
     @convert_exceptions_to_homeassistant_error
+    @override
     async def async_stop_valve(self) -> None:
         """Stop the valve."""
         await self.entity_description.halt_coro_fn(self._client)

@@ -1,10 +1,8 @@
 """Support for the JustNimbus platform."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,7 +10,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_CLIENT_ID,
     EntityCategory,
@@ -21,11 +18,10 @@ from homeassistant.const import (
     UnitOfVolume,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import JustNimbusCoordinator
-from .const import DOMAIN
+from .coordinator import JustNimbusConfigEntry, JustNimbusCoordinator
 from .entity import JustNimbusEntity
 
 
@@ -101,15 +97,16 @@ SENSOR_TYPES = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: JustNimbusConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the JustNimbus sensor."""
-    coordinator: JustNimbusCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
         JustNimbusSensor(
             device_id=entry.data[CONF_CLIENT_ID],
             description=description,
-            coordinator=coordinator,
+            coordinator=entry.runtime_data,
         )
         for description in SENSOR_TYPES
     )
@@ -134,6 +131,7 @@ class JustNimbusSensor(JustNimbusEntity, SensorEntity):
         self._attr_unique_id = f"{device_id}_{description.key}"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return sensor state."""
         return self.entity_description.value_fn(self.coordinator)

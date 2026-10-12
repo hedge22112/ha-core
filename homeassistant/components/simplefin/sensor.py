@@ -1,10 +1,9 @@
 """Platform for sensor integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import override
 
 from simplefin4py import Account
 
@@ -16,10 +15,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import SimpleFinConfigEntry
+from .coordinator import SimpleFinConfigEntry
 from .entity import SimpleFinEntity
 
 
@@ -55,7 +54,7 @@ SIMPLEFIN_SENSORS: tuple[SimpleFinSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SimpleFinConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up SimpleFIN sensors for config entries."""
 
@@ -79,11 +78,13 @@ class SimpleFinSensor(SimpleFinEntity, SensorEntity):
     entity_description: SimpleFinSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> StateType | datetime | None:
         """Return the state."""
         return self.entity_description.value_fn(self.account_data)
 
     @property
+    @override
     def icon(self) -> str | None:
         """Return the icon of this account."""
 
@@ -92,6 +93,7 @@ class SimpleFinSensor(SimpleFinEntity, SensorEntity):
         return None
 
     @property
+    @override
     def native_unit_of_measurement(self) -> str | None:
         """Return the currency of this account."""
         if self.entity_description.unit_fn:

@@ -1,10 +1,8 @@
 """Module for SIA Alarm Control Panels."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from pysiaalarm import SIAEvent
 
@@ -16,7 +14,7 @@ from homeassistant.components.alarm_control_panel import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_ACCOUNT, CONF_ACCOUNTS, CONF_ZONES, KEY_ALARM, PREVIOUS_STATE
 from .entity import SIABaseEntity, SIAEntityDescription
@@ -47,7 +45,7 @@ ENTITY_DESCRIPTION_ALARM = SIAAlarmControlPanelEntityDescription(
         "CP": AlarmControlPanelState.ARMED_AWAY,
         "CQ": AlarmControlPanelState.ARMED_AWAY,
         "CS": AlarmControlPanelState.ARMED_AWAY,
-        "CF": AlarmControlPanelState.ARMED_CUSTOM_BYPASS,
+        "CF": AlarmControlPanelState.ARMED_AWAY,
         "NP": AlarmControlPanelState.DISARMED,
         "NO": AlarmControlPanelState.DISARMED,
         "OA": AlarmControlPanelState.DISARMED,
@@ -69,12 +67,12 @@ ENTITY_DESCRIPTION_ALARM = SIAAlarmControlPanelEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up SIA alarm_control_panel(s) from a config entry."""
     async_add_entities(
         SIAAlarmControlPanel(
-            entry, account_data[CONF_ACCOUNT], zone, ENTITY_DESCRIPTION_ALARM
+            hass, entry, account_data[CONF_ACCOUNT], zone, ENTITY_DESCRIPTION_ALARM
         )
         for account_data in entry.data[CONF_ACCOUNTS]
         for zone in range(
@@ -91,6 +89,7 @@ class SIAAlarmControlPanel(SIABaseEntity, AlarmControlPanelEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         entry: ConfigEntry,
         account: str,
         zone: int,
@@ -98,6 +97,7 @@ class SIAAlarmControlPanel(SIABaseEntity, AlarmControlPanelEntity):
     ) -> None:
         """Create SIAAlarmControlPanel object."""
         super().__init__(
+            hass,
             entry,
             account,
             zone,
@@ -107,6 +107,7 @@ class SIAAlarmControlPanel(SIABaseEntity, AlarmControlPanelEntity):
         self._attr_alarm_state: AlarmControlPanelState | None = None
         self._old_state: AlarmControlPanelState | None = None
 
+    @override
     def handle_last_state(self, last_state: State | None) -> None:
         """Handle the last state."""
         self._attr_alarm_state = None
@@ -118,6 +119,7 @@ class SIAAlarmControlPanel(SIABaseEntity, AlarmControlPanelEntity):
         if self.state == STATE_UNAVAILABLE:
             self._attr_available = False
 
+    @override
     def update_state(self, sia_event: SIAEvent) -> bool:
         """Update the state of the alarm control panel.
 

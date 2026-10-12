@@ -8,17 +8,25 @@ import pathlib
 from typing import Any
 from unittest.mock import Mock, patch
 
+import probatio
 import pytest
-import voluptuous as vol
 import yaml as pyyaml
 
-from homeassistant.config import YAML_CONFIG_FILE, load_yaml_config_file
+from homeassistant.config import (
+    YAML_CONFIG_FILE,
+    _get_annotation,
+    load_yaml_config_file,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.util import yaml
+from homeassistant.util import yaml as yaml_util
 from homeassistant.util.yaml import loader as yaml_loader
+from homeassistant.util.yaml.objects import NodeDictClass, NodeListClass
 
-from tests.common import extract_stack_to_frame
+from tests.common import extract_stack_to_frame, get_fixture_path
+
+INCLUDE_DIRS_FIXTURE = str(get_fixture_path("core/config/annotations/include_dirs"))
+INCLUDE_DIRS_CONFIG = os.path.join(INCLUDE_DIRS_FIXTURE, "configuration.yaml")
 
 
 @pytest.fixture(params=["enable_c_loader", "disable_c_loader"])
@@ -86,7 +94,7 @@ def test_unhashable_key() -> None:
 def test_no_key() -> None:
     """Test item without a key."""
     with pytest.raises(HomeAssistantError):
-        yaml.load_yaml(YAML_CONFIG_FILE)
+        yaml_util.load_yaml(YAML_CONFIG_FILE)
 
 
 @pytest.mark.usefixtures("try_both_loaders")
@@ -374,7 +382,56 @@ def test_include_dir_merge_named_recursive(mock_walk: Mock) -> None:
         }
 
 
-@patch("homeassistant.util.yaml.loader.open", create=True)
+@pytest.mark.parametrize(
+    ("key", "expected_type", "expected_line"),
+    [
+        pytest.param(
+            "dir_list",
+            NodeListClass,
+            1,
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "annotatedyaml _include_dir_list_yaml returns a bare list "
+                    "comprehension and never calls _add_reference, unlike the "
+                    "three sibling include_dir tags"
+                ),
+            ),
+            id="include_dir_list",
+        ),
+        pytest.param("dir_merge_list", NodeListClass, 2, id="include_dir_merge_list"),
+        pytest.param("dir_named", NodeDictClass, 3, id="include_dir_named"),
+        pytest.param("dir_merge_named", NodeDictClass, 4, id="include_dir_merge_named"),
+    ],
+)
+@pytest.mark.usefixtures("try_both_loaders")
+def test_include_dir_annotates_the_container(
+    key: str, expected_type: type, expected_line: int
+) -> None:
+    """Test each include_dir tag annotates the container it returns."""
+    doc = yaml_loader.load_yaml_dict(INCLUDE_DIRS_CONFIG)
+
+    assert type(doc[key]) is expected_type
+    assert _get_annotation(doc[key]) == (INCLUDE_DIRS_CONFIG, expected_line)
+
+
+@pytest.mark.usefixtures("try_both_loaders")
+def test_include_dir_list_annotates_its_elements() -> None:
+    """Test each element of an include_dir_list is annotated with its own file.
+
+    The elements are what masks the unannotated list: find_annotation recurses
+    into them, so an error reported at or below an element still gets a location
+    even though the list itself carries none.
+    """
+    doc = yaml_loader.load_yaml_dict(INCLUDE_DIRS_CONFIG)
+
+    assert [_get_annotation(element) for element in doc["dir_list"]] == [
+        (os.path.join(INCLUDE_DIRS_FIXTURE, "entries", "one.yaml"), 1),
+        (os.path.join(INCLUDE_DIRS_FIXTURE, "entries", "two.yaml"), 1),
+    ]
+
+
+@patch("annotatedyaml.loader.open", create=True)
 @pytest.mark.usefixtures("try_both_loaders")
 def test_load_yaml_encoding_error(mock_open: Mock) -> None:
     """Test raising a UnicodeDecodeError."""
@@ -386,13 +443,13 @@ def test_load_yaml_encoding_error(mock_open: Mock) -> None:
 @pytest.mark.usefixtures("try_both_dumpers")
 def test_dump() -> None:
     """The that the dump method returns empty None values."""
-    assert yaml.dump({"a": None, "b": "b"}) == "a:\nb: b\n"
+    assert yaml_util.dump({"a": None, "b": "b"}) == "a:\nb: b\n"
 
 
 @pytest.mark.usefixtures("try_both_dumpers")
 def test_dump_unicode() -> None:
     """The that the dump method returns empty None values."""
-    assert yaml.dump({"a": None, "b": "привет"}) == "a:\nb: привет\n"
+    assert yaml_util.dump({"a": None, "b": "привет"}) == "a:\nb: привет\n"
 
 
 @pytest.mark.parametrize("hass_config_yaml", ['key: [1, "2", 3]'])
@@ -400,7 +457,7 @@ def test_dump_unicode() -> None:
 def test_representing_yaml_loaded_data() -> None:
     """Test we can represent YAML loaded data."""
     data = load_yaml_config_file(YAML_CONFIG_FILE)
-    assert yaml.dump(data) == "key:\n- 1\n- '2'\n- 3\n"
+    assert yaml_util.dump(data) == "key:\n- 1\n- '2'\n- 3\n"
 
 
 @pytest.mark.parametrize("hass_config_yaml", ["key: thing1\nkey: thing2"])
@@ -413,7 +470,7 @@ def test_duplicate_key(caplog: pytest.LogCaptureFixture) -> None:
 
 @pytest.mark.parametrize(
     "hass_config_yaml_files",
-    [{YAML_CONFIG_FILE: "key: !secret a", yaml.SECRET_YAML: "a: 1\nb: !secret a"}],
+    [{YAML_CONFIG_FILE: "key: !secret a", yaml_util.SECRET_YAML: "a: 1\nb: !secret a"}],
 )
 @pytest.mark.usefixtures("try_both_loaders", "mock_hass_config_yaml")
 def test_no_recursive_secrets() -> None:
@@ -426,8 +483,8 @@ def test_no_recursive_secrets() -> None:
 
 def test_input_class() -> None:
     """Test input class."""
-    yaml_input = yaml.Input("hello")
-    yaml_input2 = yaml.Input("hello")
+    yaml_input = yaml_util.Input("hello")
+    yaml_input2 = yaml_util.Input("hello")
 
     assert yaml_input.name == "hello"
     assert yaml_input == yaml_input2
@@ -438,8 +495,8 @@ def test_input_class() -> None:
 @pytest.mark.usefixtures("try_both_loaders", "try_both_dumpers")
 def test_input() -> None:
     """Test loading inputs."""
-    data = {"hello": yaml.Input("test_name")}
-    assert yaml.parse_yaml(yaml.dump(data)) == data
+    data = {"hello": yaml_util.Input("test_name")}
+    assert yaml_util.parse_yaml(yaml_util.dump(data)) == data
 
 
 @pytest.mark.skipif(
@@ -448,7 +505,7 @@ def test_input() -> None:
 )
 def test_c_loader_is_available_in_ci() -> None:
     """Verify we are testing the C loader in the CI."""
-    assert yaml.loader.HAS_C_LOADER is True
+    assert yaml_util.loader.HAS_C_LOADER is True
 
 
 @pytest.mark.usefixtures("try_both_loaders")
@@ -529,20 +586,20 @@ def test_string_annotated() -> None:
 
 
 @pytest.mark.usefixtures("try_both_loaders")
-def test_string_used_as_vol_schema() -> None:
-    """Test the subclassed strings can be used in voluptuous schemas."""
+def test_string_used_as_probatio_schema() -> None:
+    """Test the subclassed strings can be used in probatio schemas."""
     conf = "wanted_data:\n  key_1: value_1\n  key_2: value_2\n"
     with io.StringIO(conf) as file:
         doc = yaml_loader.parse_yaml(file)
 
     # Test using the subclassed strings in a schema
-    schema = vol.Schema(
-        {vol.Required(key): value for key, value in doc["wanted_data"].items()},
+    schema = probatio.Schema(
+        {probatio.Required(key): value for key, value in doc["wanted_data"].items()},
     )
     # Test using the subclassed strings when validating a schema
     schema(doc["wanted_data"])
     schema({"key_1": "value_1", "key_2": "value_2"})
-    with pytest.raises(vol.Invalid):
+    with pytest.raises(probatio.Invalid):
         schema({"key_1": "value_2", "key_2": "value_1"})
 
 
@@ -552,13 +609,17 @@ def test_string_used_as_vol_schema() -> None:
 @pytest.mark.usefixtures("try_both_loaders", "mock_hass_config_yaml")
 def test_load_yaml_dict(expected_data: Any) -> None:
     """Test item without a key."""
-    assert yaml.load_yaml_dict(YAML_CONFIG_FILE) == expected_data
+    assert yaml_util.load_yaml_dict(YAML_CONFIG_FILE) == expected_data
 
 
 @pytest.mark.parametrize("hass_config_yaml", ["abc", "123", "[]"])
 @pytest.mark.usefixtures("try_both_loaders", "mock_hass_config_yaml")
 def test_load_yaml_dict_fail() -> None:
     """Test item without a key."""
+    # Make sure we raise a subclass of HomeAssistantError, not
+    # annotated_yaml.YAMLException
+    assert issubclass(yaml_loader.YamlTypeError, HomeAssistantError)
+
     with pytest.raises(yaml_loader.YamlTypeError):
         yaml_loader.load_yaml_dict(YAML_CONFIG_FILE)
 
@@ -598,7 +659,7 @@ def test_load_yaml_wrap_oserror(
 ) -> None:
     """Test load_yaml wraps OSError in HomeAssistantError."""
     with (
-        patch("homeassistant.util.yaml.loader.open", side_effect=open_exception),
+        patch("annotatedyaml.loader.open", side_effect=open_exception),
         pytest.raises(load_yaml_exception),
     ):
         yaml_loader.load_yaml("bla")

@@ -1,12 +1,9 @@
 """Coordinator for the Philips TV integration."""
 
-from __future__ import annotations
-
 import asyncio
-from collections.abc import Mapping
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import override
 
 from haphilipsjs import (
     AutenticationFailure,
@@ -27,23 +24,28 @@ from .const import CONF_ALLOW_NOTIFY, CONF_SYSTEM, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+type PhilipsTVConfigEntry = ConfigEntry[PhilipsTVDataUpdateCoordinator]
+
 
 class PhilipsTVDataUpdateCoordinator(DataUpdateCoordinator[None]):
     """Coordinator to update data."""
 
-    config_entry: ConfigEntry
+    config_entry: PhilipsTVConfigEntry
 
     def __init__(
-        self, hass: HomeAssistant, api: PhilipsTV, options: Mapping[str, Any]
+        self,
+        hass: HomeAssistant,
+        config_entry: PhilipsTVConfigEntry,
+        api: PhilipsTV,
     ) -> None:
         """Set up the coordinator."""
         self.api = api
-        self.options = options
         self._notify_future: asyncio.Task | None = None
 
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=timedelta(seconds=30),
             request_refresh_debouncer=Debouncer(
@@ -84,21 +86,23 @@ class PhilipsTVDataUpdateCoordinator(DataUpdateCoordinator[None]):
     def _notify_wanted(self):
         """Return if the notify feature should be active.
 
-        We only run it when TV is considered fully on. When powerstate is in standby, the TV
-        will go in low power states and seemingly break the http server in odd ways.
+        We only run it when TV is considered fully on.
+        When powerstate is in standby, the TV will go in low
+        power states and seemingly break the http server in
+        odd ways.
         """
         return (
             self.api.on
             and self.api.powerstate == "On"
             and self.api.notify_change_supported
-            and self.options.get(CONF_ALLOW_NOTIFY, False)
+            and self.config_entry.options.get(CONF_ALLOW_NOTIFY, False)
         )
 
     async def _notify_task(self):
         while self._notify_wanted:
             try:
                 res = await self.api.notifyChange(130)
-            except (ConnectionFailure, AutenticationFailure):
+            except ConnectionFailure, AutenticationFailure:
                 res = None
 
             if res:
@@ -122,11 +126,13 @@ class PhilipsTVDataUpdateCoordinator(DataUpdateCoordinator[None]):
             self._notify_future = asyncio.create_task(self._notify_task())
 
     @callback
+    @override
     def _unschedule_refresh(self) -> None:
         """Remove data update."""
         super()._unschedule_refresh()
         self._async_notify_stop()
 
+    @override
     async def _async_update_data(self):
         """Fetch the latest data from the source."""
         try:

@@ -1,7 +1,5 @@
 """The tests for the Recorder component."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Generator
 from datetime import datetime, timedelta
@@ -77,6 +75,7 @@ from homeassistant.helpers import (
     issue_registry as ir,
     recorder as recorder_helper,
 )
+from homeassistant.helpers.event import async_track_entity_registry_updated_event
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -85,9 +84,14 @@ from homeassistant.util.json import json_loads
 from .common import (
     async_block_recorder,
     async_recorder_block_till_done,
+    async_wait_recorder,
     async_wait_recording_done,
     convert_pending_states_to_meta,
     corrupt_db_file,
+    db_event_data_to_native,
+    db_event_to_native,
+    db_state_attributes_to_native,
+    db_state_to_native,
     run_information_with_session,
 )
 
@@ -98,12 +102,12 @@ from tests.common import (
     async_test_home_assistant,
     mock_platform,
 )
-from tests.typing import RecorderInstanceGenerator
+from tests.typing import RecorderInstanceContextManager, RecorderInstanceGenerator
 
 
 @pytest.fixture
 async def mock_recorder_before_hass(
-    async_test_recorder: RecorderInstanceGenerator,
+    async_test_recorder: RecorderInstanceContextManager,
 ) -> None:
     """Set up recorder."""
 
@@ -155,7 +159,7 @@ async def test_shutdown_before_startup_finishes(
 
     recorder_helper.async_initialize_recorder(hass)
     hass.async_create_task(async_setup_recorder_instance(hass, config))
-    await recorder_helper.async_wait_recorder(hass)
+    await async_wait_recorder(hass)
     instance = get_instance(hass)
 
     session = await instance.async_add_executor_job(instance.get_session)
@@ -184,11 +188,11 @@ async def test_canceled_before_startup_finishes(
     async_setup_recorder_instance: RecorderInstanceGenerator,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test recorder shuts down when its startup future is canceled out from under it."""
+    """Test recorder shuts down when startup future is canceled."""
     hass.set_state(CoreState.not_running)
     recorder_helper.async_initialize_recorder(hass)
     hass.async_create_task(async_setup_recorder_instance(hass))
-    await recorder_helper.async_wait_recorder(hass)
+    await async_wait_recorder(hass)
 
     instance = get_instance(hass)
     instance._hass_started.cancel()
@@ -240,7 +244,7 @@ async def test_state_gets_saved_when_set_before_start_event(
 
     recorder_helper.async_initialize_recorder(hass)
     hass.async_create_task(async_setup_recorder_instance(hass))
-    await recorder_helper.async_wait_recorder(hass)
+    await async_wait_recorder(hass)
 
     entity_id = "test.recorder"
     state = "restoring_from_db"
@@ -279,8 +283,8 @@ async def test_saving_state(hass: HomeAssistant, setup_recorder: None) -> None:
         ):
             db_state.entity_id = states_meta.entity_id
             db_states.append(db_state)
-            state = db_state.to_native()
-            state.attributes = db_state_attributes.to_native()
+            state = db_state_to_native(db_state)
+            state.attributes = db_state_attributes_to_native(db_state_attributes)
         assert len(db_states) == 1
         assert db_states[0].event_id is None
 
@@ -321,8 +325,8 @@ async def test_saving_state_with_nul(
         ):
             db_state.entity_id = states_meta.entity_id
             db_states.append(db_state)
-            state = db_state.to_native()
-            state.attributes = db_state_attributes.to_native()
+            state = db_state_to_native(db_state)
+            state.attributes = db_state_attributes_to_native(db_state_attributes)
         assert len(db_states) == 1
         assert db_states[0].event_id is None
 
@@ -541,8 +545,8 @@ async def test_saving_event(hass: HomeAssistant, setup_recorder: None) -> None:
             event_data = cast(EventData, event_data)
             event_types = cast(EventTypes, event_types)
 
-            native_event = select_event.to_native()
-            native_event.data = event_data.to_native()
+            native_event = db_event_to_native(select_event)
+            native_event.data = db_event_data_to_native(event_data)
             native_event.event_type = event_types.event_type
             events.append(native_event)
 
@@ -597,8 +601,8 @@ async def _add_entities(hass: HomeAssistant, entity_ids: list[str]) -> list[Stat
             .outerjoin(StatesMeta, States.metadata_id == StatesMeta.metadata_id)
         ):
             db_state.entity_id = states_meta.entity_id
-            native_state = db_state.to_native()
-            native_state.attributes = db_state_attributes.to_native()
+            native_state = db_state_to_native(db_state)
+            native_state.attributes = db_state_attributes_to_native(db_state_attributes)
             states.append(native_state)
         convert_pending_states_to_meta(get_instance(hass), session)
         return states
@@ -704,9 +708,9 @@ async def test_saving_event_exclude_event_type(
                 event_data = cast(EventData, event_data)
                 event_types = cast(EventTypes, event_types)
 
-                native_event = event.to_native()
+                native_event = db_event_to_native(event)
                 if event_data:
-                    native_event.data = event_data.to_native()
+                    native_event.data = db_event_data_to_native(event_data)
                 native_event.event_type = event_types.event_type
                 events.append(native_event)
             return events
@@ -876,8 +880,8 @@ async def test_saving_state_with_oversized_attributes(
             .outerjoin(StatesMeta, States.metadata_id == StatesMeta.metadata_id)
         ):
             db_state.entity_id = states_meta.entity_id
-            native_state = db_state.to_native()
-            native_state.attributes = db_state_attributes.to_native()
+            native_state = db_state_to_native(db_state)
+            native_state.attributes = db_state_attributes_to_native(db_state_attributes)
             states.append(native_state)
 
     assert "switch.too_big" in caplog.text
@@ -1138,7 +1142,7 @@ async def test_auto_purge_auto_repack_disabled_on_second_sunday(
     hass: HomeAssistant,
     async_setup_recorder_instance: RecorderInstanceGenerator,
 ) -> None:
-    """Test periodic purge scheduling does not auto repack on the 2nd sunday if disabled."""
+    """Test periodic purge scheduling skips repack when disabled."""
     timezone = "Europe/Copenhagen"
     await hass.config.async_set_time_zone(timezone)
     await async_setup_recorder_instance(hass, {CONF_AUTO_REPACK: False})
@@ -1373,7 +1377,7 @@ async def test_statistics_runs_initiated(
 @pytest.mark.parametrize("enable_missing_statistics", [True])
 @pytest.mark.usefixtures("hass_storage")  # Prevent test hass from writing to storage
 async def test_compile_missing_statistics(
-    async_test_recorder: RecorderInstanceGenerator, freezer: FrozenDateTimeFactory
+    async_test_recorder: RecorderInstanceContextManager, freezer: FrozenDateTimeFactory
 ) -> None:
     """Test missing statistics are compiled on startup."""
     now = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
@@ -1573,8 +1577,8 @@ async def test_service_disable_events_not_recording(
             event_data = cast(EventData, event_data)
             event_types = cast(EventTypes, event_types)
 
-            native_event = select_event.to_native()
-            native_event.data = event_data.to_native()
+            native_event = db_event_to_native(select_event)
+            native_event.data = db_event_data_to_native(event_data)
             native_event.event_type = event_types.event_type
             db_events.append(native_event)
 
@@ -1594,7 +1598,7 @@ async def test_service_disable_states_not_recording(
     hass: HomeAssistant,
     setup_recorder: None,
 ) -> None:
-    """Test that state changes are not recorded when recorder is disabled using service."""
+    """Test state changes are not recorded when recorder is disabled."""
     await hass.services.async_call(
         DOMAIN,
         SERVICE_DISABLE,
@@ -1624,7 +1628,7 @@ async def test_service_disable_states_not_recording(
         assert db_states[0].event_id is None
         db_states[0].entity_id = "test.two"
         assert (
-            db_states[0].to_native().as_dict()
+            db_state_to_native(db_states[0]).as_dict()
             == _state_with_context(hass, "test.two").as_dict()
         )
 
@@ -1632,7 +1636,7 @@ async def test_service_disable_states_not_recording(
 @pytest.mark.parametrize("persistent_database", [True])
 @pytest.mark.usefixtures("hass_storage")  # Prevent test hass from writing to storage
 async def test_service_disable_run_information_recorded(
-    async_test_recorder: RecorderInstanceGenerator,
+    async_test_recorder: RecorderInstanceContextManager,
 ) -> None:
     """Test that runs are still recorded when recorder is disabled."""
 
@@ -1684,12 +1688,11 @@ class CannotSerializeMe:
 
 
 @pytest.mark.skip_on_db_engine(["mysql", "postgresql"])
-@pytest.mark.usefixtures("skip_by_db_engine")
+@pytest.mark.usefixtures("recorder_mock", "skip_by_db_engine")
 @pytest.mark.parametrize("persistent_database", [True])
 @pytest.mark.parametrize("recorder_config", [{CONF_COMMIT_INTERVAL: 0}])
 async def test_database_corruption_while_running(
     hass: HomeAssistant,
-    recorder_mock: Recorder,
     recorder_db_url: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1743,7 +1746,7 @@ async def test_database_corruption_while_running(
             assert len(db_states) == 1
             db_states[0].entity_id = "test.two"
             assert db_states[0].event_id is None
-            return db_states[0].to_native()
+            return db_state_to_native(db_states[0])
 
     state = await instance.async_add_executor_job(_get_last_state)
     assert state.entity_id == "test.two"
@@ -1869,7 +1872,7 @@ async def test_database_lock_and_overflow(
     caplog: pytest.LogCaptureFixture,
     issue_registry: ir.IssueRegistry,
 ) -> None:
-    """Test writing events during lock leading to overflow the queue causes the database to unlock.
+    """Test queue overflow during lock causes database to unlock.
 
     This test is specific for SQLite: Locking is not implemented for other engines.
 
@@ -1934,7 +1937,7 @@ async def test_database_lock_and_overflow_checks_available_memory(
     caplog: pytest.LogCaptureFixture,
     issue_registry: ir.IssueRegistry,
 ) -> None:
-    """Test writing events during lock leading to overflow the queue causes the database to unlock.
+    """Test queue overflow with memory check causes database to unlock.
 
     This test is specific for SQLite: Locking is not implemented for other engines.
 
@@ -1989,7 +1992,8 @@ async def test_database_lock_and_overflow_checks_available_memory(
 
         db_events = await instance.async_add_executor_job(_get_db_events)
         assert len(db_events) == 0
-        # Record up to the extended limit (which takes into account the available memory)
+        # Record up to the extended limit (which takes into account
+        # the available memory)
         for _ in range(2):
             event_data = {"test_attr": 5, "test_attr_10": "nice"}
             hass.bus.async_fire(event_type, event_data)
@@ -2006,7 +2010,8 @@ async def test_database_lock_and_overflow_checks_available_memory(
         assert "Database queue backlog reached more than" not in caplog.text
 
         out_of_ram = True
-        # Record beyond the extended limit (which takes into account the available memory)
+        # Record beyond the extended limit (which takes into account
+        # the available memory)
         for _ in range(20):
             event_data = {"test_attr": 5, "test_attr_10": "nice"}
             hass.bus.async_fire(event_type, event_data)
@@ -2426,8 +2431,8 @@ async def test_excluding_attributes_by_integration(
         ):
             db_state.entity_id = states_meta.entity_id
             db_states.append(db_state)
-            state = db_state.to_native()
-            state.attributes = db_state_attributes.to_native()
+            state = db_state_to_native(db_state)
+            state.attributes = db_state_attributes_to_native(db_state_attributes)
         assert len(db_states) == 1
         assert db_states[0].event_id is None
 
@@ -2441,7 +2446,7 @@ async def test_excluding_all_attributes_by_integration(
     entity_registry: er.EntityRegistry,
     setup_recorder: None,
 ) -> None:
-    """Test that an entity can exclude all attributes from being recorded using MATCH_ALL."""
+    """Test an entity can exclude all attributes using MATCH_ALL."""
     state = "restoring_from_db"
     attributes = {
         "test_attr": 5,
@@ -2486,8 +2491,8 @@ async def test_excluding_all_attributes_by_integration(
         ):
             db_state.entity_id = states_meta.entity_id
             db_states.append(db_state)
-            state = db_state.to_native()
-            state.attributes = db_state_attributes.to_native()
+            state = db_state_to_native(db_state)
+            state.attributes = db_state_attributes_to_native(db_state_attributes)
         assert len(db_states) == 1
         assert db_states[0].event_id is None
 
@@ -2520,7 +2525,7 @@ async def test_lru_increases_with_many_entities(
 async def test_clean_shutdown_when_recorder_thread_raises_during_initialize_database(
     hass: HomeAssistant,
 ) -> None:
-    """Test we still shutdown cleanly when the recorder thread raises during initialize_database."""
+    """Test clean shutdown when recorder raises during initialize_database."""
     with (
         patch.object(migration, "initialize_database", side_effect=Exception),
         patch("homeassistant.components.recorder.ALLOW_IN_MEMORY_DB", True),
@@ -2548,7 +2553,7 @@ async def test_clean_shutdown_when_recorder_thread_raises_during_initialize_data
 async def test_clean_shutdown_when_recorder_thread_raises_during_validate_db_schema(
     hass: HomeAssistant,
 ) -> None:
-    """Test we still shutdown cleanly when the recorder thread raises during validate_db_schema."""
+    """Test clean shutdown when recorder raises during validate_db_schema."""
     with (
         patch.object(migration, "validate_db_schema", side_effect=Exception),
         patch("homeassistant.components.recorder.ALLOW_IN_MEMORY_DB", True),
@@ -2690,7 +2695,7 @@ async def test_events_are_recorded_until_final_write(
                 select_event = cast(Events, select_event)
                 event_types = cast(EventTypes, event_types)
 
-                native_event = select_event.to_native()
+                native_event = db_event_to_native(select_event)
                 native_event.event_type = event_types.event_type
                 events.append(native_event)
 
@@ -2724,7 +2729,7 @@ async def test_commit_before_commits_pending_writes(
 
     recorder_helper.async_initialize_recorder(hass)
     hass.async_create_task(async_setup_recorder_instance(hass, config))
-    await recorder_helper.async_wait_recorder(hass)
+    await async_wait_recorder(hass)
     instance = get_instance(hass)
     assert instance.commit_interval == 60
     verify_states_in_queue_future = hass.loop.create_future()
@@ -2797,3 +2802,46 @@ async def test_empty_entity_id(
     hass.bus.async_fire("hello", {"entity_id": ""})
     await async_wait_recording_done(hass)
     assert "Invalid entity ID" not in caplog.text
+
+
+async def test_setting_up_recorder_fails_entity_registry_listener(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test recorder setup fails if an entity registry listener is in place."""
+    async_track_entity_registry_updated_event(hass, "test.test", lambda x: x)
+    recorder_helper.async_initialize_recorder(hass)
+    with patch("homeassistant.components.recorder.ALLOW_IN_MEMORY_DB", True):
+        assert not await async_setup_component(
+            hass,
+            recorder.DOMAIN,
+            {recorder.DOMAIN: {recorder.CONF_DB_URL: "sqlite://"}},
+        )
+        await hass.async_block_till_done()
+    assert (
+        "The recorder entity registry listener must be installed before "
+        "async_track_entity_registry_updated_event is called" in caplog.text
+    )
+
+
+async def test_setup_connection_after_connection_closed(
+    hass: HomeAssistant, setup_recorder: None
+) -> None:
+    """Test the connect listener does not raise once the engine is gone.
+
+    _close_connection disposes the engine and drops our reference to it, but dispose()
+    only empties the pool: the engine stays usable, so anything still holding a
+    reference to it can check out a fresh DBAPI connection. That fires the connect
+    listener, which is still registered, with self.engine already set to None.
+    """
+    instance = recorder.get_instance(hass)
+    assert instance.engine is not None
+
+    def _setup_connection_without_an_engine() -> None:
+        with instance.engine.connect() as connection:
+            dbapi_connection = connection._dbapi_connection
+            with patch.object(instance, "engine", None):
+                # There is no engine of ours left to configure the connection for,
+                # which is not a reason to raise into whatever caused the checkout
+                instance._setup_recorder_connection(dbapi_connection, Mock())
+
+    await instance.async_add_executor_job(_setup_connection_without_an_engine)

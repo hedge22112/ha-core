@@ -1,9 +1,8 @@
 """Support for monitoring Dremel 3D Printer binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from dremel3dpy import Dremel3DPrinter
 
@@ -13,7 +12,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import DremelConfigEntry
 from .entity import Dremel3DPrinterEntity
@@ -43,7 +42,7 @@ BINARY_SENSOR_TYPES: tuple[Dremel3DPrinterBinarySensorEntityDescription, ...] = 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DremelConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the available Dremel binary sensors."""
     async_add_entities(
@@ -58,6 +57,7 @@ class Dremel3DPrinterBinarySensor(Dremel3DPrinterEntity, BinarySensorEntity):
     entity_description: Dremel3DPrinterBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return True if door is open."""
         return self.entity_description.value_fn(self._api)

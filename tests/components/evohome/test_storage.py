@@ -1,47 +1,28 @@
 """The tests for evohome storage load & save."""
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
-from typing import Any, Final, NotRequired, TypedDict
+from typing import Any, Final, TypedDict
 
+from evohomeasync.auth import SZ_SESSION_ID, SZ_SESSION_ID_EXPIRES
+from evohomeasync2.auth import (
+    SZ_ACCESS_TOKEN,
+    SZ_ACCESS_TOKEN_EXPIRES,
+    SZ_REFRESH_TOKEN,
+)
 import pytest
 
-from homeassistant.components.evohome import (
-    CONF_USERNAME,
-    DOMAIN,
-    STORAGE_KEY,
-    STORAGE_VER,
-    dt_aware_to_naive,
-)
+from homeassistant.components.evohome.const import DOMAIN, STORAGE_KEY, STORAGE_VER
+from homeassistant.components.evohome.storage import _TokenStoreT
+from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from .conftest import setup_evohome
 from .const import ACCESS_TOKEN, REFRESH_TOKEN, SESSION_ID, USERNAME
 
 
-class _SessionDataT(TypedDict):
-    sessionId: str
-
-
-class _TokenStoreT(TypedDict):
-    username: str
-    refresh_token: str
-    access_token: str
-    access_token_expires: str  # 2024-07-27T23:57:30+01:00
-    user_data: NotRequired[_SessionDataT]
-
-
 class _EmptyStoreT(TypedDict):
     pass
-
-
-SZ_USERNAME: Final = "username"
-SZ_REFRESH_TOKEN: Final = "refresh_token"
-SZ_ACCESS_TOKEN: Final = "access_token"
-SZ_ACCESS_TOKEN_EXPIRES: Final = "access_token_expires"
-SZ_USER_DATA: Final = "user_data"
 
 
 def dt_pair(dt_dtm: datetime) -> tuple[datetime, str]:
@@ -51,12 +32,10 @@ def dt_pair(dt_dtm: datetime) -> tuple[datetime, str]:
 
 
 ACCESS_TOKEN_EXP_DTM, ACCESS_TOKEN_EXP_STR = dt_pair(dt_util.now() + timedelta(hours=1))
-
-USERNAME_DIFF: Final = f"not_{USERNAME}"
-USERNAME_SAME: Final = USERNAME
+_, SESSION_ID_EXP_STR = dt_pair(dt_util.now() + timedelta(minutes=15))
 
 _TEST_STORAGE_BASE: Final[_TokenStoreT] = {
-    SZ_USERNAME: USERNAME_SAME,
+    CONF_USERNAME: USERNAME,
     SZ_REFRESH_TOKEN: REFRESH_TOKEN,
     SZ_ACCESS_TOKEN: ACCESS_TOKEN,
     SZ_ACCESS_TOKEN_EXPIRES: ACCESS_TOKEN_EXP_STR,
@@ -64,8 +43,11 @@ _TEST_STORAGE_BASE: Final[_TokenStoreT] = {
 
 TEST_STORAGE_DATA: Final[dict[str, _TokenStoreT]] = {
     "sans_session_id": _TEST_STORAGE_BASE,
-    "null_session_id": _TEST_STORAGE_BASE | {SZ_USER_DATA: None},  # type: ignore[dict-item]
-    "with_session_id": _TEST_STORAGE_BASE | {SZ_USER_DATA: {"sessionId": SESSION_ID}},
+    "with_session_id": _TEST_STORAGE_BASE
+    | {
+        SZ_SESSION_ID: SESSION_ID,
+        SZ_SESSION_ID_EXPIRES: SESSION_ID_EXP_STR,
+    },  # pyright: ignore[reportAssignmentType]
 }
 
 TEST_STORAGE_NULL: Final[dict[str, _EmptyStoreT | None]] = {
@@ -73,7 +55,7 @@ TEST_STORAGE_NULL: Final[dict[str, _EmptyStoreT | None]] = {
     "store_was_reset": {},
 }
 
-DOMAIN_STORAGE_BASE: Final = {
+DOMAIN_STORAGE_ROOT: Final = {
     "version": STORAGE_VER,
     "minor_version": 1,
     "key": STORAGE_KEY,
@@ -89,26 +71,22 @@ async def test_auth_tokens_null(
     idx: str,
     install: str,
 ) -> None:
-    """Test loading/saving authentication tokens when no cached tokens in the store."""
+    """Test credentials manager when cache is empty."""
 
-    hass_storage[DOMAIN] = DOMAIN_STORAGE_BASE | {"data": TEST_STORAGE_NULL[idx]}
+    hass_storage[DOMAIN] = DOMAIN_STORAGE_ROOT | {"data": TEST_STORAGE_NULL[idx]}
 
-    async for mock_client in setup_evohome(hass, config, install=install):
-        # Confirm client was instantiated without tokens, as cache was empty...
-        assert SZ_REFRESH_TOKEN not in mock_client.call_args.kwargs
-        assert SZ_ACCESS_TOKEN not in mock_client.call_args.kwargs
-        assert SZ_ACCESS_TOKEN_EXPIRES not in mock_client.call_args.kwarg
+    async for _ in setup_evohome(hass, config, install=install):
+        pass
 
-    # Confirm the expected tokens were cached to storage...
     data: _TokenStoreT = hass_storage[DOMAIN]["data"]
 
-    assert data[SZ_USERNAME] == USERNAME_SAME
+    # Confirm the expected tokens were cached to storage...
+    assert data[CONF_USERNAME] == USERNAME
     assert data[SZ_REFRESH_TOKEN] == f"new_{REFRESH_TOKEN}"
     assert data[SZ_ACCESS_TOKEN] == f"new_{ACCESS_TOKEN}"
-    assert (
-        dt_util.parse_datetime(data[SZ_ACCESS_TOKEN_EXPIRES], raise_on_error=True)
-        > dt_util.now()
-    )
+
+    assert (expires := data.get(SZ_ACCESS_TOKEN_EXPIRES)) is not None
+    assert dt_util.parse_datetime(expires, raise_on_error=True) > dt_util.now()
 
 
 @pytest.mark.parametrize("install", ["minimal"])
@@ -120,25 +98,22 @@ async def test_auth_tokens_same(
     idx: str,
     install: str,
 ) -> None:
-    """Test loading/saving authentication tokens when matching username."""
+    """Test credentials manager when cache contains valid data for this user."""
 
-    hass_storage[DOMAIN] = DOMAIN_STORAGE_BASE | {"data": TEST_STORAGE_DATA[idx]}
+    hass_storage[DOMAIN] = DOMAIN_STORAGE_ROOT | {"data": TEST_STORAGE_DATA[idx]}
 
-    async for mock_client in setup_evohome(hass, config, install=install):
-        # Confirm client was instantiated with the cached tokens...
-        assert mock_client.call_args.kwargs[SZ_REFRESH_TOKEN] == REFRESH_TOKEN
-        assert mock_client.call_args.kwargs[SZ_ACCESS_TOKEN] == ACCESS_TOKEN
-        assert mock_client.call_args.kwargs[
-            SZ_ACCESS_TOKEN_EXPIRES
-        ] == dt_aware_to_naive(ACCESS_TOKEN_EXP_DTM)
+    async for _ in setup_evohome(hass, config, install=install):
+        pass
 
-    # Confirm the expected tokens were cached to storage...
     data: _TokenStoreT = hass_storage[DOMAIN]["data"]
 
-    assert data[SZ_USERNAME] == USERNAME_SAME
+    # Confirm the expected tokens were cached to storage...
+    assert data[CONF_USERNAME] == USERNAME
     assert data[SZ_REFRESH_TOKEN] == REFRESH_TOKEN
     assert data[SZ_ACCESS_TOKEN] == ACCESS_TOKEN
-    assert dt_util.parse_datetime(data[SZ_ACCESS_TOKEN_EXPIRES]) == ACCESS_TOKEN_EXP_DTM
+
+    assert (expires := data[SZ_ACCESS_TOKEN_EXPIRES]) is not None
+    assert dt_util.parse_datetime(expires, raise_on_error=True) == ACCESS_TOKEN_EXP_DTM
 
 
 @pytest.mark.parametrize("install", ["minimal"])
@@ -150,34 +125,28 @@ async def test_auth_tokens_past(
     idx: str,
     install: str,
 ) -> None:
-    """Test loading/saving authentication tokens with matching username, but expired."""
+    """Test credentials manager when cache contains expired data for this user."""
 
-    dt_dtm, dt_str = dt_pair(dt_util.now() - timedelta(hours=1))
+    # Make this access token have expired in the past...
+    _, dt_str = dt_pair(dt_util.now() - timedelta(hours=1))
 
-    # make this access token have expired in the past...
     test_data = TEST_STORAGE_DATA[idx].copy()  # shallow copy is OK here
     test_data[SZ_ACCESS_TOKEN_EXPIRES] = dt_str
 
-    hass_storage[DOMAIN] = DOMAIN_STORAGE_BASE | {"data": test_data}
+    hass_storage[DOMAIN] = DOMAIN_STORAGE_ROOT | {"data": test_data}
 
-    async for mock_client in setup_evohome(hass, config, install=install):
-        # Confirm client was instantiated with the cached tokens...
-        assert mock_client.call_args.kwargs[SZ_REFRESH_TOKEN] == REFRESH_TOKEN
-        assert mock_client.call_args.kwargs[SZ_ACCESS_TOKEN] == ACCESS_TOKEN
-        assert mock_client.call_args.kwargs[
-            SZ_ACCESS_TOKEN_EXPIRES
-        ] == dt_aware_to_naive(dt_dtm)
+    async for _ in setup_evohome(hass, config, install=install):
+        pass
 
-    # Confirm the expected tokens were cached to storage...
     data: _TokenStoreT = hass_storage[DOMAIN]["data"]
 
-    assert data[SZ_USERNAME] == USERNAME_SAME
-    assert data[SZ_REFRESH_TOKEN] == REFRESH_TOKEN
+    # Confirm the expected tokens were cached to storage...
+    assert data[CONF_USERNAME] == USERNAME
+    assert data[SZ_REFRESH_TOKEN] == f"new_{REFRESH_TOKEN}"
     assert data[SZ_ACCESS_TOKEN] == f"new_{ACCESS_TOKEN}"
-    assert (
-        dt_util.parse_datetime(data[SZ_ACCESS_TOKEN_EXPIRES], raise_on_error=True)
-        > dt_util.now()
-    )
+
+    assert (expires := data[SZ_ACCESS_TOKEN_EXPIRES]) is not None
+    assert dt_util.parse_datetime(expires, raise_on_error=True) > dt_util.now()
 
 
 @pytest.mark.parametrize("install", ["minimal"])
@@ -189,25 +158,21 @@ async def test_auth_tokens_diff(
     idx: str,
     install: str,
 ) -> None:
-    """Test loading/saving authentication tokens when unmatched username."""
+    """Test credentials manager when cache contains data for a different user."""
 
-    hass_storage[DOMAIN] = DOMAIN_STORAGE_BASE | {"data": TEST_STORAGE_DATA[idx]}
+    # Make this access token be for a different user...
+    hass_storage[DOMAIN] = DOMAIN_STORAGE_ROOT | {"data": TEST_STORAGE_DATA[idx]}
+    config[CONF_USERNAME] = f"new_{USERNAME}"
 
-    async for mock_client in setup_evohome(
-        hass, config | {CONF_USERNAME: USERNAME_DIFF}, install=install
-    ):
-        # Confirm client was instantiated without tokens, as username was different...
-        assert SZ_REFRESH_TOKEN not in mock_client.call_args.kwargs
-        assert SZ_ACCESS_TOKEN not in mock_client.call_args.kwargs
-        assert SZ_ACCESS_TOKEN_EXPIRES not in mock_client.call_args.kwarg
+    async for _ in setup_evohome(hass, config, install=install):
+        pass
 
-    # Confirm the expected tokens were cached to storage...
     data: _TokenStoreT = hass_storage[DOMAIN]["data"]
 
-    assert data[SZ_USERNAME] == USERNAME_DIFF
+    # Confirm the expected tokens were cached to storage...
+    assert data[CONF_USERNAME] == f"new_{USERNAME}"
     assert data[SZ_REFRESH_TOKEN] == f"new_{REFRESH_TOKEN}"
     assert data[SZ_ACCESS_TOKEN] == f"new_{ACCESS_TOKEN}"
-    assert (
-        dt_util.parse_datetime(data[SZ_ACCESS_TOKEN_EXPIRES], raise_on_error=True)
-        > dt_util.now()
-    )
+
+    assert (expires := data[SZ_ACCESS_TOKEN_EXPIRES]) is not None
+    assert dt_util.parse_datetime(expires, raise_on_error=True) > dt_util.now()

@@ -8,11 +8,13 @@ from collections.abc import Generator
 import datetime
 from http import HTTPStatus
 import io
+import pathlib
 from typing import Any
 from unittest.mock import patch
 
 import aiohttp
 import av
+from freezegun import freeze_time
 import numpy as np
 import pytest
 
@@ -28,7 +30,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.template import DATE_STR_FORMAT
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from .common import (
     DEVICE_ID,
@@ -39,7 +41,7 @@ from .common import (
 )
 from .conftest import FakeAuth
 
-from tests.common import MockUser, async_capture_events
+from tests.common import MockUser, async_capture_events, async_fire_time_changed
 from tests.typing import ClientSessionGenerator
 
 DOMAIN = "nest"
@@ -261,7 +263,9 @@ async def test_supported_device(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -325,7 +329,9 @@ async def test_camera_event(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -458,7 +464,9 @@ async def test_event_order(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -503,7 +511,9 @@ async def test_multiple_image_events_in_session(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -617,7 +627,9 @@ async def test_multiple_clip_preview_events_in_session(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -704,7 +716,9 @@ async def test_browse_invalid_device_id(
     """Test a media source request for an invalid device id."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -724,7 +738,9 @@ async def test_browse_invalid_event_id(
     """Test a media source browsing for an invalid event id."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -746,7 +762,9 @@ async def test_resolve_missing_event_id(
     """Test a media source request missing an event id."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -777,12 +795,15 @@ async def test_resolve_invalid_event_id(
     """Test resolving media for an invalid event id."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
-    # Assume any event ID can be resolved to a media url. Fetching the actual media may fail
-    # if the ID is not valid. Content type is inferred based on the capabilities of the device.
+    # Assume any event ID can be resolved to a media url. Fetching
+    # the actual media may fail if the ID is not valid. Content type
+    # is inferred based on the capabilities of the device.
     media = await async_resolve_media(
         hass,
         f"{URI_SCHEME}{DOMAIN}/{device.id}/GXXWRWVeHNUlUU3V3MGV3bUOYW...",
@@ -825,7 +846,9 @@ async def test_camera_event_clip_preview(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -923,7 +946,9 @@ async def test_event_media_render_invalid_event_id(
 ) -> None:
     """Test event media API called with an invalid device id."""
     await setup_platform()
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -963,7 +988,9 @@ async def test_event_media_failure(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1001,7 +1028,9 @@ async def test_media_permission_unauthorized(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1037,9 +1066,13 @@ async def test_multiple_devices(
     )
     await setup_platform()
 
-    device1 = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device1 = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device1
-    device2 = device_registry.async_get_device(identifiers={(DOMAIN, device_id2)})
+    device2 = device_registry.async_get_device_by_identifier(
+        (DOMAIN, device_id2), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device2
 
     # Very no events have been received yet
@@ -1124,7 +1157,9 @@ async def test_media_store_persistence(
     """Test the disk backed media store persistence."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), config_entry.entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1176,7 +1211,9 @@ async def test_media_store_persistence(
     await hass.config_entries.async_reload(config_entry.entry_id)
     await hass.async_block_till_done()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), config_entry.entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1235,7 +1272,9 @@ async def test_media_store_save_filesystem_error(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1251,7 +1290,8 @@ async def test_media_store_save_filesystem_error(
     assert media.url == f"/api/nest/event_media/{event.identifier}"
     assert media.mime_type == "video/mp4"
 
-    # We fail to retrieve the media from the server since the origin filesystem op failed
+    # We fail to retrieve the media from the server since the
+    # origin filesystem op failed
     client = await hass_client()
     response = await client.get(media.url)
     assert response.status == HTTPStatus.NOT_FOUND, f"Response not matched: {response}"
@@ -1273,7 +1313,9 @@ async def test_media_store_load_filesystem_error(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1323,7 +1365,9 @@ async def test_camera_event_media_eviction(
     """Test media files getting evicted from the cache."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1400,7 +1444,9 @@ async def test_camera_image_resize(
     """Test scaling a thumbnail for an event image."""
     await setup_platform()
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1483,7 +1529,9 @@ async def test_event_media_attachment(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1538,7 +1586,9 @@ async def test_event_clip_media_attachment(
     camera = hass.states.get("camera.front")
     assert camera is not None
 
-    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_ID)})
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
     assert device
     assert device.name == DEVICE_NAME
 
@@ -1574,3 +1624,155 @@ async def test_event_clip_media_attachment(
         response = await client.get(content_path)
         assert response.status == HTTPStatus.OK, f"Response not matched: {response}"
         await response.read()
+
+
+@pytest.mark.parametrize(("device_traits", "cache_size"), [(BATTERY_CAMERA_TRAITS, 5)])
+async def test_remove_stale_media(
+    hass: HomeAssistant,
+    device_registry: dr.DeviceRegistry,
+    auth,
+    mp4,
+    hass_client: ClientSessionGenerator,
+    subscriber,
+    setup_platform,
+    media_path: str,
+) -> None:
+    """Test media files getting evicted from the cache."""
+    await setup_platform()
+
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, DEVICE_ID), hass.config_entries.async_entries(DOMAIN)[0].entry_id
+    )
+    assert device
+    assert device.name == DEVICE_NAME
+
+    # Publish a media event
+    auth.responses = [
+        aiohttp.web.Response(body=mp4.getvalue()),
+    ]
+    event_timestamp = dt_util.now()
+    await subscriber.async_receive_event(
+        create_event_message(
+            create_battery_event_data(MOTION_EVENT),
+            timestamp=event_timestamp,
+        )
+    )
+    await hass.async_block_till_done()
+
+    # The first subdirectory is the device id. Media for events are stored in the
+    # device subdirectory. First verify that the media was persisted. We will
+    # then add additional media files, then invoke the garbage collector, and
+    # then verify orphaned files are removed.
+    storage_path = pathlib.Path(media_path)
+    device_path = storage_path / device.id
+    media_files = list(device_path.glob("*"))
+    assert len(media_files) == 1
+    event_media = media_files[0]
+    assert event_media.name.endswith(".mp4")
+
+    event_time1 = dt_util.utcnow() - datetime.timedelta(days=8)
+    extra_media1 = (
+        device_path / f"{int(event_time1.timestamp())}-camera_motion-test.mp4"
+    )
+    extra_media1.write_bytes(mp4.getvalue())
+    event_time2 = event_time1 + datetime.timedelta(hours=20)
+    extra_media2 = (
+        device_path / f"{int(event_time2.timestamp())}-camera_motion-test.jpg"
+    )
+    extra_media2.write_bytes(mp4.getvalue())
+    # This event will not be garbage collected because it is too recent
+    event_time3 = dt_util.utcnow() - datetime.timedelta(days=3)
+    extra_media3 = (
+        device_path / f"{int(event_time3.timestamp())}-camera_motion-test.mp4"
+    )
+    extra_media3.write_bytes(mp4.getvalue())
+
+    assert len(list(device_path.glob("*"))) == 4
+
+    # Advance the clock to invoke the garbage collector. This will remove extra
+    # files that are not valid events that are old enough.
+    point_in_time = dt_util.utcnow() + datetime.timedelta(days=1)
+    with freeze_time(point_in_time):
+        async_fire_time_changed(hass, point_in_time)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    # Verify that the event media is still present and that the extra files
+    # are removed. Newer media is not removed.
+    assert event_media.exists()
+    assert not extra_media1.exists()
+    assert not extra_media2.exists()
+    assert extra_media3.exists()
+
+
+async def test_media_migration(
+    hass: HomeAssistant,
+    setup_platform,
+    legacy_media_path: str,
+    media_path: str,
+) -> None:
+    """Test migration of media files from legacy path to new path."""
+    legacy_path = pathlib.Path(legacy_media_path)
+    cache_path = pathlib.Path(media_path)
+
+    # Create some dummy files in the legacy path
+    device_id = "device-1"
+    legacy_device_path = legacy_path / device_id
+    legacy_device_path.mkdir(parents=True)
+
+    file1 = legacy_device_path / "event1.jpg"
+    file1.write_text("content1")
+
+    file2 = legacy_device_path / "event2.mp4"
+    file2.write_text("content2")
+
+    # Run setup (which triggers migration)
+    await setup_platform()
+
+    # Check if files are moved to cache path
+    cache_device_path = cache_path / device_id
+    assert (cache_device_path / "event1.jpg").exists()
+    assert (cache_device_path / "event1.jpg").read_text() == "content1"
+    assert (cache_device_path / "event2.mp4").exists()
+    assert (cache_device_path / "event2.mp4").read_text() == "content2"
+
+    # Check if files are removed from legacy path
+    assert not file1.exists()
+    assert not file2.exists()
+    assert not legacy_device_path.exists()
+    assert not legacy_path.exists()
+
+
+async def test_media_migration_failure(
+    hass: HomeAssistant,
+    setup_platform,
+    legacy_media_path: str,
+    media_path: str,
+) -> None:
+    """Test migration failure handles the error gracefully."""
+    legacy_path = pathlib.Path(legacy_media_path)
+    cache_path = pathlib.Path(media_path)
+
+    # Create some dummy files in the legacy path
+    device_id = "device-1"
+    legacy_device_path = legacy_path / device_id
+    legacy_device_path.mkdir(parents=True)
+    file1 = legacy_device_path / "event1.jpg"
+    file1.write_text("content1")
+
+    # Mock shutil.move to fail
+    with patch(
+        "homeassistant.components.nest.media_source.shutil.move",
+        side_effect=OSError("Storage full"),
+    ):
+        # Run setup (which triggers migration)
+        # Note: setup_platform handles the integration setup which
+        # calls async_get_media_event_store
+        await setup_platform()
+
+    # Verify that the legacy path still exists (migration was abandoned)
+    assert file1.exists()
+    assert legacy_path.exists()
+
+    # Verify that the cache path was still created (it should be empty)
+    assert cache_path.exists()
+    assert not (cache_path / device_id).exists()

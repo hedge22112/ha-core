@@ -1,9 +1,8 @@
 """Number entities for the SABnzbd integration."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import override
 
 from pysabnzbd import SabnzbdApiException
 
@@ -15,7 +14,7 @@ from homeassistant.components.number import (
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import SabnzbdConfigEntry, SabnzbdUpdateCoordinator
@@ -38,8 +37,8 @@ NUMBER_DESCRIPTIONS: tuple[SabnzbdNumberEntityDescription, ...] = (
         native_min_value=0,
         native_step=1,
         native_unit_of_measurement=PERCENTAGE,
-        set_fn=lambda coordinator, speed: (
-            coordinator.sab_api.set_speed_limit(int(speed))
+        set_fn=lambda coordinator, speed: coordinator.sab_api.set_speed_limit(
+            int(speed)
         ),
     ),
 )
@@ -48,7 +47,7 @@ NUMBER_DESCRIPTIONS: tuple[SabnzbdNumberEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SabnzbdConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the SABnzbd number entity."""
     coordinator = config_entry.runtime_data
@@ -64,10 +63,12 @@ class SabnzbdNumber(SabnzbdEntity, NumberEntity):
     entity_description: SabnzbdNumberEntityDescription
 
     @property
+    @override
     def native_value(self) -> float:
         """Return latest value for number."""
         return self.coordinator.data[self.entity_description.key]
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set the new number value."""
         try:

@@ -3,8 +3,6 @@
 To update, run python3 -m script.hassfest
 """
 
-from __future__ import annotations
-
 from typing import Final
 
 BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
@@ -49,6 +47,11 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "service_uuid": "b42e3882-ade7-11e4-89d3-123b93f75cba",
     },
     {
+        "domain": "airthings_ble",
+        "manufacturer_id": 820,
+        "service_uuid": "b42e90a2-ade7-11e4-89d3-123b93f75cba",
+    },
+    {
         "connectable": False,
         "domain": "aranet",
         "manufacturer_id": 1794,
@@ -59,6 +62,16 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "domain": "aranet",
         "manufacturer_id": 1794,
         "service_uuid": "0000fce0-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "avea",
+        "local_name": "Avea*",
+        "service_uuid": "f815e810-456c-6761-746f-4d756e696368",
+    },
+    {
+        "connectable": True,
+        "domain": "besen",
+        "local_name": "ACP#*",
     },
     {
         "connectable": False,
@@ -79,6 +92,16 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "connectable": False,
         "domain": "bthome",
         "service_data_uuid": "0000fcd2-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "connectable": True,
+        "domain": "casper_glow",
+        "local_name": "Jar*",
+    },
+    {
+        "connectable": False,
+        "domain": "chef_iq",
+        "manufacturer_id": 1485,
     },
     {
         "domain": "dormakaba_dkey",
@@ -105,6 +128,14 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
     },
     {
         "domain": "eufylife_ble",
+        "local_name": "eufy T9120",
+    },
+    {
+        "domain": "eufylife_ble",
+        "local_name": "eufy T9130",
+    },
+    {
+        "domain": "eufylife_ble",
         "local_name": "eufy T9140",
     },
     {
@@ -124,17 +155,18 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "local_name": "eufy T9149",
     },
     {
+        "domain": "eufylife_ble",
+        "local_name": "eufy T9150",
+    },
+    {
+        "connectable": True,
+        "domain": "eurotronic_cometblue",
+        "service_uuid": "47e9ee00-47e9-11e4-8939-164230d1df67",
+    },
+    {
         "connectable": False,
         "domain": "fjaraskupan",
-        "manufacturer_data_start": [
-            79,
-            68,
-            70,
-            74,
-            65,
-            82,
-        ],
-        "manufacturer_id": 20296,
+        "service_uuid": "77a2bd49-1e5a-4961-bba1-21f34fa4bc7b",
     },
     {
         "connectable": True,
@@ -190,12 +222,27 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
     {
         "connectable": False,
         "domain": "govee_ble",
+        "local_name": "GV5179*",
+    },
+    {
+        "connectable": False,
+        "domain": "govee_ble",
         "local_name": "GVH5127*",
     },
     {
         "connectable": False,
         "domain": "govee_ble",
         "local_name": "GVH5130*",
+    },
+    {
+        "connectable": False,
+        "domain": "govee_ble",
+        "local_name": "GVH5110*",
+    },
+    {
+        "connectable": False,
+        "domain": "govee_ble",
+        "local_name": "GV5140*",
     },
     {
         "connectable": False,
@@ -208,6 +255,11 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "domain": "govee_ble",
         "manufacturer_id": 6966,
         "service_uuid": "00008451-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "connectable": False,
+        "domain": "govee_ble",
+        "service_uuid": "00005550-0000-1000-8000-00805f9b34fb",
     },
     {
         "connectable": False,
@@ -306,6 +358,12 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
     },
     {
         "connectable": True,
+        "domain": "hue_ble",
+        "service_data_uuid": "0000fe0f-0000-1000-8000-00805f9b34fb",
+        "service_uuid": "0000fe0f-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "connectable": True,
         "domain": "husqvarna_automower_ble",
         "service_uuid": "98bd0001-0b0e-421a-84e5-ddbf75dc6de4",
     },
@@ -352,9 +410,315 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "local_name": "tps",
     },
     {
+        "connectable": False,
+        "domain": "inkbird",
+        "local_name": "ITH-11-B",
+    },
+    {
+        "connectable": False,
+        "domain": "inkbird",
+        "local_name": "ITH-13-B",
+    },
+    {
+        "connectable": False,
+        "domain": "inkbird",
+        "local_name": "ITH-21-B",
+    },
+    {
+        "connectable": False,
+        "domain": "inkbird",
+        "local_name": "IBS-P02B",
+    },
+    {
+        "connectable": True,
+        "domain": "inkbird",
+        "local_name": "Ink@IAM-T1",
+    },
+    {
+        "connectable": True,
+        "domain": "inkbird",
+        "local_name": "Ink@IAM-T2",
+    },
+    {
+        "connectable": True,
+        "domain": "inkbird",
+        "manufacturer_data_start": [
+            65,
+            67,
+            45,
+        ],
+        "manufacturer_id": 12628,
+    },
+    {
+        "connectable": False,
+        "domain": "inkbird",
+        "manufacturer_data_start": [
+            0,
+            98,
+            0,
+        ],
+        "manufacturer_id": 12884,
+    },
+    {
         "connectable": True,
         "domain": "iron_os",
         "service_uuid": "9eae1000-9d0d-48c5-aa55-33e27f9bc533",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f000-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f001-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f002-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f003-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f004-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f005-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f006-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f007-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f008-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f009-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f00a-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f00b-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f00c-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f00d-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f00e-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f00f-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f010-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f011-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f012-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f013-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f014-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f015-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f016-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f017-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f018-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f019-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f01a-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f01b-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f01c-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f01d-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f01e-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f01f-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f020-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f021-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f022-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f023-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f024-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f025-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f026-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f027-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f028-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f029-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f02a-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f02b-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f02c-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f02d-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f02e-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f02f-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f030-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f031-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f032-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f033-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f034-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f035-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f036-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f037-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f038-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f039-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f03a-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f03b-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f03c-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f03d-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f03e-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "domain": "iseo_argo_ble",
+        "service_uuid": "0000f03f-0000-1000-8000-00805f9b34fb",
     },
     {
         "connectable": False,
@@ -370,6 +734,10 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "local_name": "mib*",
     },
     {
+        "domain": "kulersky",
+        "service_uuid": "8d96a001-0002-64c2-0001-9acc4838521c",
+    },
+    {
         "domain": "lamarzocco",
         "local_name": "MICRA_*",
     },
@@ -379,11 +747,23 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
     },
     {
         "domain": "lamarzocco",
+        "local_name": "LINEA_*",
+    },
+    {
+        "domain": "lamarzocco",
+        "local_name": "LINEAR_*",
+    },
+    {
+        "domain": "lamarzocco",
         "local_name": "GS3_*",
     },
     {
         "domain": "lamarzocco",
         "local_name": "GS3AV_*",
+    },
+    {
+        "domain": "lamarzocco",
+        "local_name": "GS3MP_*",
     },
     {
         "domain": "ld2410_ble",
@@ -433,10 +813,6 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
     {
         "domain": "led_ble",
         "local_name": "AP-*",
-    },
-    {
-        "domain": "led_ble",
-        "local_name": "MELK-*",
     },
     {
         "domain": "led_ble",
@@ -545,8 +921,19 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "local_name": "MOTION_*",
     },
     {
+        "connectable": True,
+        "domain": "opendisplay",
+        "manufacturer_id": 9286,
+    },
+    {
         "domain": "oralb",
         "manufacturer_id": 220,
+    },
+    {
+        "connectable": True,
+        "domain": "probe_plus",
+        "local_name": "FM2*",
+        "manufacturer_id": 36606,
     },
     {
         "connectable": False,
@@ -632,12 +1019,86 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
         "service_uuid": "ef090000-11d6-42ba-93b8-9dd7ec090aa9",
     },
     {
+        "domain": "shelly",
+        "local_name": "Shelly*",
+    },
+    {
+        "domain": "shelly",
+        "manufacturer_id": 2985,
+    },
+    {
         "domain": "snooz",
         "local_name": "Snooz*",
     },
     {
         "domain": "snooz",
         "service_uuid": "729f0608-496a-47fe-a124-3a62aaa3fbc0",
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "manufacturer_data_start": [
+            84,
+            85,
+            82,
+            66,
+            79,
+            72,
+            77,
+            73,
+        ],
+        "manufacturer_id": 89,
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "manufacturer_data_start": [
+            2,
+            21,
+            84,
+            85,
+            82,
+            66,
+            79,
+            72,
+            77,
+            73,
+        ],
+        "manufacturer_id": 76,
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "local_name": "SPECIALIZED",
+        "manufacturer_id": 525,
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "manufacturer_id": 89,
+        "service_uuid": "00000001-3731-3032-494d-484f42525554",
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "manufacturer_id": 89,
+        "service_uuid": "00000002-3731-3032-494d-484f42525554",
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "manufacturer_id": 89,
+        "service_uuid": "00000003-3731-3032-494d-484f42525554",
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "local_name": "WSBC*",
+    },
+    {
+        "connectable": True,
+        "domain": "specialized_turbo",
+        "local_name": "SPECIALIZED*",
     },
     {
         "connectable": False,
@@ -685,6 +1146,15 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
             0,
         ],
         "manufacturer_id": 17,
+        "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "connectable": False,
+        "domain": "thermobeacon",
+        "manufacturer_data_start": [
+            0,
+        ],
+        "manufacturer_id": 20,
         "service_uuid": "0000fff0-0000-1000-8000-00805f9b34fb",
     },
     {
@@ -758,6 +1228,20 @@ BLUETOOTH: Final[list[dict[str, bool | str | int | list[int]]]] = [
             187,
         ],
         "manufacturer_id": 76,
+    },
+    {
+        "connectable": True,
+        "domain": "togrill",
+        "manufacturer_id": 34714,
+        "service_uuid": "0000cee0-0000-1000-8000-00805f9b34fb",
+    },
+    {
+        "connectable": False,
+        "domain": "victron_ble",
+        "manufacturer_data_start": [
+            16,
+        ],
+        "manufacturer_id": 737,
     },
     {
         "connectable": False,

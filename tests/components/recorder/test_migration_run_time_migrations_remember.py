@@ -22,10 +22,14 @@ from homeassistant.components.recorder.util import (
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 
-from .common import async_recorder_block_till_done, async_wait_recording_done
+from .common import (
+    async_recorder_block_till_done,
+    async_wait_recording_done,
+    get_patched_live_version,
+)
 
 from tests.common import async_test_home_assistant
-from tests.typing import RecorderInstanceGenerator
+from tests.typing import RecorderInstanceContextManager
 
 CREATE_ENGINE_TARGET = "homeassistant.components.recorder.core.create_engine"
 SCHEMA_MODULE_32 = "tests.components.recorder.db_schema_32"
@@ -34,7 +38,7 @@ SCHEMA_MODULE_CURRENT = "homeassistant.components.recorder.db_schema"
 
 @pytest.fixture
 async def mock_recorder_before_hass(
-    async_test_recorder: RecorderInstanceGenerator,
+    async_test_recorder: RecorderInstanceContextManager,
 ) -> None:
     """Set up recorder."""
 
@@ -115,7 +119,7 @@ def _create_engine_test(
                 "event_context_id_as_binary": (0, 1),
                 "event_type_id_migration": (2, 1),
                 "entity_id_migration": (2, 1),
-                "event_id_post_migration": (0, 0),
+                "event_id_post_migration": (1, 1),
                 "entity_id_post_migration": (0, 1),
             },
             [
@@ -131,7 +135,7 @@ def _create_engine_test(
                 "event_context_id_as_binary": (0, 0),
                 "event_type_id_migration": (2, 1),
                 "entity_id_migration": (2, 1),
-                "event_id_post_migration": (0, 0),
+                "event_id_post_migration": (1, 1),
                 "entity_id_post_migration": (0, 1),
             },
             ["ix_states_entity_id_last_updated_ts"],
@@ -143,13 +147,43 @@ def _create_engine_test(
                 "event_context_id_as_binary": (0, 0),
                 "event_type_id_migration": (0, 0),
                 "entity_id_migration": (2, 1),
-                "event_id_post_migration": (0, 0),
+                "event_id_post_migration": (1, 1),
                 "entity_id_post_migration": (0, 1),
             },
             ["ix_states_entity_id_last_updated_ts"],
         ),
         (
             38,
+            {
+                "state_context_id_as_binary": (0, 0),
+                "event_context_id_as_binary": (0, 0),
+                "event_type_id_migration": (0, 0),
+                "entity_id_migration": (0, 0),
+                "event_id_post_migration": (1, 1),
+                "entity_id_post_migration": (0, 0),
+            },
+            [],
+        ),
+        (
+            43,
+            {
+                "state_context_id_as_binary": (0, 0),
+                "event_context_id_as_binary": (0, 0),
+                "event_type_id_migration": (0, 0),
+                "entity_id_migration": (0, 0),
+                # Schema was not bumped when the SQLite
+                # table rebuild was implemented so we need
+                # run event_id_post_migration up until
+                # schema 44 since its the first one we can
+                # be sure has the foreign key constraint was removed
+                # via https://github.com/home-assistant/core/pull/120779
+                "event_id_post_migration": (1, 1),
+                "entity_id_post_migration": (0, 0),
+            },
+            [],
+        ),
+        (
+            44,
             {
                 "state_context_id_as_binary": (0, 0),
                 "event_context_id_as_binary": (0, 0),
@@ -175,7 +209,7 @@ def _create_engine_test(
     ],
 )
 async def test_data_migrator_logic(
-    async_test_recorder: RecorderInstanceGenerator,
+    async_test_recorder: RecorderInstanceContextManager,
     initial_version: int,
     expected_migrator_calls: dict[str, tuple[int, int]],
     expected_created_indices: list[str],
@@ -266,23 +300,32 @@ async def test_data_migrator_logic(
     # the expected number of times.
     for migrator, mock in migrator_mocks.items():
         needs_migrate_calls, migrate_data_calls = expected_migrator_calls[migrator]
-        assert len(mock["needs_migrate"].mock_calls) == needs_migrate_calls
-        assert len(mock["migrate_data"].mock_calls) == migrate_data_calls
+        assert len(mock["needs_migrate"].mock_calls) == needs_migrate_calls, (
+            f"Expected {migrator} needs_migrate to be called"
+            f" {needs_migrate_calls} times,"
+            f" got {len(mock['needs_migrate'].mock_calls)}"
+        )
+        assert len(mock["migrate_data"].mock_calls) == migrate_data_calls, (
+            f"Expected {migrator} migrate_data to be called"
+            f" {migrate_data_calls} times, "
+            f"got {len(mock['migrate_data'].mock_calls)}"
+        )
 
 
 @pytest.mark.parametrize("enable_migrate_state_context_ids", [True])
 @pytest.mark.parametrize("persistent_database", [True])
 @pytest.mark.usefixtures("hass_storage")  # Prevent test hass from writing to storage
 async def test_migration_changes_prevent_trying_to_migrate_again(
-    async_test_recorder: RecorderInstanceGenerator,
+    async_test_recorder: RecorderInstanceContextManager,
 ) -> None:
-    """Test that we do not try to migrate when migration_changes indicate its already migrated.
+    """Test we skip migration when migration_changes says done.
 
     This test will start Home Assistant 3 times:
 
     1. With schema 32 to populate the data
     2. With current schema so the migration happens
-    3. With current schema to verify we do not have to query to see if the migration is done
+    3. With current schema to verify we do not have to query to see
+       if the migration is done
     """
 
     config = {recorder.CONF_COMMIT_INTERVAL: 1}
@@ -293,6 +336,11 @@ async def test_migration_changes_prevent_trying_to_migrate_again(
     with (
         patch.object(recorder, "db_schema", old_db_schema),
         patch.object(migration, "SCHEMA_VERSION", old_db_schema.SCHEMA_VERSION),
+        patch.object(
+            migration,
+            "LIVE_MIGRATION_MIN_SCHEMA_VERSION",
+            get_patched_live_version(old_db_schema),
+        ),
         patch.object(migration, "non_live_data_migration_needed", return_value=False),
         patch.object(core, "StatesMeta", old_db_schema.StatesMeta),
         patch.object(core, "EventTypes", old_db_schema.EventTypes),

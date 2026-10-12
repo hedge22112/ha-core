@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import (
@@ -55,7 +55,7 @@ async def test_button_presses(
             BUTTON_DOMAIN,
             SERVICE_PRESS,
             {
-                ATTR_ENTITY_ID: f"button.lunar_ddeeff_{button}",
+                ATTR_ENTITY_ID: f"button.kitchen_lunar_ddeeff_{button}",
             },
             blocking=True,
         )
@@ -75,7 +75,7 @@ async def test_buttons_unavailable_on_disconnected_scale(
     await setup_integration(hass, mock_config_entry)
 
     for button in BUTTONS:
-        state = hass.states.get(f"button.lunar_ddeeff_{button}")
+        state = hass.states.get(f"button.kitchen_lunar_ddeeff_{button}")
         assert state
         assert state.state == STATE_UNKNOWN
 
@@ -85,6 +85,6 @@ async def test_buttons_unavailable_on_disconnected_scale(
     await hass.async_block_till_done()
 
     for button in BUTTONS:
-        state = hass.states.get(f"button.lunar_ddeeff_{button}")
+        state = hass.states.get(f"button.kitchen_lunar_ddeeff_{button}")
         assert state
         assert state.state == STATE_UNAVAILABLE

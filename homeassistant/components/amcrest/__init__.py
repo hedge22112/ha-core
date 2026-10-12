@@ -1,25 +1,20 @@
 """Support for Amcrest IP cameras."""
 
-from __future__ import annotations
-
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import threading
-from typing import Any
+from typing import Any, override
 
 import aiohttp
 from amcrest import AmcrestError, ApiWrapper, LoginError
-import httpx
-import voluptuous as vol
+import httpx2
+import probatio
 
-from homeassistant.auth.models import User
-from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.const import (
-    ATTR_ENTITY_ID,
     CONF_AUTHENTICATION,
     CONF_BINARY_SENSORS,
     CONF_HOST,
@@ -30,24 +25,18 @@ from homeassistant.const import (
     CONF_SENSORS,
     CONF_SWITCHES,
     CONF_USERNAME,
-    ENTITY_MATCH_ALL,
-    ENTITY_MATCH_NONE,
     HTTP_BASIC_AUTHENTICATION,
     Platform,
 )
-from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import Unauthorized, UnknownUser
-from homeassistant.helpers import discovery
-import homeassistant.helpers.config_validation as cv
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv, discovery
 from homeassistant.helpers.dispatcher import async_dispatcher_send, dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.service import async_extract_entity_ids
 from homeassistant.helpers.typing import ConfigType
 
 from .binary_sensor import BINARY_SENSOR_KEYS, BINARY_SENSORS, check_binary_sensors
-from .camera import CAMERA_SERVICES, STREAM_SOURCE_LIST
+from .camera import STREAM_SOURCE_LIST
 from .const import (
-    CAMERAS,
     COMM_RETRIES,
     COMM_TIMEOUT,
     DATA_AMCREST,
@@ -59,6 +48,7 @@ from .const import (
 )
 from .helpers import service_signal
 from .sensor import SENSOR_KEYS
+from .services import async_setup_services
 from .switch import SWITCH_KEYS
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,47 +75,47 @@ AUTHENTICATION_LIST = {"basic": "basic"}
 
 def _has_unique_names(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     names = [device[CONF_NAME] for device in devices]
-    vol.Schema(vol.Unique())(names)
+    probatio.Schema(probatio.Unique())(names)
     return devices
 
 
-AMCREST_SCHEMA = vol.Schema(
+AMCREST_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
-        vol.Optional(CONF_AUTHENTICATION, default=HTTP_BASIC_AUTHENTICATION): vol.All(
-            vol.In(AUTHENTICATION_LIST)
+        probatio.Required(CONF_HOST): cv.string,
+        probatio.Required(CONF_USERNAME): cv.string,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): cv.string,
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        probatio.Optional(CONF_PORT, default=DEFAULT_PORT): probatio.Port(),
+        probatio.Optional(
+            CONF_AUTHENTICATION, default=HTTP_BASIC_AUTHENTICATION
+        ): probatio.All(probatio.In(AUTHENTICATION_LIST)),
+        probatio.Optional(CONF_RESOLUTION, default=DEFAULT_RESOLUTION): probatio.All(
+            probatio.In(RESOLUTION_LIST)
         ),
-        vol.Optional(CONF_RESOLUTION, default=DEFAULT_RESOLUTION): vol.All(
-            vol.In(RESOLUTION_LIST)
-        ),
-        vol.Optional(CONF_STREAM_SOURCE, default=STREAM_SOURCE_LIST[0]): vol.All(
-            vol.In(STREAM_SOURCE_LIST)
-        ),
-        vol.Optional(CONF_FFMPEG_ARGUMENTS, default=DEFAULT_ARGUMENTS): cv.string,
-        vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL): cv.time_period,
-        vol.Optional(CONF_BINARY_SENSORS): vol.All(
-            cv.ensure_list,
-            [vol.In(BINARY_SENSOR_KEYS)],
-            vol.Unique(),
+        probatio.Optional(
+            CONF_STREAM_SOURCE, default=STREAM_SOURCE_LIST[0]
+        ): probatio.All(probatio.In(STREAM_SOURCE_LIST)),
+        probatio.Optional(CONF_FFMPEG_ARGUMENTS, default=DEFAULT_ARGUMENTS): cv.string,
+        probatio.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL): cv.time_period,
+        probatio.Optional(CONF_BINARY_SENSORS): probatio.All(
+            probatio.EnsureList(),
+            [probatio.In(BINARY_SENSOR_KEYS)],
+            probatio.Unique(),
             check_binary_sensors,
         ),
-        vol.Optional(CONF_SWITCHES): vol.All(
-            cv.ensure_list, [vol.In(SWITCH_KEYS)], vol.Unique()
+        probatio.Optional(CONF_SWITCHES): probatio.All(
+            probatio.EnsureList(), [probatio.In(SWITCH_KEYS)], probatio.Unique()
         ),
-        vol.Optional(CONF_SENSORS): vol.All(
-            cv.ensure_list, [vol.In(SENSOR_KEYS)], vol.Unique()
+        probatio.Optional(CONF_SENSORS): probatio.All(
+            probatio.EnsureList(), [probatio.In(SENSOR_KEYS)], probatio.Unique()
         ),
-        vol.Optional(CONF_CONTROL_LIGHT, default=True): cv.boolean,
+        probatio.Optional(CONF_CONTROL_LIGHT, default=True): cv.boolean,
     }
 )
 
-CONFIG_SCHEMA = vol.Schema(
-    {DOMAIN: vol.All(cv.ensure_list, [AMCREST_SCHEMA], _has_unique_names)},
-    extra=vol.ALLOW_EXTRA,
+CONFIG_SCHEMA = probatio.Schema(
+    {DOMAIN: probatio.All(probatio.EnsureList(), [AMCREST_SCHEMA], _has_unique_names)},
+    extra=probatio.ALLOW_EXTRA,
 )
 
 
@@ -188,6 +178,7 @@ class AmcrestChecker(ApiWrapper):
             self._hass, self._wrap_test_online, RECHECK_INTERVAL
         )
 
+    @override
     def command(self, *args: Any, **kwargs: Any) -> Any:
         """amcrest.ApiWrapper.command wrapper to catch errors."""
         try:
@@ -201,15 +192,17 @@ class AmcrestChecker(ApiWrapper):
         self._set_online()
         return ret
 
-    async def async_command(self, *args: Any, **kwargs: Any) -> httpx.Response:
+    @override
+    async def async_command(self, *args: Any, **kwargs: Any) -> httpx2.Response:
         """amcrest.ApiWrapper.command wrapper to catch errors."""
         async with self._async_command_wrapper():
             return await super().async_command(*args, **kwargs)
 
     @asynccontextmanager
+    @override
     async def async_stream_command(
         self, *args: Any, **kwargs: Any
-    ) -> AsyncIterator[httpx.Response]:
+    ) -> AsyncGenerator[httpx2.Response]:
         """amcrest.ApiWrapper.command wrapper to catch errors."""
         async with (
             self._async_command_wrapper(),
@@ -218,7 +211,7 @@ class AmcrestChecker(ApiWrapper):
             yield ret
 
     @asynccontextmanager
-    async def _async_command_wrapper(self) -> AsyncIterator[None]:
+    async def _async_command_wrapper(self) -> AsyncGenerator[None]:
         try:
             yield
         except LoginError as ex:
@@ -366,7 +359,7 @@ def _start_event_monitor(
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Amcrest IP Camera component."""
-    hass.data.setdefault(DATA_AMCREST, {DEVICES: {}, CAMERAS: []})
+    hass.data.setdefault(DATA_AMCREST, {DEVICES: {}})
 
     for device in config[DOMAIN]:
         name: str = device[CONF_NAME]
@@ -456,47 +449,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if not hass.data[DATA_AMCREST][DEVICES]:
         return False
 
-    def have_permission(user: User | None, entity_id: str) -> bool:
-        return not user or user.permissions.check_entity(entity_id, POLICY_CONTROL)
-
-    async def async_extract_from_service(call: ServiceCall) -> list[str]:
-        if call.context.user_id:
-            user = await hass.auth.async_get_user(call.context.user_id)
-            if user is None:
-                raise UnknownUser(context=call.context)
-        else:
-            user = None
-
-        if call.data.get(ATTR_ENTITY_ID) == ENTITY_MATCH_ALL:
-            # Return all entity_ids user has permission to control.
-            return [
-                entity_id
-                for entity_id in hass.data[DATA_AMCREST][CAMERAS]
-                if have_permission(user, entity_id)
-            ]
-
-        if call.data.get(ATTR_ENTITY_ID) == ENTITY_MATCH_NONE:
-            return []
-
-        call_ids = await async_extract_entity_ids(hass, call)
-        entity_ids = []
-        for entity_id in hass.data[DATA_AMCREST][CAMERAS]:
-            if entity_id not in call_ids:
-                continue
-            if not have_permission(user, entity_id):
-                raise Unauthorized(
-                    context=call.context, entity_id=entity_id, permission=POLICY_CONTROL
-                )
-            entity_ids.append(entity_id)
-        return entity_ids
-
-    async def async_service_handler(call: ServiceCall) -> None:
-        args = [call.data[arg] for arg in CAMERA_SERVICES[call.service][2]]
-        for entity_id in await async_extract_from_service(call):
-            async_dispatcher_send(hass, service_signal(call.service, entity_id), *args)
-
-    for service, params in CAMERA_SERVICES.items():
-        hass.services.async_register(DOMAIN, service, async_service_handler, params[0])
+    async_setup_services(hass)
 
     return True
 

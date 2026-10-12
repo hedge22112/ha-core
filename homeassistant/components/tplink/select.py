@@ -1,9 +1,7 @@
 """Support for TPLink select entities."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Final, cast
+from typing import Final, cast, override
 
 from kasa import Device, Feature
 
@@ -13,10 +11,9 @@ from homeassistant.components.select import (
     SelectEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import TPLinkConfigEntry
-from .deprecate import async_cleanup_deprecated
 from .entity import (
     CoordinatedTPLinkFeatureEntity,
     TPLinkDataUpdateCoordinator,
@@ -54,7 +51,7 @@ SELECT_DESCRIPTIONS_MAP = {desc.key: desc for desc in SELECT_DESCRIPTIONS}
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: TPLinkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up select entities."""
     data = config_entry.runtime_data
@@ -71,10 +68,10 @@ async def async_setup_entry(
             feature_type=Feature.Type.Choice,
             entity_class=TPLinkSelectEntity,
             descriptions=SELECT_DESCRIPTIONS_MAP,
+            platform_domain=SELECT_DOMAIN,
             known_child_device_ids=known_child_device_ids,
             first_check=first_check,
         )
-        async_cleanup_deprecated(hass, SELECT_DOMAIN, config_entry.entry_id, entities)
         async_add_entities(entities)
 
     _check_device()
@@ -103,11 +100,13 @@ class TPLinkSelectEntity(CoordinatedTPLinkFeatureEntity, SelectEntity):
         self._attr_options = cast(list, self._feature.choices)
 
     @async_refresh_after
+    @override
     async def async_select_option(self, option: str) -> None:
         """Update the current selected option."""
         await self._feature.set_value(option)
 
     @callback
+    @override
     def _async_update_attrs(self) -> bool:
         """Update the entity's attributes."""
         self._attr_current_option = cast(str | None, self._feature.value)

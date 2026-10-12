@@ -2,22 +2,30 @@
 
 from unittest.mock import patch
 
+from probatio.error import MultipleInvalid
 import pytest
-from voluptuous.error import MultipleInvalid
+from subarulink import SubaruException
 
 from homeassistant.components.lock import DOMAIN as LOCK_DOMAIN
 from homeassistant.components.subaru.const import (
     ATTR_DOOR,
-    DOMAIN as SUBARU_DOMAIN,
+    DOMAIN,
     SERVICE_UNLOCK_SPECIFIC_DOOR,
     UNLOCK_DOOR_DRIVERS,
 )
-from homeassistant.const import ATTR_ENTITY_ID, SERVICE_LOCK, SERVICE_UNLOCK
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    SERVICE_LOCK,
+    SERVICE_UNLOCK,
+    STATE_UNAVAILABLE,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from .conftest import MOCK_API
+from .conftest import MOCK_API, MOCK_API_FETCH, advance_time_to_next_fetch
+
+from tests.common import MockConfigEntry
 
 MOCK_API_LOCK = f"{MOCK_API}lock"
 MOCK_API_UNLOCK = f"{MOCK_API}unlock"
@@ -68,7 +76,7 @@ async def test_unlock_specific_door(hass: HomeAssistant, ev_entry) -> None:
     """Test subaru unlock specific door function."""
     with patch(MOCK_API_UNLOCK) as mock_unlock:
         await hass.services.async_call(
-            SUBARU_DOMAIN,
+            DOMAIN,
             SERVICE_UNLOCK_SPECIFIC_DOOR,
             {ATTR_ENTITY_ID: DEVICE_ID, ATTR_DOOR: UNLOCK_DOOR_DRIVERS},
             blocking=True,
@@ -81,9 +89,21 @@ async def test_unlock_specific_door_invalid(hass: HomeAssistant, ev_entry) -> No
     """Test subaru unlock specific door function."""
     with patch(MOCK_API_UNLOCK) as mock_unlock, pytest.raises(MultipleInvalid):
         await hass.services.async_call(
-            SUBARU_DOMAIN,
+            DOMAIN,
             SERVICE_UNLOCK_SPECIFIC_DOOR,
             {ATTR_ENTITY_ID: DEVICE_ID, ATTR_DOOR: "bad_value"},
             blocking=True,
         )
     mock_unlock.assert_not_called()
+
+
+async def test_lock_unavailable_on_fetch_failure(
+    hass: HomeAssistant, ev_entry: MockConfigEntry
+) -> None:
+    """Test lock goes unavailable when a fetch fails after setup."""
+    with patch(MOCK_API_FETCH, side_effect=SubaruException("403 Error")):
+        advance_time_to_next_fetch(hass)
+        await hass.async_block_till_done()
+
+    state = hass.states.get(DEVICE_ID)
+    assert state.state == STATE_UNAVAILABLE

@@ -1,12 +1,10 @@
 """Platform for sensor integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, override
 
 from devolo_plc_api.device_api import ConnectedStationInfo, NeighborAPInfo
 from devolo_plc_api.plcnet_api import REMOTE, DataRate, LogicalNetwork
@@ -19,10 +17,9 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfDataRate
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.dt import utcnow
 
-from . import DevoloHomeNetworkConfigEntry
 from .const import (
     CONNECTED_PLC_DEVICES,
     CONNECTED_WIFI_CLIENTS,
@@ -31,14 +28,18 @@ from .const import (
     PLC_RX_RATE,
     PLC_TX_RATE,
 )
-from .coordinator import DevoloDataUpdateCoordinator
+from .coordinator import DevoloDataUpdateCoordinator, DevoloHomeNetworkConfigEntry
 from .entity import DevoloCoordinatorEntity
 
 PARALLEL_UPDATES = 0
 
 
 def _last_restart(runtime: int) -> datetime:
-    """Calculate uptime. As fetching the data might also take some time, let's floor to the nearest 5 seconds."""
+    """Calculate uptime.
+
+    As fetching the data might also take some time,
+    let's floor to the nearest 5 seconds.
+    """
     now = utcnow()
     return (
         now
@@ -48,7 +49,11 @@ def _last_restart(runtime: int) -> datetime:
 
 
 type _CoordinatorDataType = (
-    LogicalNetwork | DataRate | list[ConnectedStationInfo] | list[NeighborAPInfo] | int
+    LogicalNetwork
+    | DataRate
+    | dict[str, ConnectedStationInfo]
+    | list[NeighborAPInfo]
+    | int
 )
 type _SensorDataType = int | float | datetime
 
@@ -80,7 +85,7 @@ SENSOR_TYPES: dict[str, DevoloSensorEntityDescription[Any, Any]] = {
         ),
     ),
     CONNECTED_WIFI_CLIENTS: DevoloSensorEntityDescription[
-        list[ConnectedStationInfo], int
+        dict[str, ConnectedStationInfo], int
     ](
         key=CONNECTED_WIFI_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
@@ -114,7 +119,7 @@ SENSOR_TYPES: dict[str, DevoloSensorEntityDescription[Any, Any]] = {
         key=LAST_RESTART,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        device_class=SensorDeviceClass.TIMESTAMP,
+        device_class=SensorDeviceClass.UPTIME,
         value_func=_last_restart,
     ),
 }
@@ -123,7 +128,7 @@ SENSOR_TYPES: dict[str, DevoloSensorEntityDescription[Any, Any]] = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DevoloHomeNetworkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Get all devices and sensors and setup them via config entry."""
     device = entry.runtime_data.device
@@ -138,7 +143,7 @@ async def async_setup_entry(
                 SENSOR_TYPES[CONNECTED_PLC_DEVICES],
             )
         )
-        network = await device.plcnet.async_get_network_overview()
+        network: LogicalNetwork = coordinators[CONNECTED_PLC_DEVICES].data
         peers = [
             peer.mac_address for peer in network.devices if peer.topology == REMOTE
         ]
@@ -216,6 +221,7 @@ class DevoloSensorEntity[
     entity_description: DevoloSensorEntityDescription[_CoordinatorDataT, _SensorDataT]
 
     @property
+    @override
     def native_value(self) -> int | float | datetime:
         """State of the sensor."""
         return self.entity_description.value_func(self.coordinator.data)
@@ -249,13 +255,19 @@ class DevoloPlcDataRateSensorEntity(
         self._attr_entity_registry_enabled_default = peer_device.attached_to_router
 
     @property
-    def native_value(self) -> float:
+    @override
+    def native_value(self) -> float | None:
         """State of the sensor."""
-        return self.entity_description.value_func(
-            next(
-                data_rate
-                for data_rate in self.coordinator.data.data_rates
-                if data_rate.mac_address_from == self.device.mac
-                and data_rate.mac_address_to == self._peer
+        if (
+            data_rate := next(
+                (
+                    data_rate
+                    for data_rate in self.coordinator.data.data_rates
+                    if data_rate.mac_address_from == self.device.mac
+                    and data_rate.mac_address_to == self._peer
+                ),
+                None,
             )
-        )
+        ) is None:
+            return None
+        return self.entity_description.value_func(data_rate)

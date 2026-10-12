@@ -1,32 +1,52 @@
 """Control a MQTT alarm."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
-import voluptuous as vol
+import probatio
 
-import homeassistant.components.alarm_control_panel as alarm
+from homeassistant.components import alarm_control_panel as alarm
 from homeassistant.components.alarm_control_panel import (
-    AlarmControlPanelEntityFeature,
+    AlarmControlPanelEntityStateAttribute,
     AlarmControlPanelState,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_CODE, CONF_NAME, CONF_VALUE_TEMPLATE
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import ConfigType
 
 from . import subscription
 from .config import DEFAULT_RETAIN, MQTT_BASE_SCHEMA
 from .const import (
+    ALARM_CONTROL_PANEL_SUPPORTED_FEATURES,
+    CONF_CODE_ARM_REQUIRED,
+    CONF_CODE_DISARM_REQUIRED,
+    CONF_CODE_TRIGGER_REQUIRED,
     CONF_COMMAND_TEMPLATE,
     CONF_COMMAND_TOPIC,
+    CONF_PAYLOAD_ARM_AWAY,
+    CONF_PAYLOAD_ARM_CUSTOM_BYPASS,
+    CONF_PAYLOAD_ARM_HOME,
+    CONF_PAYLOAD_ARM_NIGHT,
+    CONF_PAYLOAD_ARM_VACATION,
+    CONF_PAYLOAD_DISARM,
+    CONF_PAYLOAD_TRIGGER,
     CONF_RETAIN,
     CONF_STATE_TOPIC,
     CONF_SUPPORTED_FEATURES,
+    DEFAULT_ALARM_CONTROL_PANEL_COMMAND_TEMPLATE,
+    DEFAULT_PAYLOAD_ARM_AWAY,
+    DEFAULT_PAYLOAD_ARM_CUSTOM_BYPASS,
+    DEFAULT_PAYLOAD_ARM_HOME,
+    DEFAULT_PAYLOAD_ARM_NIGHT,
+    DEFAULT_PAYLOAD_ARM_VACATION,
+    DEFAULT_PAYLOAD_DISARM,
+    DEFAULT_PAYLOAD_TRIGGER,
     PAYLOAD_NONE,
+    REMOTE_CODE,
+    REMOTE_CODE_TEXT,
 )
 from .entity import MqttEntity, async_setup_entity_entry_helper
 from .models import MqttCommandTemplate, MqttValueTemplate, ReceiveMessage
@@ -37,85 +57,65 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
 
-_SUPPORTED_FEATURES = {
-    "arm_home": AlarmControlPanelEntityFeature.ARM_HOME,
-    "arm_away": AlarmControlPanelEntityFeature.ARM_AWAY,
-    "arm_night": AlarmControlPanelEntityFeature.ARM_NIGHT,
-    "arm_vacation": AlarmControlPanelEntityFeature.ARM_VACATION,
-    "arm_custom_bypass": AlarmControlPanelEntityFeature.ARM_CUSTOM_BYPASS,
-    "trigger": AlarmControlPanelEntityFeature.TRIGGER,
-}
-
-CONF_CODE_ARM_REQUIRED = "code_arm_required"
-CONF_CODE_DISARM_REQUIRED = "code_disarm_required"
-CONF_CODE_TRIGGER_REQUIRED = "code_trigger_required"
-CONF_PAYLOAD_DISARM = "payload_disarm"
-CONF_PAYLOAD_ARM_HOME = "payload_arm_home"
-CONF_PAYLOAD_ARM_AWAY = "payload_arm_away"
-CONF_PAYLOAD_ARM_NIGHT = "payload_arm_night"
-CONF_PAYLOAD_ARM_VACATION = "payload_arm_vacation"
-CONF_PAYLOAD_ARM_CUSTOM_BYPASS = "payload_arm_custom_bypass"
-CONF_PAYLOAD_TRIGGER = "payload_trigger"
-
 MQTT_ALARM_ATTRIBUTES_BLOCKED = frozenset(
     {
-        alarm.ATTR_CHANGED_BY,
-        alarm.ATTR_CODE_ARM_REQUIRED,
-        alarm.ATTR_CODE_FORMAT,
+        AlarmControlPanelEntityStateAttribute.CHANGED_BY,
+        AlarmControlPanelEntityStateAttribute.CODE_ARM_REQUIRED,
+        AlarmControlPanelEntityStateAttribute.CODE_FORMAT,
     }
 )
 
-DEFAULT_COMMAND_TEMPLATE = "{{action}}"
-DEFAULT_ARM_NIGHT = "ARM_NIGHT"
-DEFAULT_ARM_VACATION = "ARM_VACATION"
-DEFAULT_ARM_AWAY = "ARM_AWAY"
-DEFAULT_ARM_HOME = "ARM_HOME"
-DEFAULT_ARM_CUSTOM_BYPASS = "ARM_CUSTOM_BYPASS"
-DEFAULT_DISARM = "DISARM"
-DEFAULT_TRIGGER = "TRIGGER"
 DEFAULT_NAME = "MQTT Alarm"
-
-REMOTE_CODE = "REMOTE_CODE"
-REMOTE_CODE_TEXT = "REMOTE_CODE_TEXT"
 
 PLATFORM_SCHEMA_MODERN = MQTT_BASE_SCHEMA.extend(
     {
-        vol.Optional(CONF_SUPPORTED_FEATURES, default=list(_SUPPORTED_FEATURES)): [
-            vol.In(_SUPPORTED_FEATURES)
-        ],
-        vol.Optional(CONF_CODE): cv.string,
-        vol.Optional(CONF_CODE_ARM_REQUIRED, default=True): cv.boolean,
-        vol.Optional(CONF_CODE_DISARM_REQUIRED, default=True): cv.boolean,
-        vol.Optional(CONF_CODE_TRIGGER_REQUIRED, default=True): cv.boolean,
-        vol.Optional(
-            CONF_COMMAND_TEMPLATE, default=DEFAULT_COMMAND_TEMPLATE
+        probatio.Optional(
+            CONF_SUPPORTED_FEATURES,
+            default=list(ALARM_CONTROL_PANEL_SUPPORTED_FEATURES),
+        ): [probatio.In(ALARM_CONTROL_PANEL_SUPPORTED_FEATURES)],
+        probatio.Optional(CONF_CODE): cv.string,
+        probatio.Optional(CONF_CODE_ARM_REQUIRED, default=True): cv.boolean,
+        probatio.Optional(CONF_CODE_DISARM_REQUIRED, default=True): cv.boolean,
+        probatio.Optional(CONF_CODE_TRIGGER_REQUIRED, default=True): cv.boolean,
+        probatio.Optional(
+            CONF_COMMAND_TEMPLATE, default=DEFAULT_ALARM_CONTROL_PANEL_COMMAND_TEMPLATE
         ): cv.template,
-        vol.Required(CONF_COMMAND_TOPIC): valid_publish_topic,
-        vol.Optional(CONF_NAME): vol.Any(cv.string, None),
-        vol.Optional(CONF_PAYLOAD_ARM_AWAY, default=DEFAULT_ARM_AWAY): cv.string,
-        vol.Optional(CONF_PAYLOAD_ARM_HOME, default=DEFAULT_ARM_HOME): cv.string,
-        vol.Optional(CONF_PAYLOAD_ARM_NIGHT, default=DEFAULT_ARM_NIGHT): cv.string,
-        vol.Optional(
-            CONF_PAYLOAD_ARM_VACATION, default=DEFAULT_ARM_VACATION
+        probatio.Required(CONF_COMMAND_TOPIC): valid_publish_topic,
+        probatio.Optional(CONF_NAME): probatio.Any(cv.string, None),
+        probatio.Optional(
+            CONF_PAYLOAD_ARM_AWAY, default=DEFAULT_PAYLOAD_ARM_AWAY
         ): cv.string,
-        vol.Optional(
-            CONF_PAYLOAD_ARM_CUSTOM_BYPASS, default=DEFAULT_ARM_CUSTOM_BYPASS
+        probatio.Optional(
+            CONF_PAYLOAD_ARM_HOME, default=DEFAULT_PAYLOAD_ARM_HOME
         ): cv.string,
-        vol.Optional(CONF_PAYLOAD_DISARM, default=DEFAULT_DISARM): cv.string,
-        vol.Optional(CONF_PAYLOAD_TRIGGER, default=DEFAULT_TRIGGER): cv.string,
-        vol.Optional(CONF_RETAIN, default=DEFAULT_RETAIN): cv.boolean,
-        vol.Required(CONF_STATE_TOPIC): valid_subscribe_topic,
-        vol.Optional(CONF_VALUE_TEMPLATE): cv.template,
+        probatio.Optional(
+            CONF_PAYLOAD_ARM_NIGHT, default=DEFAULT_PAYLOAD_ARM_NIGHT
+        ): cv.string,
+        probatio.Optional(
+            CONF_PAYLOAD_ARM_VACATION, default=DEFAULT_PAYLOAD_ARM_VACATION
+        ): cv.string,
+        probatio.Optional(
+            CONF_PAYLOAD_ARM_CUSTOM_BYPASS, default=DEFAULT_PAYLOAD_ARM_CUSTOM_BYPASS
+        ): cv.string,
+        probatio.Optional(
+            CONF_PAYLOAD_DISARM, default=DEFAULT_PAYLOAD_DISARM
+        ): cv.string,
+        probatio.Optional(
+            CONF_PAYLOAD_TRIGGER, default=DEFAULT_PAYLOAD_TRIGGER
+        ): cv.string,
+        probatio.Optional(CONF_RETAIN, default=DEFAULT_RETAIN): cv.boolean,
+        probatio.Required(CONF_STATE_TOPIC): valid_subscribe_topic,
+        probatio.Optional(CONF_VALUE_TEMPLATE): cv.template,
     }
 ).extend(MQTT_ENTITY_COMMON_SCHEMA.schema)
 
-DISCOVERY_SCHEMA = PLATFORM_SCHEMA_MODERN.extend({}, extra=vol.REMOVE_EXTRA)
+DISCOVERY_SCHEMA = PLATFORM_SCHEMA_MODERN.extend({}, extra=probatio.REMOVE_EXTRA)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up MQTT alarm control panel through YAML and through MQTT discovery."""
     async_setup_entity_entry_helper(
@@ -137,10 +137,12 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
     _attributes_extra_blocked = MQTT_ALARM_ATTRIBUTES_BLOCKED
 
     @staticmethod
-    def config_schema() -> vol.Schema:
+    @override
+    def config_schema() -> probatio.Schema:
         """Return the config schema."""
         return DISCOVERY_SCHEMA
 
+    @override
     def _setup_from_config(self, config: ConfigType) -> None:
         """(Re)Setup the entity."""
         self._value_template = MqttValueTemplate(
@@ -152,7 +154,9 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         ).async_render
 
         for feature in self._config[CONF_SUPPORTED_FEATURES]:
-            self._attr_supported_features |= _SUPPORTED_FEATURES[feature]
+            self._attr_supported_features |= ALARM_CONTROL_PANEL_SUPPORTED_FEATURES[
+                feature
+            ]
 
         if (code := self._config.get(CONF_CODE)) is None:
             self._attr_code_format = None
@@ -193,16 +197,19 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         self._attr_alarm_state = AlarmControlPanelState(payload)
 
     @callback
+    @override
     def _prepare_subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         self.add_subscription(
             CONF_STATE_TOPIC, self._state_message_received, {"_attr_alarm_state"}
         )
 
+    @override
     async def _subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
         subscription.async_subscribe_topics_internal(self.hass, self._sub_state)
 
+    @override
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         """Send disarm command.
 
@@ -214,6 +221,7 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         payload: str = self._config[CONF_PAYLOAD_DISARM]
         await self._publish(code, payload)
 
+    @override
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Send arm home command.
 
@@ -225,6 +233,7 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         action: str = self._config[CONF_PAYLOAD_ARM_HOME]
         await self._publish(code, action)
 
+    @override
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         """Send arm away command.
 
@@ -236,6 +245,7 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         action: str = self._config[CONF_PAYLOAD_ARM_AWAY]
         await self._publish(code, action)
 
+    @override
     async def async_alarm_arm_night(self, code: str | None = None) -> None:
         """Send arm night command.
 
@@ -247,6 +257,7 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         action: str = self._config[CONF_PAYLOAD_ARM_NIGHT]
         await self._publish(code, action)
 
+    @override
     async def async_alarm_arm_vacation(self, code: str | None = None) -> None:
         """Send arm vacation command.
 
@@ -258,6 +269,7 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         action: str = self._config[CONF_PAYLOAD_ARM_VACATION]
         await self._publish(code, action)
 
+    @override
     async def async_alarm_arm_custom_bypass(self, code: str | None = None) -> None:
         """Send arm custom bypass command.
 
@@ -269,6 +281,7 @@ class MqttAlarm(MqttEntity, alarm.AlarmControlPanelEntity):
         action: str = self._config[CONF_PAYLOAD_ARM_CUSTOM_BYPASS]
         await self._publish(code, action)
 
+    @override
     async def async_alarm_trigger(self, code: str | None = None) -> None:
         """Send trigger command.
 

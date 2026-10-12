@@ -1,22 +1,30 @@
 """Config flow for Dexcom integration."""
 
-from __future__ import annotations
+from collections.abc import Mapping
+import logging
+from typing import Any, override
 
-from typing import Any
-
-from pydexcom import AccountError, Dexcom, SessionError
-import voluptuous as vol
+import probatio
+from pydexcom import Dexcom, Region
+from pydexcom.errors import AccountError, SessionError
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from .const import CONF_SERVER, DOMAIN, SERVER_OUS, SERVER_US
 
-DATA_SCHEMA = vol.Schema(
+_LOGGER = logging.getLogger(__name__)
+
+DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_SERVER): vol.In({SERVER_US, SERVER_OUS}),
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
+        probatio.Required(CONF_SERVER): probatio.In({SERVER_US, SERVER_OUS}),
+    }
+)
+REAUTH_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
     }
 )
 
@@ -26,6 +34,7 @@ class DexcomConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -34,16 +43,20 @@ class DexcomConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 await self.hass.async_add_executor_job(
-                    Dexcom,
-                    user_input[CONF_USERNAME],
-                    user_input[CONF_PASSWORD],
-                    user_input[CONF_SERVER] == SERVER_OUS,
+                    lambda: Dexcom(
+                        username=user_input[CONF_USERNAME],
+                        password=user_input[CONF_PASSWORD],
+                        region=Region.OUS
+                        if user_input[CONF_SERVER] == SERVER_OUS
+                        else Region.US,
+                    )
                 )
             except SessionError:
                 errors["base"] = "cannot_connect"
             except AccountError:
                 errors["base"] = "invalid_auth"
-            except Exception:  # noqa: BLE001
+            except Exception:
+                _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
 
             if "base" not in errors:
@@ -55,4 +68,47 @@ class DexcomConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle reauthentication."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm reauthentication with a new password."""
+        errors = {}
+        reauth_entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            try:
+                await self.hass.async_add_executor_job(
+                    lambda: Dexcom(
+                        username=reauth_entry.data[CONF_USERNAME],
+                        password=user_input[CONF_PASSWORD],
+                        region=Region.OUS
+                        if reauth_entry.data[CONF_SERVER] == SERVER_OUS
+                        else Region.US,
+                    )
+                )
+            except SessionError:
+                errors["base"] = "cannot_connect"
+            except AccountError:
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected error")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    reauth_entry, data_updates=user_input
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=REAUTH_SCHEMA,
+            description_placeholders={CONF_USERNAME: reauth_entry.data[CONF_USERNAME]},
+            errors=errors,
         )

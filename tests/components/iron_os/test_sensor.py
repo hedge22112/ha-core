@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
-from pynecil import CommunicationError, LiveDataResponse
+from pynecil import LiveDataResponse
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
@@ -28,6 +28,7 @@ async def sensor_only() -> AsyncGenerator[None]:
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.freeze_time("2026-05-03T18:20:54+00:00")
 async def test_sensors(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -62,7 +63,7 @@ async def test_sensors_unavailable(
 
     assert config_entry.state is ConfigEntryState.LOADED
 
-    mock_pynecil.get_live_data.side_effect = CommunicationError
+    mock_pynecil.is_connected = False
     freezer.tick(SCAN_INTERVAL)
     async_fire_time_changed(hass)
 

@@ -1,11 +1,15 @@
 # serializer version: 1
 # name: test_entity_and_device_data[site_payload0-device_payload0-client_payload0][device_tracker.switch_1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
-    'capabilities': None,
+    'capabilities': dict({
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +23,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Switch 1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +31,7 @@
     'original_name': 'Switch 1',
     'platform': 'unifi',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': '00:00:00:00:01:01',
@@ -35,10 +41,14 @@
 # name: test_entity_and_device_data[site_payload0-device_payload0-client_payload0][device_tracker.switch_1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Switch 1',
-      'ip': '10.0.1.1',
-      'mac': '00:00:00:00:01:01',
-      'source_type': <SourceType.ROUTER: 'router'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: '00:00:00:00:01:01 Switch 1',
+      <DeviceTrackerEntityStateAttribute.IN_ZONES: 'in_zones'>: list([
+        'zone.home',
+      ]),
+      <ScannerEntityStateAttribute.IP: 'ip'>: '10.0.1.1',
+      <ScannerEntityStateAttribute.MAC: 'mac'>: '00:00:00:00:01:01',
+      <DeviceTrackerEntityStateAttribute.SOURCE_TYPE: 'source_type'>: <SourceType.ROUTER: 'router'>,
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
     }),
     'context': <ANY>,
     'entity_id': 'device_tracker.switch_1',
@@ -50,11 +60,15 @@
 # ---
 # name: test_entity_and_device_data[site_payload0-device_payload0-client_payload0][device_tracker.wd_client_1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
-    'capabilities': None,
+    'capabilities': dict({
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -68,6 +82,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'wd_client_1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -75,6 +90,7 @@
     'original_name': 'wd_client_1',
     'platform': 'unifi',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': 'site_id-00:00:00:00:00:02',
@@ -84,10 +100,13 @@
 # name: test_entity_and_device_data[site_payload0-device_payload0-client_payload0][device_tracker.wd_client_1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'wd_client_1',
-      'host_name': 'wd_client_1',
-      'mac': '00:00:00:00:00:02',
-      'source_type': <SourceType.ROUTER: 'router'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'wd_client_1 wd_client_1',
+      <ScannerEntityStateAttribute.HOST_NAME: 'host_name'>: 'wd_client_1',
+      <DeviceTrackerEntityStateAttribute.IN_ZONES: 'in_zones'>: list([
+      ]),
+      <ScannerEntityStateAttribute.MAC: 'mac'>: '00:00:00:00:00:02',
+      <DeviceTrackerEntityStateAttribute.SOURCE_TYPE: 'source_type'>: <SourceType.ROUTER: 'router'>,
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
     }),
     'context': <ANY>,
     'entity_id': 'device_tracker.wd_client_1',
@@ -99,11 +118,15 @@
 # ---
 # name: test_entity_and_device_data[site_payload0-device_payload0-client_payload0][device_tracker.ws_client_1-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
-    'capabilities': None,
+    'capabilities': dict({
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -117,6 +140,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'ws_client_1',
     'options': dict({
     }),
     'original_device_class': None,
@@ -124,6 +148,7 @@
     'original_name': 'ws_client_1',
     'platform': 'unifi',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': None,
     'unique_id': 'site_id-00:00:00:00:00:01',
@@ -133,11 +158,14 @@
 # name: test_entity_and_device_data[site_payload0-device_payload0-client_payload0][device_tracker.ws_client_1-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'ws_client_1',
-      'host_name': 'ws_client_1',
-      'ip': '10.0.0.1',
-      'mac': '00:00:00:00:00:01',
-      'source_type': <SourceType.ROUTER: 'router'>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'ws_client_1 ws_client_1',
+      <ScannerEntityStateAttribute.HOST_NAME: 'host_name'>: 'ws_client_1',
+      <DeviceTrackerEntityStateAttribute.IN_ZONES: 'in_zones'>: list([
+      ]),
+      <ScannerEntityStateAttribute.IP: 'ip'>: '10.0.0.1',
+      <ScannerEntityStateAttribute.MAC: 'mac'>: '00:00:00:00:00:01',
+      <DeviceTrackerEntityStateAttribute.SOURCE_TYPE: 'source_type'>: <SourceType.ROUTER: 'router'>,
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
     }),
     'context': <ANY>,
     'entity_id': 'device_tracker.ws_client_1',

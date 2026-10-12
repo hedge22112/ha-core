@@ -1,6 +1,7 @@
 """Support for OpenTherm Gateway binary sensors."""
 
 from dataclasses import dataclass
+from typing import override
 
 from pyotgw import vars as gw_vars
 
@@ -12,7 +13,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ID, EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     BOILER_DEVICE_DESCRIPTION,
@@ -393,7 +394,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[OpenThermBinarySensorEntityDescription, ...] =
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the OpenTherm Gateway binary sensors."""
     gw_hub = hass.data[DATA_OPENTHERM_GW][DATA_GATEWAYS][config_entry.data[CONF_ID]]
@@ -411,6 +412,7 @@ class OpenThermBinarySensor(OpenThermStatusEntity, BinarySensorEntity):
     entity_description: OpenThermBinarySensorEntityDescription
 
     @callback
+    @override
     def receive_report(self, status: dict[OpenThermDataSource, dict]) -> None:
         """Handle status updates from the component."""
         state = status[self.entity_description.device_description.data_source].get(

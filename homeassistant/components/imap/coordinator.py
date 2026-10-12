@@ -1,7 +1,5 @@
 """Coordinator for imap integration."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -10,7 +8,7 @@ from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parseaddr, parsedate_to_datetime
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from aioimaplib import AUTH, IMAP4_SSL, NONAUTH, SELECTED, AioImapException
 
@@ -21,7 +19,7 @@ from homeassistant.const import (
     CONF_VERIFY_SSL,
     CONTENT_TYPE_TEXT_PLAIN,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
     ConfigEntryError,
@@ -209,6 +207,28 @@ class ImapMessage:
         return str(self.email_message.get_payload())
 
 
+@callback
+def get_parts(message: Message, prefix: str | None = None) -> dict[str, Any]:
+    """Return information about the parts of a multipart message."""
+    parts: dict[str, Any] = {}
+    if not message.is_multipart():
+        return {}
+    for index, part in enumerate(message.get_payload(), 0):
+        if TYPE_CHECKING:
+            assert isinstance(part, Message)
+        key = f"{prefix},{index}" if prefix else f"{index}"
+        if part.is_multipart():
+            parts |= get_parts(part, key)
+            continue
+        parts[key] = {"content_type": part.get_content_type()}
+        if filename := part.get_filename():
+            parts[key]["filename"] = filename
+        if content_transfer_encoding := part.get("Content-Transfer-Encoding"):
+            parts[key]["content_transfer_encoding"] = content_transfer_encoding
+
+    return parts
+
+
 class ImapDataUpdateCoordinator(DataUpdateCoordinator[int | None]):
     """Base class for imap client."""
 
@@ -241,6 +261,7 @@ class ImapDataUpdateCoordinator(DataUpdateCoordinator[int | None]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=update_interval,
         )
@@ -274,15 +295,17 @@ class ImapDataUpdateCoordinator(DataUpdateCoordinator[int | None]):
                 "sender": message.sender,
                 "subject": message.subject,
                 "uid": last_message_uid,
+                "parts": get_parts(message.email_message),
             }
             data.update({key: getattr(message, key) for key in self._event_data_keys})
             if self.custom_event_template is not None:
                 try:
                     data["custom"] = self.custom_event_template.async_render(
-                        data, parse_result=True
+                        data | {"text": message.text}, parse_result=True
                     )
                     _LOGGER.debug(
-                        "IMAP custom template (%s) for msguid %s (%s) rendered to: %s, initial: %s",
+                        "IMAP custom template (%s) for msguid"
+                        " %s (%s) rendered to: %s, initial: %s",
                         self.custom_event_template,
                         last_message_uid,
                         message_id,
@@ -314,7 +337,8 @@ class ImapDataUpdateCoordinator(DataUpdateCoordinator[int | None]):
 
             self.hass.bus.fire(EVENT_IMAP, data)
             _LOGGER.debug(
-                "Message with id %s (%s) processed, sender: %s, subject: %s, initial: %s",
+                "Message with id %s (%s) processed,"
+                " sender: %s, subject: %s, initial: %s",
                 last_message_uid,
                 message_id,
                 message.sender,
@@ -332,7 +356,9 @@ class ImapDataUpdateCoordinator(DataUpdateCoordinator[int | None]):
         )
         if result != "OK":
             raise UpdateFailed(
-                f"Invalid response for search '{self.config_entry.data[CONF_SEARCH]}': {result} / {lines[0]}"
+                "Invalid response for search"
+                f" '{self.config_entry.data[CONF_SEARCH]}':"
+                f" {result} / {lines[0]}"
             )
         # Check we do have returned items.
         #
@@ -371,7 +397,7 @@ class ImapDataUpdateCoordinator(DataUpdateCoordinator[int | None]):
                 await self.imap_client.stop_wait_server_push()
                 await self.imap_client.close()
                 await self.imap_client.logout()
-            except (AioImapException, TimeoutError):
+            except AioImapException, TimeoutError:
                 if log_error:
                     _LOGGER.debug("Error while cleaning up imap connection")
             finally:
@@ -411,6 +437,7 @@ class ImapPollingDataUpdateCoordinator(ImapDataUpdateCoordinator):
         )
         super().__init__(hass, imap_client, entry, timedelta(seconds=10))
 
+    @override
     async def _async_update_data(self) -> int | None:
         """Update the number of unread emails."""
         try:
@@ -424,6 +451,7 @@ class ImapPollingDataUpdateCoordinator(ImapDataUpdateCoordinator):
             self.async_set_update_error(ex)
             raise UpdateFailed from ex
         except InvalidFolder as ex:
+            # pylint: disable-next=home-assistant-log-and-raise
             _LOGGER.warning("Selected mailbox folder is invalid")
             await self._cleanup()
             self.async_set_update_error(ex)
@@ -457,11 +485,13 @@ class ImapPushDataUpdateCoordinator(ImapDataUpdateCoordinator):
         self._push_wait_task: asyncio.Task[None] | None = None
         self.number_of_messages: int | None = None
 
+    @override
     async def _async_update_data(self) -> int | None:
         """Update the number of unread emails."""
         await self.async_start()
         return self.number_of_messages
 
+    @override
     async def async_start(self) -> None:
         """Start coordinator."""
         self._push_wait_task = self.hass.async_create_background_task(
@@ -470,6 +500,7 @@ class ImapPushDataUpdateCoordinator(ImapDataUpdateCoordinator):
 
     async def _async_wait_push_loop(self) -> None:
         """Wait for data push from server."""
+        idle: asyncio.Future | None = None
         while True:
             try:
                 self.number_of_messages = await self._async_fetch_number_of_messages()
@@ -503,14 +534,15 @@ class ImapPushDataUpdateCoordinator(ImapDataUpdateCoordinator):
             else:
                 self.auth_errors = 0
                 self.async_set_updated_data(self.number_of_messages)
+
             try:
-                idle: asyncio.Future = await self.imap_client.idle_start()
+                idle = await self.imap_client.idle_start()
                 await self.imap_client.wait_server_push()
                 self.imap_client.idle_done()
                 async with asyncio.timeout(10):
                     await idle
 
-            except (AioImapException, TimeoutError):
+            except AioImapException, TimeoutError:
                 _LOGGER.debug(
                     "Lost %s (will attempt to reconnect after %s s)",
                     self.config_entry.data[CONF_SERVER],
@@ -519,6 +551,25 @@ class ImapPushDataUpdateCoordinator(ImapDataUpdateCoordinator):
                 await self._cleanup()
                 await asyncio.sleep(BACKOFF_TIME)
 
+            finally:
+                # Ensure no pending IDLE future survives
+                if idle is not None and not idle.done():
+                    idle.cancel()
+                    _LOGGER.debug(
+                        "Canceling IDLE wait for %s",
+                        self.config_entry.data[CONF_SERVER],
+                    )
+                    try:
+                        await idle
+                    except asyncio.CancelledError:
+                        if (
+                            current_task := asyncio.current_task()
+                        ) and current_task.cancelling():
+                            raise
+                    except AioImapException:
+                        pass
+
+    @override
     async def shutdown(self, *_: Any) -> None:
         """Close resources."""
         if self._push_wait_task:

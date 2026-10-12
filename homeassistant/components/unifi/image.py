@@ -3,31 +3,31 @@
 Support for QR code for guest WLANs.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
-from aiounifi.interfaces.api_handlers import ItemEvent
+from aiounifi.interfaces.api_handlers import APIHandler, ItemEvent
 from aiounifi.interfaces.wlans import Wlans
-from aiounifi.models.api import ApiItemT
+from aiounifi.models.api import ApiItem
 from aiounifi.models.wlan import Wlan
 
 from homeassistant.components.image import ImageEntity, ImageEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import homeassistant.util.dt as dt_util
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import UnifiConfigEntry
 from .entity import (
-    HandlerT,
     UnifiEntity,
     UnifiEntityDescription,
     async_wlan_available_fn,
     async_wlan_device_info_fn,
 )
 from .hub import UnifiHub
+
+PARALLEL_UPDATES = 0
 
 
 @callback
@@ -37,7 +37,7 @@ def async_wlan_qr_code_image_fn(hub: UnifiHub, wlan: Wlan) -> bytes:
 
 
 @dataclass(frozen=True, kw_only=True)
-class UnifiImageEntityDescription(
+class UnifiImageEntityDescription[HandlerT: APIHandler, ApiItemT: ApiItem](
     ImageEntityDescription, UnifiEntityDescription[HandlerT, ApiItemT]
 ):
     """Class describing UniFi image entity."""
@@ -55,7 +55,6 @@ ENTITY_DESCRIPTIONS: tuple[UnifiImageEntityDescription, ...] = (
         api_handler_fn=lambda api: api.wlans,
         available_fn=async_wlan_available_fn,
         device_info_fn=async_wlan_device_info_fn,
-        name_fn=lambda wlan: "QR Code",
         object_fn=lambda api, obj_id: api.wlans[obj_id],
         unique_id_fn=lambda hub, obj_id: f"qr_code-{obj_id}",
         image_fn=async_wlan_qr_code_image_fn,
@@ -67,7 +66,7 @@ ENTITY_DESCRIPTIONS: tuple[UnifiImageEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UnifiConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up image platform for UniFi Network integration."""
     config_entry.runtime_data.entity_loader.register_platform(
@@ -75,7 +74,9 @@ async def async_setup_entry(
     )
 
 
-class UnifiImageEntity(UnifiEntity[HandlerT, ApiItemT], ImageEntity):
+class UnifiImageEntity[HandlerT: APIHandler, ApiItemT: ApiItem](
+    UnifiEntity[HandlerT, ApiItemT], ImageEntity
+):
     """Base representation of a UniFi image."""
 
     entity_description: UnifiImageEntityDescription[HandlerT, ApiItemT]
@@ -94,6 +95,7 @@ class UnifiImageEntity(UnifiEntity[HandlerT, ApiItemT], ImageEntity):
         super().__init__(obj_id, hub, description)
         ImageEntity.__init__(self, hub.hass)
 
+    @override
     def image(self) -> bytes | None:
         """Return bytes of image."""
         if self.current_image is None:
@@ -103,6 +105,7 @@ class UnifiImageEntity(UnifiEntity[HandlerT, ApiItemT], ImageEntity):
         return self.current_image
 
     @callback
+    @override
     def async_update_state(self, event: ItemEvent, obj_id: str) -> None:
         """Update entity state."""
         description = self.entity_description

@@ -6,13 +6,11 @@ the APIs are used to add one or more client credentials. Integrations may also
 provide credentials from yaml for backwards compatibility.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import ActiveConnection
@@ -26,8 +24,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import collection, config_entry_oauth2_flow
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import (
+    collection,
+    config_entry_oauth2_flow,
+    config_validation as cv,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType, VolDictType
 from homeassistant.loader import (
@@ -51,11 +52,13 @@ CONF_AUTH_DOMAIN = "auth_domain"
 DEFAULT_IMPORT_NAME = "Import from configuration.yaml"
 
 CREATE_FIELDS: VolDictType = {
-    vol.Required(CONF_DOMAIN): cv.string,
-    vol.Required(CONF_CLIENT_ID): vol.All(cv.string, vol.Strip),
-    vol.Required(CONF_CLIENT_SECRET): vol.All(cv.string, vol.Strip),
-    vol.Optional(CONF_AUTH_DOMAIN): cv.string,
-    vol.Optional(CONF_NAME): cv.string,
+    probatio.Required(CONF_DOMAIN): cv.string,
+    probatio.Required(CONF_CLIENT_ID): probatio.All(cv.string, probatio.Strip),
+    probatio.Required(probatio.Secret(CONF_CLIENT_SECRET)): probatio.All(
+        cv.string, probatio.Strip
+    ),
+    probatio.Optional(CONF_AUTH_DOMAIN): cv.string,
+    probatio.Optional(CONF_NAME): cv.string,
 }
 UPDATE_FIELDS: VolDictType = {}  # Not supported
 
@@ -82,8 +85,9 @@ class AuthorizationServer:
 class ApplicationCredentialsStorageCollection(collection.DictStorageCollection):
     """Application credential collection stored in storage."""
 
-    CREATE_SCHEMA = vol.Schema(CREATE_FIELDS)
+    CREATE_SCHEMA = probatio.Schema(CREATE_FIELDS)
 
+    @override
     async def _process_create_data(self, data: dict[str, str]) -> dict[str, str]:
         """Validate the config is valid."""
         result = self.CREATE_SCHEMA(data)
@@ -93,16 +97,19 @@ class ApplicationCredentialsStorageCollection(collection.DictStorageCollection):
         return result
 
     @callback
+    @override
     def _get_suggested_id(self, info: dict[str, str]) -> str:
         """Suggest an ID based on the config."""
         return f"{info[CONF_DOMAIN]}.{info[CONF_CLIENT_ID]}"
 
+    @override
     async def _update_data(
         self, item: dict[str, str], update_data: dict[str, str]
     ) -> dict[str, str]:
         """Return a new updated data object."""
         raise ValueError("Updates not supported")
 
+    @override
     async def async_delete_item(self, item_id: str) -> None:
         """Delete item, verifying credential is not in use."""
         if item_id not in self.data:
@@ -143,8 +150,6 @@ class ApplicationCredentialsStorageCollection(collection.DictStorageCollection):
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Application Credentials."""
-    hass.data[DOMAIN] = {}
-
     id_manager = collection.IDManager()
     storage_collection = ApplicationCredentialsStorageCollection(
         Store(hass, STORAGE_VERSION, STORAGE_KEY),
@@ -154,7 +159,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data[DATA_COMPONENT] = storage_collection
 
     collection.DictStorageCollectionWebsocket(
-        storage_collection, DOMAIN, DOMAIN, CREATE_FIELDS, UPDATE_FIELDS
+        storage_collection,
+        DOMAIN,
+        DOMAIN,
+        CREATE_FIELDS,
+        UPDATE_FIELDS,
+        admin_only=True,
     ).async_setup(hass)
 
     websocket_api.async_register_command(hass, handle_integration_list)
@@ -180,9 +190,9 @@ async def async_import_client_credential(
         CONF_DOMAIN: domain,
         CONF_CLIENT_ID: credential.client_id,
         CONF_CLIENT_SECRET: credential.client_secret,
-        CONF_AUTH_DOMAIN: auth_domain if auth_domain else domain,
+        CONF_AUTH_DOMAIN: auth_domain or domain,
     }
-    item[CONF_NAME] = credential.name if credential.name else DEFAULT_IMPORT_NAME
+    item[CONF_NAME] = credential.name or DEFAULT_IMPORT_NAME
     await hass.data[DATA_COMPONENT].async_import_item(item)
 
 
@@ -208,6 +218,7 @@ class AuthImplementation(config_entry_oauth2_flow.LocalOAuth2Implementation):
         self._name = credential.name
 
     @property
+    @override
     def name(self) -> str:
         """Name of the implementation."""
         return self._name or self.client_id
@@ -317,7 +328,7 @@ async def _async_integration_config(hass: HomeAssistant, domain: str) -> dict[st
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "application_credentials/config"}
+    {probatio.Required("type"): "application_credentials/config"}
 )
 @websocket_api.async_response
 async def handle_integration_list(
@@ -336,10 +347,11 @@ async def handle_integration_list(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "application_credentials/config_entry",
-        vol.Required("config_entry_id"): str,
+        probatio.Required("type"): "application_credentials/config_entry",
+        probatio.Required("config_entry_id"): str,
     }
 )
+@websocket_api.require_admin
 @websocket_api.async_response
 async def handle_config_entry(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]

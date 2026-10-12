@@ -1,19 +1,21 @@
 """Validate integration translation files."""
 
-from __future__ import annotations
-
-from functools import partial
+from collections.abc import Callable
+from contextvars import ContextVar
+from functools import cache
 import json
 import re
+import string
 from typing import Any
 
-import voluptuous as vol
-from voluptuous.humanize import humanize_error
+import probatio
+from probatio.humanize import humanize_error
 
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.issue_registry import FRONTEND_HANDLED_ISSUES
 from script.translations import upload
 
-from .model import Config, Integration
+from .model import Config, Integration, IntegrationType
 
 UNDEFINED = 0
 REQUIRED = 1
@@ -23,13 +25,21 @@ RE_REFERENCE = r"\[\%key:(.+)\%\]"
 RE_TRANSLATION_KEY = re.compile(r"^(?!.+[_-]{2})(?![_-])[a-z0-9-_]+(?<![_-])$")
 RE_COMBINED_REFERENCE = re.compile(r"(.+\[%)|(%\].+)")
 RE_PLACEHOLDER_IN_SINGLE_QUOTES = re.compile(r"'{\w+}'")
+RE_URL = re.compile(
+    r"(((ftp|ftps|scp|http|https|mqtt|mqtts|socket|socks5):\/\/|www\.)"
+    r"[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(:[0-9]{1,5})?(\/.*)?)",
+    re.IGNORECASE,
+)
 
 # Only allow translation of integration names if they contain non-brand names
 ALLOW_NAME_TRANSLATION = {
     "cert_expiry",
+    "collection_image",
     "cpuspeed",
     "emulated_roku",
+    "energenie_power_sockets",
     "faa_delays",
+    "filesize",
     "garages_amsterdam",
     "generic",
     "google_travel_time",
@@ -40,6 +50,7 @@ ALLOW_NAME_TRANSLATION = {
     "local_ip",
     "local_todo",
     "nmap_tracker",
+    "remote_calendar",
     "rpi_power",
     "swiss_public_transport",
     "waze_travel_time",
@@ -57,6 +68,11 @@ MOVED_TRANSLATIONS_DIRECTORY_MSG = (
     "The '.translations' directory has been moved, the new name is 'translations', "
     "starting with Home Assistant 0.112 your translations will no longer "
     "load if you do not move/rename this "
+)
+
+# Schemas are shared between integrations, validators read the integration from here
+_CURRENT_TRANSLATION: ContextVar[tuple[Config, Integration]] = ContextVar(
+    "current_translation"
 )
 
 
@@ -96,17 +112,14 @@ def find_references(
             continue
 
         if match := re.match(RE_REFERENCE, value):
-            found.append({"source": f"{prefix}::{key}", "ref": match.groups()[0]})
+            found.append({"source": f"{prefix}::{key}", "ref": match.group(1)})
 
 
-def removed_title_validator(
-    config: Config,
-    integration: Integration,
-    value: Any,
-) -> Any:
+def removed_title_validator(value: Any) -> Any:
     """Mark removed title."""
+    config, integration = _CURRENT_TRANSLATION.get()
     if not config.specific_integrations:
-        raise vol.Invalid(REMOVED_TITLE_MSG)
+        raise probatio.Invalid(REMOVED_TITLE_MSG)
 
     # Don't mark it as an error yet for custom components to allow backwards compat.
     integration.add_warning("translations", REMOVED_TITLE_MSG)
@@ -116,7 +129,7 @@ def removed_title_validator(
 def translation_key_validator(value: str) -> str:
     """Validate value is valid translation key."""
     if RE_TRANSLATION_KEY.match(value) is None:
-        raise vol.Invalid(
+        raise probatio.Invalid(
             f"Invalid translation key '{value}', need to be [a-z0-9-_]+ and"
             " cannot start or end with a hyphen or underscore."
         )
@@ -124,73 +137,134 @@ def translation_key_validator(value: str) -> str:
     return value
 
 
-def translation_value_validator(value: Any) -> str:
+def validate_translation_value(
+    value: Any, allow_placeholders: bool = True, allow_urls: bool = False
+) -> str:
     """Validate that the value is a valid translation.
 
     - prevents string with HTML
     - prevents strings with single quoted placeholders
+    - prevents strings with placeholders using invalid identifiers
+    - prevents placeholders where they are not allowed
     - prevents combined translations
     """
     string_value = cv.string_with_no_html(value)
     string_value = string_no_single_quoted_placeholders(string_value)
+    string_value = validate_placeholders(string_value, allow_placeholders)
     if RE_COMBINED_REFERENCE.search(string_value):
-        raise vol.Invalid("the string should not contain combined translations")
+        raise probatio.Invalid("the string should not contain combined translations")
     if string_value != string_value.strip():
-        raise vol.Invalid("the string should not contain leading or trailing spaces")
+        raise probatio.Invalid(
+            "the string should not contain leading or trailing spaces"
+        )
+    if not allow_urls and RE_URL.search(string_value):
+        raise probatio.Invalid(
+            "the string should not contain URLs, "
+            "please use description placeholders instead"
+        )
     return string_value
+
+
+def translation_value_validator(value: Any) -> str:
+    """Validate translation value with default options."""
+    return validate_translation_value(value)
+
+
+def custom_translation_value_validator(
+    allow_placeholders: bool = True, allow_urls: bool = False
+):
+    """Validate translation value with custom options."""
+
+    def _validator(value: Any) -> str:
+        return validate_translation_value(value, allow_placeholders, allow_urls)
+
+    return _validator
 
 
 def string_no_single_quoted_placeholders(value: str) -> str:
     """Validate that the value does not contain placeholders inside single quotes."""
     if RE_PLACEHOLDER_IN_SINGLE_QUOTES.search(value):
-        raise vol.Invalid(
+        raise probatio.Invalid(
             "the string should not contain placeholders inside single quotes"
         )
     return value
 
 
+def validate_placeholders(value: str, allow_placeholders: bool) -> str:
+    """Validate that placeholders in translations use valid identifiers."""
+    formatter = string.Formatter()
+
+    for _, field_name, _, _ in formatter.parse(value):
+        if field_name:  # skip literal text segments
+            if not allow_placeholders:
+                raise probatio.Invalid("placeholders are not supported in this value")
+            if not field_name.isidentifier():
+                raise probatio.Invalid(
+                    "placeholders must be valid identifiers ([a-zA-Z_][a-zA-Z0-9_]*)"
+                )
+    return value
+
+
 def gen_data_entry_schema(
     *,
-    config: Config,
-    integration: Integration,
     flow_title: int,
     require_step_title: bool,
     mandatory_description: str | None = None,
-) -> vol.All:
-    """Generate a data entry schema."""
-    step_title_class = vol.Required if require_step_title else vol.Optional
+    subentry_flow: bool = False,
+) -> probatio.All:
+    """Generate a data entry schema.
+
+    The schema must run through _with_integration. Its validators read the
+    integration from _CURRENT_TRANSLATION and raise LookupError otherwise.
+    """
+    step_title_class = probatio.Required if require_step_title else probatio.Optional
     schema = {
-        vol.Optional("flow_title"): translation_value_validator,
-        vol.Required("step"): {
+        probatio.Optional("flow_title"): translation_value_validator,
+        probatio.Required("step"): {
             str: {
                 step_title_class("title"): translation_value_validator,
-                vol.Optional("description"): translation_value_validator,
-                vol.Optional("data"): {str: translation_value_validator},
-                vol.Optional("data_description"): {str: translation_value_validator},
-                vol.Optional("menu_options"): {str: translation_value_validator},
-                vol.Optional("submit"): translation_value_validator,
-                vol.Optional("sections"): {
+                probatio.Optional("description"): translation_value_validator,
+                probatio.Optional("data"): {str: translation_value_validator},
+                probatio.Optional("data_description"): {
+                    str: translation_value_validator
+                },
+                probatio.Optional("menu_options"): {str: translation_value_validator},
+                probatio.Optional("menu_option_descriptions"): {
+                    str: translation_value_validator
+                },
+                probatio.Optional("submit"): translation_value_validator,
+                probatio.Optional("sections"): {
                     str: {
-                        vol.Optional("data"): {str: translation_value_validator},
-                        vol.Optional("data_description"): {
+                        probatio.Optional("data"): {str: translation_value_validator},
+                        probatio.Optional("data_description"): {
                             str: translation_value_validator
                         },
-                        vol.Optional("description"): translation_value_validator,
-                        vol.Optional("name"): translation_value_validator,
+                        probatio.Optional("description"): translation_value_validator,
+                        probatio.Optional("name"): translation_value_validator,
                     },
                 },
             }
         },
-        vol.Optional("error"): {str: translation_value_validator},
-        vol.Optional("abort"): {str: translation_value_validator},
-        vol.Optional("progress"): {str: translation_value_validator},
-        vol.Optional("create_entry"): {str: translation_value_validator},
+        probatio.Optional("error"): {str: translation_value_validator},
+        probatio.Optional("abort"): {str: translation_value_validator},
+        probatio.Optional("progress"): {str: translation_value_validator},
+        probatio.Optional("create_entry"): {str: translation_value_validator},
     }
+    if subentry_flow:
+        schema[probatio.Required("entry_type")] = translation_value_validator
+        schema[probatio.Required("initiate_flow")] = {
+            probatio.Required("user"): translation_value_validator,
+            str: translation_value_validator,
+        }
+    else:
+        schema[probatio.Optional("initiate_flow")] = {
+            probatio.Required("user"): translation_value_validator,
+        }
     if flow_title == REQUIRED:
-        schema[vol.Required("title")] = translation_value_validator
+        schema[probatio.Required("title")] = translation_value_validator
     elif flow_title == REMOVED:
-        schema[vol.Optional("title", msg=REMOVED_TITLE_MSG)] = partial(
-            removed_title_validator, config, integration
+        schema[probatio.Optional("title", msg=REMOVED_TITLE_MSG)] = (
+            removed_title_validator
         )
 
     def data_description_validator(value: dict[str, Any]) -> dict[str, Any]:
@@ -201,11 +275,11 @@ def gen_data_entry_schema(
 
             for key in step_info["data_description"]:
                 if key not in step_info["data"]:
-                    raise vol.Invalid(f"data_description key {key} is not in data")
+                    raise probatio.Invalid(f"data_description key {key} is not in data")
 
         return value
 
-    validators = [vol.Schema(schema), data_description_validator]
+    validators = [probatio.Schema(schema), data_description_validator]
 
     if mandatory_description is not None:
 
@@ -213,243 +287,392 @@ def gen_data_entry_schema(
             """Validate description is set."""
             steps = value["step"]
             if mandatory_description not in steps:
-                raise vol.Invalid(f"{mandatory_description} needs to be defined")
+                raise probatio.Invalid(f"{mandatory_description} needs to be defined")
 
             if "description" not in steps[mandatory_description]:
-                raise vol.Invalid(f"Step {mandatory_description} needs a description")
+                raise probatio.Invalid(
+                    f"Step {mandatory_description} needs a description"
+                )
 
             return value
 
         validators.append(validate_description_set)
 
-    if not allow_name_translation(integration):
-
-        def name_validator(value: dict[str, Any]) -> dict[str, Any]:
-            """Validate name."""
-            for step_id, info in value["step"].items():
-                if info.get("title") == integration.name:
-                    raise vol.Invalid(
-                        f"Do not set title of step {step_id} if it's a brand name "
-                        "or add exception to ALLOW_NAME_TRANSLATION"
-                    )
-
+    def name_validator(value: dict[str, Any]) -> dict[str, Any]:
+        """Validate name."""
+        _, integration = _CURRENT_TRANSLATION.get()
+        if allow_name_translation(integration):
             return value
 
-        validators.append(name_validator)
+        for step_id, info in value["step"].items():
+            if info.get("title") == integration.name:
+                raise probatio.Invalid(
+                    f"Do not set title of step {step_id} if it's a brand name "
+                    "or add exception to ALLOW_NAME_TRANSLATION"
+                )
 
-    return vol.All(*validators)
+        return value
+
+    validators.append(name_validator)
+
+    return probatio.All(*validators)
 
 
-def gen_issues_schema(config: Config, integration: Integration) -> dict[str, Any]:
+def gen_issues_schema(frontend_issues: frozenset[str]) -> dict[str, Any]:
     """Generate the issues schema."""
-    return {
-        str: vol.All(
-            cv.has_at_least_one_key("description", "fix_flow"),
-            vol.Schema(
-                {
-                    vol.Required("title"): translation_value_validator,
-                    vol.Exclusive(
-                        "description", "fixable"
-                    ): translation_value_validator,
-                    vol.Exclusive("fix_flow", "fixable"): gen_data_entry_schema(
-                        config=config,
-                        integration=integration,
-                        flow_title=UNDEFINED,
-                        require_step_title=False,
-                    ),
-                },
-            ),
-        )
-    }
+    issue_schema = probatio.All(
+        cv.has_at_least_one_key("description", "fix_flow"),
+        probatio.Schema(
+            {
+                probatio.Required("title"): translation_value_validator,
+                probatio.Optional("short_title"): translation_value_validator,
+                probatio.Exclusive(
+                    "description", "fixable"
+                ): translation_value_validator,
+                probatio.Exclusive("fix_flow", "fixable"): gen_data_entry_schema(
+                    flow_title=UNDEFINED,
+                    require_step_title=False,
+                ),
+            },
+        ),
+    )
+
+    frontend_issue_schema = probatio.Schema(
+        {probatio.Required("title"): translation_value_validator}
+    )
+
+    schema: dict[str, Any] = {}
+    for key in frontend_issues:
+        schema[probatio.Optional(key)] = frontend_issue_schema
+    schema[str] = issue_schema
+    return schema
 
 
 _EXCEPTIONS_SCHEMA = {
-    vol.Optional("exceptions"): cv.schema_with_slug_keys(
-        {vol.Optional("message"): translation_value_validator},
+    probatio.Optional("exceptions"): cv.schema_with_slug_keys(
+        {probatio.Optional("message"): translation_value_validator},
         slug_validator=cv.slug,
     ),
 }
 
 
-def gen_strings_schema(config: Config, integration: Integration) -> vol.Schema:
+def _with_integration(
+    schema: probatio.Schema, config: Config, integration: Integration
+) -> Callable[[Any], Any]:
+    """Return a validator that runs the schema for the integration."""
+
+    def validate(value: Any) -> Any:
+        """Validate value."""
+        token = _CURRENT_TRANSLATION.set((config, integration))
+        try:
+            return schema(value)
+        finally:
+            _CURRENT_TRANSLATION.reset(token)
+
+    return validate
+
+
+def _frontend_issues(integration: Integration) -> frozenset[str]:
+    """Return the issues the frontend handles for the integration."""
+    return frozenset(FRONTEND_HANDLED_ISSUES.get(integration.domain, ()))
+
+
+def gen_strings_schema(
+    config: Config, integration: Integration
+) -> Callable[[Any], Any]:
     """Generate a strings schema."""
-    return vol.Schema(
+    return _with_integration(
+        _gen_strings_schema(
+            integration.integration_type == IntegrationType.HELPER,
+            _frontend_issues(integration),
+        ),
+        config,
+        integration,
+    )
+
+
+@cache
+def _gen_strings_schema(
+    is_helper: bool, frontend_issues: frozenset[str]
+) -> probatio.Schema:
+    """Generate a strings schema, shared by integrations of the same kind."""
+    return probatio.Schema(
         {
-            vol.Optional("title"): translation_value_validator,
-            vol.Optional("config"): gen_data_entry_schema(
-                config=config,
-                integration=integration,
+            probatio.Optional("title"): translation_value_validator,
+            probatio.Optional("config"): gen_data_entry_schema(
                 flow_title=REMOVED,
                 require_step_title=False,
-                mandatory_description=(
-                    "user" if integration.integration_type == "helper" else None
-                ),
+                mandatory_description="user" if is_helper else None,
             ),
-            vol.Optional("options"): gen_data_entry_schema(
-                config=config,
-                integration=integration,
+            probatio.Optional("config_subentries"): cv.schema_with_slug_keys(
+                gen_data_entry_schema(
+                    flow_title=REMOVED,
+                    require_step_title=False,
+                    subentry_flow=True,
+                ),
+                slug_validator=probatio.Any("_", cv.slug),
+            ),
+            probatio.Optional("options"): gen_data_entry_schema(
                 flow_title=UNDEFINED,
                 require_step_title=False,
             ),
-            vol.Optional("selector"): cv.schema_with_slug_keys(
+            probatio.Optional("preview_features"): cv.schema_with_slug_keys(
                 {
-                    "options": cv.schema_with_slug_keys(
-                        translation_value_validator,
-                        slug_validator=translation_key_validator,
-                    )
+                    probatio.Required("name"): translation_value_validator,
+                    probatio.Required(
+                        "description"
+                    ): custom_translation_value_validator(
+                        allow_placeholders=False,
+                        allow_urls=True,
+                    ),
+                    probatio.Optional(
+                        "enable_confirmation"
+                    ): translation_value_validator,
+                    probatio.Optional(
+                        "disable_confirmation"
+                    ): translation_value_validator,
                 },
-                slug_validator=vol.Any("_", cv.slug),
+                slug_validator=translation_key_validator,
             ),
-            vol.Optional("device_automation"): {
-                vol.Optional("action_type"): {str: translation_value_validator},
-                vol.Optional("condition_type"): {str: translation_value_validator},
-                vol.Optional("trigger_type"): {str: translation_value_validator},
-                vol.Optional("trigger_subtype"): {str: translation_value_validator},
-                vol.Optional("extra_fields"): {str: translation_value_validator},
-                vol.Optional("extra_fields_descriptions"): {
-                    str: translation_value_validator
-                },
-            },
-            vol.Optional("system_health"): {
-                vol.Optional("info"): cv.schema_with_slug_keys(
-                    translation_value_validator,
-                    slug_validator=translation_key_validator,
-                ),
-            },
-            vol.Optional("config_panel"): cv.schema_with_slug_keys(
-                cv.schema_with_slug_keys(
-                    translation_value_validator,
-                    slug_validator=translation_key_validator,
-                ),
-                slug_validator=vol.Any("_", cv.slug),
-            ),
-            vol.Optional("application_credentials"): {
-                vol.Optional("description"): translation_value_validator,
-            },
-            vol.Optional("issues"): gen_issues_schema(config, integration),
-            vol.Optional("entity_component"): cv.schema_with_slug_keys(
+            probatio.Optional("selector"): cv.schema_with_slug_keys(
                 {
-                    vol.Optional("name"): str,
-                    vol.Optional("state"): cv.schema_with_slug_keys(
+                    probatio.Optional("choices"): cv.schema_with_slug_keys(
                         translation_value_validator,
                         slug_validator=translation_key_validator,
                     ),
-                    vol.Optional("state_attributes"): cv.schema_with_slug_keys(
+                    probatio.Optional("options"): cv.schema_with_slug_keys(
+                        translation_value_validator,
+                        slug_validator=translation_key_validator,
+                    ),
+                    probatio.Optional("unit_of_measurement"): cv.schema_with_slug_keys(
+                        translation_value_validator,
+                        slug_validator=translation_key_validator,
+                    ),
+                    probatio.Optional("fields"): probatio.Any(
+                        # Old format:
+                        # "key": "translation"
+                        cv.schema_with_slug_keys(str),
+                        # New format:
+                        # "key": {
+                        #   "name": "translated field name",
+                        #   "description": "translated field description"
+                        # }
+                        cv.schema_with_slug_keys(
+                            {
+                                probatio.Required("name"): str,
+                                probatio.Optional(
+                                    "description"
+                                ): translation_value_validator,
+                            },
+                            slug_validator=translation_key_validator,
+                        ),
+                    ),
+                },
+                slug_validator=probatio.Any("_", cv.slug),
+            ),
+            probatio.Optional("device_automation"): {
+                probatio.Optional("action_type"): {str: translation_value_validator},
+                probatio.Optional("condition_type"): {str: translation_value_validator},
+                probatio.Optional("trigger_type"): {str: translation_value_validator},
+                probatio.Optional("trigger_subtype"): {
+                    str: translation_value_validator
+                },
+                probatio.Optional("extra_fields"): {str: translation_value_validator},
+                probatio.Optional("extra_fields_descriptions"): {
+                    str: translation_value_validator
+                },
+            },
+            probatio.Optional("system_health"): {
+                probatio.Optional("info"): cv.schema_with_slug_keys(
+                    translation_value_validator,
+                    slug_validator=translation_key_validator,
+                ),
+            },
+            probatio.Optional("config_panel"): probatio.Schema(
+                probatio.Any(
+                    {probatio.Any(translation_key_validator, "_"): probatio.Self},
+                    translation_value_validator,
+                )
+            ),
+            probatio.Optional("application_credentials"): {
+                probatio.Optional("description"): translation_value_validator,
+            },
+            probatio.Optional("issues"): gen_issues_schema(frontend_issues),
+            probatio.Optional("entity_component"): cv.schema_with_slug_keys(
+                {
+                    probatio.Optional("name"): str,
+                    probatio.Optional("state"): cv.schema_with_slug_keys(
+                        custom_translation_value_validator(allow_placeholders=False),
+                        slug_validator=translation_key_validator,
+                    ),
+                    probatio.Optional("state_attributes"): cv.schema_with_slug_keys(
                         {
-                            vol.Optional("name"): str,
-                            vol.Optional("state"): cv.schema_with_slug_keys(
-                                translation_value_validator,
+                            probatio.Optional("name"): str,
+                            probatio.Optional("state"): cv.schema_with_slug_keys(
+                                custom_translation_value_validator(
+                                    allow_placeholders=False
+                                ),
                                 slug_validator=translation_key_validator,
                             ),
                         },
                         slug_validator=translation_key_validator,
                     ),
                 },
-                slug_validator=vol.Any("_", cv.slug),
+                slug_validator=probatio.Any("_", cv.slug),
             ),
-            vol.Optional("device"): cv.schema_with_slug_keys(
+            probatio.Optional("device"): cv.schema_with_slug_keys(
                 {
-                    vol.Optional("name"): translation_value_validator,
+                    probatio.Optional("name"): translation_value_validator,
                 },
                 slug_validator=translation_key_validator,
             ),
-            vol.Optional("entity"): cv.schema_with_slug_keys(
+            probatio.Optional("entity"): cv.schema_with_slug_keys(
                 cv.schema_with_slug_keys(
                     {
-                        vol.Optional("name"): translation_value_validator,
-                        vol.Optional("state"): cv.schema_with_slug_keys(
-                            translation_value_validator,
+                        probatio.Optional("name"): translation_value_validator,
+                        probatio.Optional("state"): cv.schema_with_slug_keys(
+                            custom_translation_value_validator(
+                                allow_placeholders=False
+                            ),
                             slug_validator=translation_key_validator,
                         ),
-                        vol.Optional("state_attributes"): cv.schema_with_slug_keys(
+                        probatio.Optional("state_attributes"): cv.schema_with_slug_keys(
                             {
-                                vol.Optional("name"): translation_value_validator,
-                                vol.Optional("state"): cv.schema_with_slug_keys(
-                                    translation_value_validator,
+                                probatio.Optional(
+                                    "name"
+                                ): custom_translation_value_validator(
+                                    allow_placeholders=False
+                                ),
+                                probatio.Optional("state"): cv.schema_with_slug_keys(
+                                    custom_translation_value_validator(
+                                        allow_placeholders=False
+                                    ),
                                     slug_validator=translation_key_validator,
                                 ),
                             },
                             slug_validator=translation_key_validator,
                         ),
-                        vol.Optional(
+                        probatio.Optional(
                             "unit_of_measurement"
-                        ): translation_value_validator,
+                        ): custom_translation_value_validator(allow_placeholders=False),
                     },
                     slug_validator=translation_key_validator,
                 ),
                 slug_validator=cv.slug,
             ),
             **_EXCEPTIONS_SCHEMA,
-            vol.Optional("services"): cv.schema_with_slug_keys(
+            probatio.Optional("services"): cv.schema_with_slug_keys(
                 {
-                    vol.Required("name"): translation_value_validator,
-                    vol.Required("description"): translation_value_validator,
-                    vol.Optional("fields"): cv.schema_with_slug_keys(
+                    probatio.Required("name"): translation_value_validator,
+                    probatio.Required("description"): translation_value_validator,
+                    probatio.Optional("fields"): cv.schema_with_slug_keys(
                         {
-                            vol.Required("name"): str,
-                            vol.Required("description"): translation_value_validator,
-                            vol.Optional("example"): translation_value_validator,
+                            probatio.Required("name"): str,
+                            probatio.Optional(
+                                "description"
+                            ): translation_value_validator,
+                            probatio.Optional("example"): translation_value_validator,
                         },
                         slug_validator=translation_key_validator,
                     ),
-                    vol.Optional("sections"): cv.schema_with_slug_keys(
+                    probatio.Optional("sections"): cv.schema_with_slug_keys(
                         {
-                            vol.Required("name"): str,
-                            vol.Optional("description"): translation_value_validator,
+                            probatio.Required("name"): str,
+                            probatio.Optional(
+                                "description"
+                            ): translation_value_validator,
                         },
                         slug_validator=translation_key_validator,
                     ),
                 },
                 slug_validator=translation_key_validator,
             ),
-            vol.Optional("conversation"): {
-                vol.Required("agent"): {
-                    vol.Required("done"): translation_value_validator,
+            probatio.Optional("conditions"): cv.schema_with_slug_keys(
+                {
+                    probatio.Required("name"): translation_value_validator,
+                    probatio.Required("description"): translation_value_validator,
+                    probatio.Optional("fields"): cv.schema_with_slug_keys(
+                        {
+                            probatio.Required("name"): str,
+                            probatio.Optional(
+                                "description"
+                            ): translation_value_validator,
+                            probatio.Optional("example"): translation_value_validator,
+                        },
+                        slug_validator=translation_key_validator,
+                    ),
+                },
+                slug_validator=cv.underscore_slug,
+            ),
+            probatio.Optional("triggers"): cv.schema_with_slug_keys(
+                {
+                    probatio.Required("name"): translation_value_validator,
+                    probatio.Required("description"): translation_value_validator,
+                    probatio.Optional("fields"): cv.schema_with_slug_keys(
+                        {
+                            probatio.Required("name"): str,
+                            probatio.Optional(
+                                "description"
+                            ): translation_value_validator,
+                            probatio.Optional("example"): translation_value_validator,
+                        },
+                        slug_validator=translation_key_validator,
+                    ),
+                },
+                slug_validator=cv.underscore_slug,
+            ),
+            probatio.Optional("conversation"): {
+                probatio.Required("agent"): {
+                    probatio.Required("done"): translation_value_validator,
                 },
             },
-            vol.Optional("common"): vol.Schema({cv.slug: translation_value_validator}),
+            probatio.Optional("common"): probatio.Schema(
+                {cv.slug: translation_value_validator}
+            ),
         }
     )
 
 
-def gen_auth_schema(config: Config, integration: Integration) -> vol.Schema:
+def gen_auth_schema(config: Config, integration: Integration) -> Callable[[Any], Any]:
     """Generate auth schema."""
-    return vol.Schema(
+    schema = probatio.Schema(
         {
-            vol.Optional("mfa_setup"): {
+            probatio.Optional("mfa_setup"): {
                 str: gen_data_entry_schema(
-                    config=config,
-                    integration=integration,
                     flow_title=REQUIRED,
                     require_step_title=True,
                 )
             },
-            vol.Optional("issues"): gen_issues_schema(config, integration),
+            probatio.Optional("issues"): gen_issues_schema(
+                _frontend_issues(integration)
+            ),
             **_EXCEPTIONS_SCHEMA,
         }
     )
+    return _with_integration(schema, config, integration)
 
 
-def gen_ha_hardware_schema(config: Config, integration: Integration):
-    """Generate auth schema."""
-    return vol.Schema(
+def gen_ha_hardware_schema(
+    config: Config, integration: Integration
+) -> Callable[[Any], Any]:
+    """Generate ha_hardware schema."""
+    schema = probatio.Schema(
         {
             str: {
-                vol.Optional("options"): gen_data_entry_schema(
-                    config=config,
-                    integration=integration,
+                probatio.Optional("options"): gen_data_entry_schema(
                     flow_title=UNDEFINED,
                     require_step_title=False,
                 )
             }
         }
     )
+    return _with_integration(schema, config, integration)
 
 
-ONBOARDING_SCHEMA = vol.Schema(
+ONBOARDING_SCHEMA = probatio.Schema(
     {
-        vol.Required("area"): {str: translation_value_validator},
-        vol.Required("dashboard"): {str: {"title": translation_value_validator}},
+        probatio.Required("area"): {str: translation_value_validator},
+        probatio.Required("dashboard"): {str: {"title": translation_value_validator}},
     }
 )
 
@@ -495,7 +718,7 @@ def validate_translation_file(
 
         try:
             strings_schema(strings)
-        except vol.Invalid as err:
+        except probatio.Invalid as err:
             integration.add_error(
                 "translations", f"Invalid {name}: {humanize_error(strings, err)}"
             )
@@ -540,7 +763,7 @@ def validate_translation_file(
                 "translations",
                 "Lokalise supports only one level of references: "
                 f'"{reference["source"]}" should point to directly '
-                f'to "{match.groups()[0]}"',
+                f'to "{match.group(1)}"',
             )
 
 

@@ -11,7 +11,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .conftest import TEST_REQUIRED
 
-from tests.common import MockConfigEntry, load_json_object_fixture
+from tests.common import MockConfigEntry, async_load_json_object_fixture
 
 
 async def test_device_without_mac_address(
@@ -19,9 +19,9 @@ async def test_device_without_mac_address(
     openwebif_device_mock: AsyncMock,
     device_registry: dr.DeviceRegistry,
 ) -> None:
-    """Test that a device gets successfully registered when the device doesn't report a MAC address."""
-    openwebif_device_mock.get_about.return_value = load_json_object_fixture(
-        "device_about_without_mac.json", DOMAIN
+    """Test device registration when device doesn't report a MAC address."""
+    openwebif_device_mock.get_about.return_value = await async_load_json_object_fixture(
+        hass, "device_about_without_mac.json", DOMAIN
     )
     entry = MockConfigEntry(
         domain=DOMAIN, data=TEST_REQUIRED, title="name", unique_id="123456"
@@ -30,7 +30,12 @@ async def test_device_without_mac_address(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.unique_id == "123456"
-    assert device_registry.async_get_device({(DOMAIN, entry.unique_id)}) is not None
+    assert (
+        device_registry.async_get_device_by_identifier(
+            (DOMAIN, entry.unique_id), entry.entry_id
+        )
+        is not None
+    )
 
 
 @pytest.mark.usefixtures("openwebif_device_mock")

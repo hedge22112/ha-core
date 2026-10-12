@@ -1,27 +1,29 @@
 """Helpers to deal with Cast devices."""
 
-from __future__ import annotations
-
 import configparser
 from dataclasses import dataclass
 import logging
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, override
 from urllib.parse import urlparse
+from uuid import UUID
 
 import aiohttp
 import attr
-import pychromecast
 from pychromecast import dial
 from pychromecast.const import CAST_TYPE_GROUP
+import pychromecast.controllers.media
+import pychromecast.controllers.multizone
+import pychromecast.controllers.receiver
 from pychromecast.models import CastInfo
+import pychromecast.socket_client
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 
-from .const import DOMAIN
-
 if TYPE_CHECKING:
     from homeassistant.components import zeroconf
+
+    from . import CastConfigEntry
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +42,7 @@ class ChromecastInfo:
     is_dynamic_group = attr.ib(type=bool | None, default=None)
 
     @property
-    def friendly_name(self) -> str:
+    def friendly_name(self) -> str | None:
         """Return the Friendly Name."""
         return self.cast_info.friendly_name
 
@@ -50,18 +52,20 @@ class ChromecastInfo:
         return self.cast_info.cast_type == CAST_TYPE_GROUP
 
     @property
-    def uuid(self) -> bool:
+    def uuid(self) -> UUID:
         """Return the UUID."""
         return self.cast_info.uuid
 
-    def fill_out_missing_chromecast_info(self, hass: HomeAssistant) -> ChromecastInfo:
+    def fill_out_missing_chromecast_info(
+        self, hass: HomeAssistant, config_entry: CastConfigEntry
+    ) -> ChromecastInfo:
         """Return a new ChromecastInfo object with missing attributes filled in.
 
         Uses blocking HTTP / HTTPS.
         """
         cast_info = self.cast_info
         if self.cast_info.cast_type is None or self.cast_info.manufacturer is None:
-            unknown_models = hass.data[DOMAIN]["unknown_models"]
+            unknown_models = config_entry.runtime_data.unknown_models
             if self.cast_info.model_name not in unknown_models:
                 # Manufacturer and cast type is not available in mDNS data,
                 # get it over HTTP
@@ -80,7 +84,7 @@ class ChromecastInfo:
                     "+label%3A%22integration%3A+cast%22"
                 )
 
-                _LOGGER.debug(
+                _LOGGER.info(
                     (
                         "Fetched cast details for unknown model '%s' manufacturer:"
                         " '%s', type: '%s'. Please %s"
@@ -111,7 +115,10 @@ class ChromecastInfo:
         is_dynamic_group = False
         http_group_status = None
         http_group_status = dial.get_multizone_status(
-            None,
+            # We pass services which will be used for the HTTP request, and we
+            # don't care about the host in http_group_status.dynamic_groups so
+            # we pass an empty string to simplify the code.
+            "",
             services=self.cast_info.services,
             zconf=ChromeCastZeroconf.get_zeroconf(),
         )
@@ -173,37 +180,52 @@ class CastStatusListener(
         if not cast_device._cast_info.is_audio_group:  # noqa: SLF001
             self._mz_mgr.register_listener(chromecast.uuid, self)
 
+    @override
     def new_cast_status(self, status):
         """Handle reception of a new CastStatus."""
         if self._valid:
             self._cast_device.new_cast_status(status)
 
+    @override
     def new_media_status(self, status):
         """Handle reception of a new MediaStatus."""
         if self._valid:
             self._cast_device.new_media_status(status)
 
+    @override
     def load_media_failed(self, queue_item_id, error_code):
         """Handle reception of a new MediaStatus."""
         if self._valid:
             self._cast_device.load_media_failed(queue_item_id, error_code)
 
+    @override
     def new_connection_status(self, status):
-        """Handle reception of a new ConnectionStatus."""
+        """Schedule connection status handling on the Home Assistant event loop."""
+        if self._valid:
+            self._cast_device.hass.loop.call_soon_threadsafe(
+                self.async_new_connection_status, status
+            )
+
+    def async_new_connection_status(self, status):
+        """Handle connection status on the Home Assistant event loop."""
         if self._valid:
             self._cast_device.new_connection_status(status)
 
+    @override
     def added_to_multizone(self, group_uuid):
         """Handle the cast added to a group."""
 
+    @override
     def removed_from_multizone(self, group_uuid):
         """Handle the cast removed from a group."""
         if self._valid:
             self._cast_device.multizone_new_media_status(group_uuid, None)
 
+    @override
     def multizone_new_cast_status(self, group_uuid, cast_status):
         """Handle reception of a new CastStatus for a group."""
 
+    @override
     def multizone_new_media_status(self, group_uuid, media_status):
         """Handle reception of a new MediaStatus for a group."""
         if self._valid:

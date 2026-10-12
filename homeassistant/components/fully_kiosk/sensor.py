@@ -1,10 +1,8 @@
 """Fully Kiosk Browser sensor."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,9 +10,14 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfInformation,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from . import FullyKioskConfigEntry
@@ -53,6 +56,14 @@ SENSORS: tuple[FullySensorEntityDescription, ...] = (
         key="batteryLevel",
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    FullySensorEntityDescription(
+        key="batteryTemperature",
+        translation_key="battery_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -114,7 +125,7 @@ SENSORS: tuple[FullySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: FullyKioskConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Fully Kiosk Browser sensor."""
     coordinator = config_entry.runtime_data
@@ -143,6 +154,7 @@ class FullySensor(FullyKioskEntity, SensorEntity):
         super().__init__(coordinator)
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         extra_state_attributes: dict[str, Any] = {}
         value = self.coordinator.data.get(self.entity_description.key)
@@ -152,6 +164,8 @@ class FullySensor(FullyKioskEntity, SensorEntity):
                 value, extra_state_attributes = self.entity_description.state_fn(value)
 
             if self.entity_description.round_state_value:
+                if TYPE_CHECKING:
+                    assert isinstance(value, int)
                 value = round_storage(value)
 
         self._attr_native_value = value

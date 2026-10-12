@@ -1,11 +1,9 @@
 """Number platform for Enphase Envoy solar energy monitor."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from operator import attrgetter
-from typing import Any
+from typing import Any, override
 
 from pyenphase import Envoy, EnvoyDryContactSettings
 from pyenphase.const import SupportedFeatures
@@ -18,12 +16,13 @@ from homeassistant.components.number import (
 )
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import EnphaseConfigEntry, EnphaseUpdateCoordinator
-from .entity import EnvoyBaseEntity
+from .entity import EnvoyBaseEntity, exception_handler
 
 PARALLEL_UPDATES = 1
 
@@ -73,7 +72,7 @@ STORAGE_RESERVE_SOC_ENTITY = EnvoyStorageSettingsNumberEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EnphaseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Enphase Envoy number platform."""
     coordinator = config_entry.runtime_data
@@ -122,16 +121,23 @@ class EnvoyRelayNumberEntity(EnvoyBaseEntity, NumberEntity):
             model="Dry contact relay",
             name=self.data.dry_contact_settings[relay_id].load_name,
             sw_version=str(enpower.firmware_version),
-            via_device=(DOMAIN, serial_number),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                coordinator.hass,
+                (DOMAIN, serial_number),
+                config_entry_id=coordinator.config_entry.entry_id,
+            ),
         )
 
     @property
+    @override
     def native_value(self) -> float:
         """Return the state of the relay entity."""
         return self.entity_description.value_fn(
             self.data.dry_contact_settings[self._relay_id]
         )
 
+    @exception_handler
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the relay."""
         await self.envoy.update_dry_contact(
@@ -163,7 +169,12 @@ class EnvoyStorageSettingsNumberEntity(EnvoyBaseEntity, NumberEntity):
                 model="Enpower",
                 name=f"Enpower {self._serial_number}",
                 sw_version=str(enpower.firmware_version),
-                via_device=(DOMAIN, self.envoy_serial_num),
+                via_device_id=dr.async_get_device_id_by_identifier(
+                    coordinator.hass,
+                    (DOMAIN, self.envoy_serial_num),
+                    config_entry_id=coordinator.config_entry.entry_id,
+                ),
+                serial_number=self._serial_number,
             )
         else:
             # If no enpower device assign numbers to Envoy itself
@@ -179,12 +190,15 @@ class EnvoyStorageSettingsNumberEntity(EnvoyBaseEntity, NumberEntity):
             )
 
     @property
+    @override
     def native_value(self) -> float:
         """Return the state of the storage setting entity."""
         assert self.data.tariff is not None
         assert self.data.tariff.storage_settings is not None
         return self.entity_description.value_fn(self.data.tariff.storage_settings)
 
+    @exception_handler
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the storage setting."""
         await self.entity_description.update_fn(self.envoy, value)

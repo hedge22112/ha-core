@@ -1,11 +1,10 @@
 """Support for Cisco IOS Routers."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from pexpect import pxssh
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.device_tracker import (
     DOMAIN as DEVICE_TRACKER_DOMAIN,
@@ -14,18 +13,18 @@ from homeassistant.components.device_tracker import (
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORM_SCHEMA = vol.All(
+PLATFORM_SCHEMA = probatio.All(
     DEVICE_TRACKER_PLATFORM_SCHEMA.extend(
         {
-            vol.Required(CONF_HOST): cv.string,
-            vol.Required(CONF_USERNAME): cv.string,
-            vol.Optional(CONF_PASSWORD, default=""): cv.string,
-            vol.Optional(CONF_PORT): cv.port,
+            probatio.Required(CONF_HOST): cv.string,
+            probatio.Required(CONF_USERNAME): cv.string,
+            probatio.Optional(probatio.Secret(CONF_PASSWORD), default=""): cv.string,
+            probatio.Optional(CONF_PORT): probatio.Port(),
         }
     )
 )
@@ -52,10 +51,12 @@ class CiscoDeviceScanner(DeviceScanner):
 
         self.success_init = self._update_info()
 
+    @override
     async def async_get_device_name(self, device: str) -> str | None:
         """Get the firmware doesn't save the name of the wireless device."""
         return None
 
+    @override
     def scan_devices(self):
         """Scan for new devices and return a list with found device IDs."""
         self._update_info()
@@ -104,7 +105,7 @@ class CiscoDeviceScanner(DeviceScanner):
         """Open connection to the router and get arp entries."""
 
         try:
-            cisco_ssh: pxssh.pxssh[str] = pxssh.pxssh(encoding="uft-8")
+            cisco_ssh: pxssh.pxssh[str] = pxssh.pxssh(encoding="utf-8")
             cisco_ssh.login(
                 self.host,
                 self.username,

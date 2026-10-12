@@ -3,7 +3,7 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.entity_registry as er
+from homeassistant.helpers import entity_registry as er
 
 from .hub import PulseHub
 
@@ -23,8 +23,7 @@ async def async_setup_entry(
 
     hub = PulseHub(hass, config_entry)
 
-    if not await hub.async_setup():
-        return False
+    await hub.async_setup()
 
     config_entry.runtime_data = hub
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)

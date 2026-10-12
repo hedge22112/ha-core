@@ -1,10 +1,9 @@
 """Support for monitoring Dremel 3D Printer sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import override
 
 from dremel3dpy import Dremel3DPrinter
 
@@ -22,7 +21,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utcnow
 from homeassistant.util.variance import ignore_variance
@@ -235,7 +234,7 @@ SENSOR_TYPES: tuple[Dremel3DPrinterSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DremelConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the available Dremel 3D Printer sensors."""
     async_add_entities(
@@ -250,6 +249,7 @@ class Dremel3DPrinterSensor(Dremel3DPrinterEntity, SensorEntity):
     entity_description: Dremel3DPrinterSensorEntityDescription
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if the entity is available."""
         return super().available and self.entity_description.available_fn(
@@ -257,6 +257,7 @@ class Dremel3DPrinterSensor(Dremel3DPrinterEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType | datetime:
         """Return the sensor state."""
         return self.entity_description.value_fn(self._api, self.entity_description.key)

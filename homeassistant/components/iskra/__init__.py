@@ -1,12 +1,9 @@
 """The iskra integration."""
 
-from __future__ import annotations
-
 from pyiskra.adapters import Modbus, RestAPI
 from pyiskra.devices import Device
 from pyiskra.exceptions import DeviceConnectionError, DeviceNotSupported, NotAuthorised
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_ADDRESS,
     CONF_HOST,
@@ -21,12 +18,9 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, MANUFACTURER
-from .coordinator import IskraDataUpdateCoordinator
+from .coordinator import IskraConfigEntry, IskraDataUpdateCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
-
-
-type IskraConfigEntry = ConfigEntry[list[IskraDataUpdateCoordinator]]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: IskraConfigEntry) -> bool:
@@ -65,7 +59,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: IskraConfigEntry) -> boo
     # Initialize the device
     await base_device.init()
 
-    # if the device is a gateway, add all child devices, otherwise add the device itself.
+    # If the device is a gateway, add all child devices,
+    # otherwise add the device itself.
     if base_device.is_gateway:
         # Add the gateway device to the device registry
         device_registry = dr.async_get(hass)
@@ -79,11 +74,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: IskraConfigEntry) -> boo
         )
 
         coordinators = [
-            IskraDataUpdateCoordinator(hass, child_device)
+            IskraDataUpdateCoordinator(hass, entry, child_device)
             for child_device in base_device.get_child_devices()
         ]
     else:
-        coordinators = [IskraDataUpdateCoordinator(hass, base_device)]
+        coordinators = [IskraDataUpdateCoordinator(hass, entry, base_device)]
 
     for coordinator in coordinators:
         await coordinator.async_config_entry_first_refresh()

@@ -1,10 +1,8 @@
 """Binary sensor platform for SABnzbd."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -13,7 +11,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import SabnzbdConfigEntry
 from .entity import SabnzbdEntity
@@ -40,7 +38,7 @@ BINARY_SENSORS: tuple[SabnzbdBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SabnzbdConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a Sabnzbd sensor entry."""
     coordinator = config_entry.runtime_data
@@ -56,6 +54,7 @@ class SabnzbdBinarySensor(SabnzbdEntity, BinarySensorEntity):
     entity_description: SabnzbdBinarySensorEntityDescription
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return latest sensor data."""
         return self.entity_description.is_on_fn(self.coordinator.data)

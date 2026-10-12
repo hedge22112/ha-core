@@ -1,7 +1,5 @@
 """Websocket API for the history integration."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -9,8 +7,10 @@ from datetime import datetime as dt, timedelta
 import logging
 from typing import Any, cast
 
-import voluptuous as vol
+import probatio
 
+from homeassistant.auth.permissions import filter_entity_ids_by_permission
+from homeassistant.auth.permissions.const import POLICY_READ
 from homeassistant.components import websocket_api
 from homeassistant.components.recorder import get_instance, history
 from homeassistant.components.websocket_api import ActiveConnection, messages
@@ -26,6 +26,7 @@ from homeassistant.core import (
     EventStateChangedData,
     HomeAssistant,
     State,
+    async_noop,
     callback,
     is_callback,
     valid_entity_id,
@@ -35,8 +36,8 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 from homeassistant.helpers.json import json_bytes
+from homeassistant.util import dt as dt_util
 from homeassistant.util.async_ import create_eager_task
-import homeassistant.util.dt as dt_util
 
 from .const import EVENT_COALESCE_TIME, MAX_PENDING_HISTORY_STATES
 from .helpers import entities_may_have_state_changes_after, has_states_before
@@ -52,7 +53,7 @@ class HistoryLiveStream:
     subscriptions: list[CALLBACK_TYPE]
     end_time_unsub: CALLBACK_TYPE | None = None
     task: asyncio.Task | None = None
-    wait_sync_task: asyncio.Task | None = None
+    wait_sync_future: asyncio.Future[None] | None = None
 
 
 @callback
@@ -95,14 +96,14 @@ def _ws_get_significant_states(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "history/history_during_period",
-        vol.Required("start_time"): str,
-        vol.Optional("end_time"): str,
-        vol.Required("entity_ids"): [str],
-        vol.Optional("include_start_time_state", default=True): bool,
-        vol.Optional("significant_changes_only", default=True): bool,
-        vol.Optional("minimal_response", default=False): bool,
-        vol.Optional("no_attributes", default=False): bool,
+        probatio.Required("type"): "history/history_during_period",
+        probatio.Required("start_time"): str,
+        probatio.Optional("end_time"): str,
+        probatio.Required("entity_ids"): [str],
+        probatio.Optional("include_start_time_state", default=True): bool,
+        probatio.Optional("significant_changes_only", default=True): bool,
+        probatio.Optional("minimal_response", default=False): bool,
+        probatio.Optional("no_attributes", default=False): bool,
     }
 )
 @websocket_api.async_response
@@ -137,6 +138,13 @@ async def ws_get_history_during_period(
         if not hass.states.get(entity_id) and not valid_entity_id(entity_id):
             connection.send_error(msg["id"], "invalid_entity_ids", "Invalid entity_ids")
             return
+
+    entity_ids = filter_entity_ids_by_permission(
+        connection.user, entity_ids, POLICY_READ
+    )
+    if not entity_ids:
+        connection.send_result(msg["id"], {})
+        return
 
     include_start_time_state = msg["include_start_time_state"]
     no_attributes = msg["no_attributes"]
@@ -401,14 +409,14 @@ def _async_subscribe_events(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "history/stream",
-        vol.Required("start_time"): str,
-        vol.Optional("end_time"): str,
-        vol.Required("entity_ids"): [str],
-        vol.Optional("include_start_time_state", default=True): bool,
-        vol.Optional("significant_changes_only", default=True): bool,
-        vol.Optional("minimal_response", default=False): bool,
-        vol.Optional("no_attributes", default=False): bool,
+        probatio.Required("type"): "history/stream",
+        probatio.Required("start_time"): str,
+        probatio.Optional("end_time"): str,
+        probatio.Required("entity_ids"): [str],
+        probatio.Optional("include_start_time_state", default=True): bool,
+        probatio.Optional("significant_changes_only", default=True): bool,
+        probatio.Optional("minimal_response", default=False): bool,
+        probatio.Optional("no_attributes", default=False): bool,
     }
 )
 @websocket_api.async_response
@@ -444,6 +452,13 @@ async def ws_stream(
             connection.send_error(msg["id"], "invalid_entity_ids", "Invalid entity_ids")
             return
 
+    entity_ids = filter_entity_ids_by_permission(
+        connection.user, entity_ids, POLICY_READ
+    )
+    if not entity_ids:
+        _async_send_empty_response(connection, msg_id, start_time, end_time)
+        return
+
     include_start_time_state = msg["include_start_time_state"]
     significant_changes_only = msg["significant_changes_only"]
     no_attributes = msg["no_attributes"]
@@ -460,7 +475,7 @@ async def ws_stream(
             _async_send_empty_response(connection, msg_id, start_time, end_time)
             return
 
-        connection.subscriptions[msg_id] = callback(lambda: None)
+        connection.subscriptions[msg_id] = async_noop
         connection.send_result(msg_id)
         await _async_send_historical_states(
             hass,
@@ -491,8 +506,8 @@ async def ws_stream(
         subscriptions.clear()
         if live_stream.task:
             live_stream.task.cancel()
-        if live_stream.wait_sync_task:
-            live_stream.wait_sync_task.cancel()
+        if live_stream.wait_sync_future:
+            live_stream.wait_sync_future.cancel()
         if live_stream.end_time_unsub:
             live_stream.end_time_unsub()
             live_stream.end_time_unsub = None
@@ -554,10 +569,12 @@ async def ws_stream(
         )
     )
 
-    live_stream.wait_sync_task = create_eager_task(
-        get_instance(hass).async_block_till_done()
-    )
-    await live_stream.wait_sync_task
+    if sync_future := get_instance(hass).async_get_commit_future():
+        # Set the future so we can cancel it if the client
+        # unsubscribes before the commit is done so we don't
+        # query the database needlessly
+        live_stream.wait_sync_future = sync_future
+        await live_stream.wait_sync_future
 
     #
     # Fetch any states from the database that have

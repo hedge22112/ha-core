@@ -6,7 +6,7 @@ from pysabnzbd import SabnzbdApiException
 import pytest
 
 from homeassistant import config_entries
-from homeassistant.components.sabnzbd import DOMAIN
+from homeassistant.components.sabnzbd.const import DOMAIN
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_API_KEY, CONF_URL
 from homeassistant.core import HomeAssistant
@@ -47,14 +47,22 @@ async def test_create_entry(hass: HomeAssistant, mock_setup_entry: AsyncMock) ->
 
 async def test_auth_error(hass: HomeAssistant, sabnzbd: AsyncMock) -> None:
     """Test when the user step fails and if we can recover."""
-    sabnzbd.check_available.side_effect = SabnzbdApiException("Some error")
-
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": SOURCE_USER},
-        data=VALID_CONFIG,
     )
 
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {}
+
+    sabnzbd.check_available.side_effect = SabnzbdApiException("Some error")
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input=VALID_CONFIG,
+    )
+
+    assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
 
     # reset side effect and check if we can recover
@@ -62,7 +70,7 @@ async def test_auth_error(hass: HomeAssistant, sabnzbd: AsyncMock) -> None:
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        VALID_CONFIG,
+        user_input=VALID_CONFIG,
     )
     await hass.async_block_till_done()
 
@@ -153,10 +161,10 @@ async def test_abort_already_configured(
     assert result["reason"] == "already_configured"
 
 
-async def test_abort_reconfigure_already_configured(
+async def test_abort_reconfigure_successful(
     hass: HomeAssistant, config_entry: MockConfigEntry
 ) -> None:
-    """Test that the reconfigure flow aborts if SABnzbd instance is already configured."""
+    """Test reconfigure flow aborts if SABnzbd is already configured."""
     result = await config_entry.start_reconfigure_flow(hass)
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {}
@@ -166,4 +174,4 @@ async def test_abort_reconfigure_already_configured(
         VALID_CONFIG,
     )
     assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "already_configured"
+    assert result["reason"] == "reconfigure_successful"

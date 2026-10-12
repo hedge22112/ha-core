@@ -1,29 +1,47 @@
 """Config flow for Overkiz integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
-from typing import Any, cast
+import logging
+from typing import Any, cast, override
 
 from aiohttp import ClientConnectorCertificateError, ClientError
-from pyoverkiz.client import OverkizClient
-from pyoverkiz.const import SERVERS_WITH_LOCAL_API, SUPPORTED_SERVERS
+import probatio
+from pyoverkiz.auth.credentials import (
+    LocalTokenCredentials,
+    RexelTokenCredentials,
+    UsernamePasswordCredentials,
+)
+from pyoverkiz.client import GatewayCandidate, OverkizClient
+from pyoverkiz.const import (
+    REXEL_OAUTH_CLIENT_ID,
+    SERVERS_WITH_LOCAL_API,
+    SUPPORTED_SERVERS,
+)
 from pyoverkiz.enums import APIType, Server
 from pyoverkiz.exceptions import (
-    BadCredentialsException,
-    CozyTouchBadCredentialsException,
-    MaintenanceException,
-    NotSuchTokenException,
-    TooManyAttemptsBannedException,
-    TooManyRequestsException,
-    UnknownUserException,
+    ApplicationNotAllowedError,
+    BadCredentialsError,
+    CozyTouchBadCredentialsError,
+    MaintenanceError,
+    NoSuchTokenError,
+    NotAuthenticatedError,
+    ServiceUnavailableError,
+    TooManyAttemptsBannedError,
+    TooManyRequestsError,
+    UnknownUserError,
 )
-from pyoverkiz.models import OverkizServer
 from pyoverkiz.obfuscate import obfuscate_id
-from pyoverkiz.utils import generate_local_server, is_overkiz_gateway
-import voluptuous as vol
+from pyoverkiz.utils import create_local_server_config, is_overkiz_gateway
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
+from homeassistant.components.application_credentials import (
+    ClientCredential,
+    async_import_client_credential,
+)
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
+    ConfigFlowResult,
+)
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -31,56 +49,108 @@ from homeassistant.const import (
     CONF_USERNAME,
     CONF_VERIFY_SSL,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
-from .const import CONF_API_TYPE, CONF_HUB, DEFAULT_SERVER, DOMAIN, LOGGER
+from .const import (
+    CONF_API_TYPE,
+    CONF_GATEWAY_ID,
+    CONF_HUB,
+    DEFAULT_SERVER,
+    DOMAIN,
+    LOGGER,
+)
+
+LOCAL_API_DOCS_URL = (
+    "https://www.home-assistant.io/integrations/overkiz/#local-api-support"
+)
+TOKEN_DOCS_URL = (
+    "https://www.home-assistant.io/integrations/overkiz/#login-to-overkiz-local-api"
+)
 
 
-class DeveloperModeDisabled(HomeAssistantError):
-    """Error to indicate Somfy Developer Mode is disabled."""
-
-
-class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
+class OverkizConfigFlow(
+    config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN
+):
     """Handle a config flow for Overkiz (by Somfy)."""
 
+    DOMAIN = DOMAIN
     VERSION = 1
+    MINOR_VERSION = 2
 
+    _verify_ssl: bool = True
     _api_type: APIType = APIType.CLOUD
     _user: str | None = None
     _server: str = DEFAULT_SERVER
     _host: str = "gateway-xxxx-xxxx-xxxx.local:8443"
 
+    _rexel_gateways: list[GatewayCandidate]
+    _rexel_oauth_data: dict[str, Any]
+
+    @property
+    @override
+    def logger(self) -> logging.Logger:
+        """Return logger."""
+        return LOGGER
+
     async def async_validate_input(self, user_input: dict[str, Any]) -> dict[str, Any]:
         """Validate user credentials."""
         user_input[CONF_API_TYPE] = self._api_type
 
-        client = self._create_cloud_client(
-            username=user_input[CONF_USERNAME],
-            password=user_input[CONF_PASSWORD],
-            server=SUPPORTED_SERVERS[user_input[CONF_HUB]],
-        )
-        await client.login(register_event_listener=False)
-
-        #  For Local API, we create and activate a local token
         if self._api_type == APIType.LOCAL:
-            user_input[CONF_TOKEN] = await self._create_local_api_token(
-                cloud_client=client,
-                host=user_input[CONF_HOST],
+            user_input[CONF_VERIFY_SSL] = self._verify_ssl
+            session = async_create_clientsession(
+                self.hass, verify_ssl=user_input[CONF_VERIFY_SSL]
+            )
+            client = OverkizClient(
+                server=create_local_server_config(host=user_input[CONF_HOST]),
+                credentials=LocalTokenCredentials(user_input[CONF_TOKEN]),
+                session=session,
                 verify_ssl=user_input[CONF_VERIFY_SSL],
             )
+        else:  # APIType.CLOUD
+            session = async_create_clientsession(self.hass)
+            client = OverkizClient(
+                server=user_input[CONF_HUB],
+                credentials=UsernamePasswordCredentials(
+                    user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+                ),
+                session=session,
+            )
+
+        await client.login(register_event_listener=False)
 
         # Set main gateway id as unique id
         if gateways := await client.get_gateways():
             for gateway in gateways:
                 if is_overkiz_gateway(gateway.id):
-                    gateway_id = gateway.id
-                    await self.async_set_unique_id(gateway_id, raise_on_progress=False)
+                    await self.async_set_unique_id(gateway.id, raise_on_progress=False)
+                    break
 
         return user_input
 
+    def _async_finish_validated_entry(
+        self, user_input: dict[str, Any], title: str
+    ) -> ConfigFlowResult:
+        """Create or update the entry once credentials have been validated."""
+        if self.source == SOURCE_REAUTH:
+            self._abort_if_unique_id_mismatch(reason="reauth_wrong_account")
+            return self.async_update_reload_and_abort(
+                self._get_reauth_entry(), data=user_input
+            )
+
+        if self.source == SOURCE_RECONFIGURE:
+            self._abort_if_unique_id_mismatch(reason="reconfigure_wrong_account")
+            return self.async_update_reload_and_abort(
+                self._get_reconfigure_entry(), data=user_input
+            )
+
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title=title, data=user_input)
+
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -97,10 +167,15 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_HUB, default=self._server): vol.In(
-                        {key: hub.name for key, hub in SUPPORTED_SERVERS.items()}
+                    probatio.Required(CONF_HUB, default=self._server): probatio.In(
+                        {
+                            key: hub.name
+                            for key, hub in SUPPORTED_SERVERS.items()
+                            # Needs multi-account site selection, not supported yet
+                            if key != Server.SOMFY
+                        }
                     ),
                 }
             ),
@@ -116,13 +191,17 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
             if self._api_type == APIType.LOCAL:
                 return await self.async_step_local()
 
+            # Rexel authenticates via OAuth2 (Azure AD B2C with PKCE).
+            if self._server == Server.REXEL:
+                return await self.async_step_pick_implementation()
+
             return await self.async_step_cloud()
 
         return self.async_show_form(
             step_id="local_or_cloud",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_API_TYPE): vol.In(
+                    probatio.Required(CONF_API_TYPE): probatio.In(
                         {
                             APIType.LOCAL: "Local API",
                             APIType.CLOUD: "Cloud API",
@@ -130,7 +209,20 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
+            description_placeholders={"local_api_docs": LOCAL_API_DOCS_URL},
         )
+
+    @override
+    async def async_step_pick_implementation(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Start the Rexel OAuth2 flow, re-importing the credential if removed."""
+        await async_import_client_credential(
+            self.hass,
+            DOMAIN,
+            ClientCredential(REXEL_OAUTH_CLIENT_ID, "", name="Rexel"),
+        )
+        return await super().async_step_pick_implementation(user_input)
 
     async def async_step_cloud(
         self, user_input: dict[str, Any] | None = None
@@ -141,61 +233,70 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input:
             self._user = user_input[CONF_USERNAME]
-
-            # inherit the server from previous step
             user_input[CONF_HUB] = self._server
 
             try:
                 await self.async_validate_input(user_input)
-            except TooManyRequestsException:
+            except TooManyRequestsError:
                 errors["base"] = "too_many_requests"
-            except BadCredentialsException as exception:
-                # If authentication with CozyTouch auth server is valid, but token is invalid
-                # for Overkiz API server, the hardware is not supported.
+            except ApplicationNotAllowedError:
+                errors["base"] = "application_not_allowed"
+            except (BadCredentialsError, NotAuthenticatedError) as exception:
+                # If authentication with CozyTouch auth server is
+                # valid, but token is invalid for Overkiz API
+                # server, the hardware is not supported.
                 if user_input[CONF_HUB] in {
                     Server.ATLANTIC_COZYTOUCH,
                     Server.SAUTER_COZYTOUCH,
                     Server.THERMOR_COZYTOUCH,
-                } and not isinstance(exception, CozyTouchBadCredentialsException):
+                } and not isinstance(exception, CozyTouchBadCredentialsError):
                     description_placeholders["unsupported_device"] = "CozyTouch"
                     errors["base"] = "unsupported_hardware"
                 else:
                     errors["base"] = "invalid_auth"
-            except (TimeoutError, ClientError):
-                errors["base"] = "cannot_connect"
-            except MaintenanceException:
+            except MaintenanceError:
                 errors["base"] = "server_in_maintenance"
-            except TooManyAttemptsBannedException:
+            except TimeoutError, ClientError, ServiceUnavailableError:
+                errors["base"] = "cannot_connect"
+            except TooManyAttemptsBannedError:
                 errors["base"] = "too_many_attempts"
-            except UnknownUserException:
+            except UnknownUserError:
+                # If the user has no supported CozyTouch devices on
+                # the Overkiz API server. Login will return unknown user.
+                if user_input[CONF_HUB] in {
+                    Server.ATLANTIC_COZYTOUCH,
+                    Server.SAUTER_COZYTOUCH,
+                    Server.THERMOR_COZYTOUCH,
+                }:
+                    description_placeholders["unsupported_device"] = "CozyTouch"
                 # Somfy Protect accounts are not supported since they don't use
                 # the Overkiz API server. Login will return unknown user.
-                description_placeholders["unsupported_device"] = "Somfy Protect"
+                elif user_input[CONF_HUB] in {
+                    Server.SOMFY_AMERICA,
+                    Server.SOMFY_DEVELOPER_MODE,
+                    Server.SOMFY_EUROPE,
+                    Server.SOMFY_OCEANIA,
+                }:
+                    description_placeholders["unsupported_device"] = "Somfy Protect"
+                # Fallback for other unknown devices
+                else:
+                    description_placeholders["unsupported_device"] = "Unknown"
+
                 errors["base"] = "unsupported_hardware"
             except Exception:  # noqa: BLE001
                 errors["base"] = "unknown"
                 LOGGER.exception("Unknown error")
             else:
-                if self.source == SOURCE_REAUTH:
-                    self._abort_if_unique_id_mismatch(reason="reauth_wrong_account")
-
-                    return self.async_update_reload_and_abort(
-                        self._get_reauth_entry(), data_updates=user_input
-                    )
-
-                # Create new entry
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(
-                    title=user_input[CONF_USERNAME], data=user_input
+                return self._async_finish_validated_entry(
+                    user_input, title=user_input[CONF_USERNAME]
                 )
 
         return self.async_show_form(
             step_id="cloud",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_USERNAME, default=self._user): str,
-                    vol.Required(CONF_PASSWORD): str,
+                    probatio.Required(CONF_USERNAME, default=self._user): str,
+                    probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
                 }
             ),
             description_placeholders=description_placeholders,
@@ -207,36 +308,37 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the local authentication step via config flow."""
         errors = {}
-        description_placeholders = {}
+        description_placeholders = {
+            "local_api_docs": LOCAL_API_DOCS_URL,
+            "token_docs": TOKEN_DOCS_URL,
+        }
 
         if user_input:
             self._host = user_input[CONF_HOST]
-            self._user = user_input[CONF_USERNAME]
-
-            # inherit the server from previous step
+            self._verify_ssl = user_input[CONF_VERIFY_SSL]
             user_input[CONF_HUB] = self._server
 
             try:
                 user_input = await self.async_validate_input(user_input)
-            except TooManyRequestsException:
+            except TooManyRequestsError:
                 errors["base"] = "too_many_requests"
-            except BadCredentialsException:
+            except (
+                BadCredentialsError,
+                NoSuchTokenError,
+                NotAuthenticatedError,
+            ):
                 errors["base"] = "invalid_auth"
             except ClientConnectorCertificateError as exception:
                 errors["base"] = "certificate_verify_failed"
                 LOGGER.debug(exception)
-            except (TimeoutError, ClientError) as exception:
+            except MaintenanceError:
+                errors["base"] = "server_in_maintenance"
+            except (TimeoutError, ClientError, ServiceUnavailableError) as exception:
                 errors["base"] = "cannot_connect"
                 LOGGER.debug(exception)
-            except MaintenanceException:
-                errors["base"] = "server_in_maintenance"
-            except TooManyAttemptsBannedException:
+            except TooManyAttemptsBannedError:
                 errors["base"] = "too_many_attempts"
-            except NotSuchTokenException:
-                errors["base"] = "no_such_token"
-            except DeveloperModeDisabled:
-                errors["base"] = "developer_mode_disabled"
-            except UnknownUserException:
+            except UnknownUserError:
                 # Somfy Protect accounts are not supported since they don't use
                 # the Overkiz API server. Login will return unknown user.
                 description_placeholders["unsupported_device"] = "Somfy Protect"
@@ -245,34 +347,108 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
                 LOGGER.exception("Unknown error")
             else:
-                if self.source == SOURCE_REAUTH:
-                    self._abort_if_unique_id_mismatch(reason="reauth_wrong_account")
-
-                    return self.async_update_reload_and_abort(
-                        self._get_reauth_entry(), data_updates=user_input
-                    )
-
-                # Create new entry
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(
-                    title=user_input[CONF_HOST], data=user_input
+                return self._async_finish_validated_entry(
+                    user_input, title=user_input[CONF_HOST]
                 )
 
         return self.async_show_form(
             step_id="local",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(CONF_HOST, default=self._host): str,
-                    vol.Required(CONF_USERNAME, default=self._user): str,
-                    vol.Required(CONF_PASSWORD): str,
-                    vol.Required(CONF_VERIFY_SSL, default=True): bool,
+                    probatio.Required(CONF_HOST, default=self._host): str,
+                    probatio.Required(probatio.Secret(CONF_TOKEN)): str,
+                    probatio.Required(CONF_VERIFY_SSL, default=self._verify_ssl): bool,
                 }
             ),
             description_placeholders=description_placeholders,
             errors=errors,
         )
 
+    @override
+    async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:
+        """Resolve the gateway after a successful Rexel OAuth2 authorization."""
+        self._rexel_oauth_data = data
+
+        # Gateway discovery uses Bearer-only endpoints, so the client needs just
+        # the access token: no login() and no gateway_id yet.
+        session = async_create_clientsession(self.hass)
+        client = OverkizClient(
+            server=Server.REXEL,
+            credentials=RexelTokenCredentials(
+                access_token=data["token"]["access_token"]
+            ),
+            session=session,
+        )
+
+        try:
+            self._rexel_gateways = await client.discover_gateways()
+        except TimeoutError, ClientError:
+            return self.async_abort(reason="cannot_connect")
+
+        if not self._rexel_gateways:
+            return self.async_abort(reason="no_gateways")
+
+        if len(self._rexel_gateways) == 1:
+            return await self._async_create_rexel_entry(self._rexel_gateways[0])
+
+        return await self.async_step_select_gateway()
+
+    async def async_step_select_gateway(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Let the user pick a gateway on a multi-gateway Rexel account."""
+        if user_input:
+            gateway = next(
+                candidate
+                for candidate in self._rexel_gateways
+                if candidate.gateway_id == user_input[CONF_GATEWAY_ID]
+            )
+            return await self._async_create_rexel_entry(gateway)
+
+        return self.async_show_form(
+            step_id="select_gateway",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_GATEWAY_ID): probatio.In(
+                        {
+                            candidate.gateway_id: candidate.label
+                            or candidate.gateway_id
+                            for candidate in self._rexel_gateways
+                        }
+                    ),
+                }
+            ),
+        )
+
+    async def _async_create_rexel_entry(
+        self, gateway: GatewayCandidate
+    ) -> ConfigFlowResult:
+        """Persist the token bundle and resolved gateway as a config entry."""
+        await self.async_set_unique_id(gateway.gateway_id, raise_on_progress=False)
+
+        data = {
+            **self._rexel_oauth_data,
+            CONF_HUB: Server.REXEL,
+            CONF_GATEWAY_ID: gateway.gateway_id,
+        }
+
+        if self.source == SOURCE_REAUTH:
+            self._abort_if_unique_id_mismatch(reason="reauth_wrong_account")
+            return self.async_update_reload_and_abort(
+                self._get_reauth_entry(), data=data
+            )
+
+        if self.source == SOURCE_RECONFIGURE:
+            self._abort_if_unique_id_mismatch(reason="reconfigure_wrong_account")
+            return self.async_update_reload_and_abort(
+                self._get_reconfigure_entry(), data=data
+            )
+
+        self._abort_if_unique_id_configured()
+
+        return self.async_create_entry(title=gateway.label or "Rexel", data=data)
+
+    @override
     async def async_step_dhcp(
         self, discovery_info: DhcpServiceInfo
     ) -> ConfigFlowResult:
@@ -284,6 +460,7 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
         LOGGER.debug("DHCP discovery detected gateway %s", obfuscate_id(gateway_id))
         return await self._process_discovery(gateway_id)
 
+    @override
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -316,68 +493,32 @@ class OverkizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_user()
 
+    def _init_flow_from_entry(
+        self, entry_data: Mapping[str, Any], gateway_id: str
+    ) -> None:
+        """Initialize the flow's state from an existing entry for reauth/reconfigure."""
+        self.context["title_placeholders"] = {"gateway_id": gateway_id}
+        self._api_type = entry_data.get(CONF_API_TYPE, APIType.CLOUD)
+        self._server = entry_data[CONF_HUB]
+
+        if self._api_type == APIType.LOCAL:
+            self._host = entry_data[CONF_HOST]
+            self._verify_ssl = entry_data[CONF_VERIFY_SSL]
+        # Rexel cloud reauth re-runs the OAuth2 flow; there is no stored username.
+        elif self._server != Server.REXEL:
+            self._user = entry_data[CONF_USERNAME]
+
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
         """Handle reauth."""
-        # overkiz entries always have unique IDs
-        self.context["title_placeholders"] = {"gateway_id": cast(str, self.unique_id)}
-
-        self._user = entry_data[CONF_USERNAME]
-        self._server = entry_data[CONF_HUB]
-        self._api_type = entry_data.get(CONF_API_TYPE, APIType.CLOUD)
-
-        if self._api_type == APIType.LOCAL:
-            self._host = entry_data[CONF_HOST]
-
+        self._init_flow_from_entry(entry_data, cast(str, self.unique_id))
         return await self.async_step_user(dict(entry_data))
 
-    def _create_cloud_client(
-        self, username: str, password: str, server: OverkizServer
-    ) -> OverkizClient:
-        session = async_create_clientsession(self.hass)
-        return OverkizClient(
-            username=username, password=password, server=server, session=session
-        )
-
-    async def _create_local_api_token(
-        self, cloud_client: OverkizClient, host: str, verify_ssl: bool
-    ) -> str:
-        """Create local API token."""
-        # Create session on Somfy cloud server to generate an access token for local API
-        gateways = await cloud_client.get_gateways()
-
-        gateway_id = ""
-        for gateway in gateways:
-            # Overkiz can return multiple gateways, but we only can generate a token
-            # for the main gateway.
-            if is_overkiz_gateway(gateway.id):
-                gateway_id = gateway.id
-
-        developer_mode = await cloud_client.get_setup_option(
-            f"developerMode-{gateway_id}"
-        )
-
-        if developer_mode is None:
-            raise DeveloperModeDisabled
-
-        token = await cloud_client.generate_local_token(gateway_id)
-        await cloud_client.activate_local_token(
-            gateway_id=gateway_id, token=token, label="Home Assistant/local"
-        )
-
-        session = async_create_clientsession(self.hass, verify_ssl=verify_ssl)
-
-        # Local API
-        local_client = OverkizClient(
-            username="",
-            password="",
-            token=token,
-            session=session,
-            server=generate_local_server(host=host),
-            verify_ssl=verify_ssl,
-        )
-
-        await local_client.login()
-
-        return token
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of the integration."""
+        entry = self._get_reconfigure_entry()
+        self._init_flow_from_entry(entry.data, cast(str, entry.unique_id))
+        return await self.async_step_user(dict(entry.data))

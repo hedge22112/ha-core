@@ -2,8 +2,8 @@
 # name: test_sensors[sensor.twente_milieu_christmas_tree_pickup]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'date',
-      'friendly_name': 'Twente Milieu Christmas tree pickup',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'date',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Twente Milieu Christmas tree pickup',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.twente_milieu_christmas_tree_pickup',
@@ -15,11 +15,13 @@
 # ---
 # name: test_sensors[sensor.twente_milieu_christmas_tree_pickup].1
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -33,6 +35,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Christmas tree pickup',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.DATE: 'date'>,
@@ -40,16 +43,18 @@
     'original_name': 'Christmas tree pickup',
     'platform': 'twentemilieu',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'christmas_tree_pickup',
-    'unique_id': 'twentemilieu_12345_tree',
+    'unique_id': '12345_tree',
     'unit_of_measurement': None,
   })
 # ---
 # name: test_sensors[sensor.twente_milieu_christmas_tree_pickup].2
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'https://www.twentemilieu.nl',
     'connections': set({
     }),
@@ -63,7 +68,6 @@
         '12345',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Twente Milieu',
@@ -71,9 +75,7 @@
     'model_id': None,
     'name': 'Twente Milieu',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -81,8 +83,8 @@
 # name: test_sensors[sensor.twente_milieu_non_recyclable_waste_pickup]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'date',
-      'friendly_name': 'Twente Milieu Non-recyclable waste pickup',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'date',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Twente Milieu Non-recyclable waste pickup',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.twente_milieu_non_recyclable_waste_pickup',
@@ -94,11 +96,13 @@
 # ---
 # name: test_sensors[sensor.twente_milieu_non_recyclable_waste_pickup].1
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -112,6 +116,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Non-recyclable waste pickup',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.DATE: 'date'>,
@@ -119,16 +124,18 @@
     'original_name': 'Non-recyclable waste pickup',
     'platform': 'twentemilieu',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'non_recyclable_waste_pickup',
-    'unique_id': 'twentemilieu_12345_Non-recyclable',
+    'unique_id': '12345_non_recyclable',
     'unit_of_measurement': None,
   })
 # ---
 # name: test_sensors[sensor.twente_milieu_non_recyclable_waste_pickup].2
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'https://www.twentemilieu.nl',
     'connections': set({
     }),
@@ -142,7 +149,6 @@
         '12345',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Twente Milieu',
@@ -150,9 +156,7 @@
     'model_id': None,
     'name': 'Twente Milieu',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -160,8 +164,8 @@
 # name: test_sensors[sensor.twente_milieu_organic_waste_pickup]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'date',
-      'friendly_name': 'Twente Milieu Organic waste pickup',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'date',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Twente Milieu Organic waste pickup',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.twente_milieu_organic_waste_pickup',
@@ -173,11 +177,13 @@
 # ---
 # name: test_sensors[sensor.twente_milieu_organic_waste_pickup].1
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -191,6 +197,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Organic waste pickup',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.DATE: 'date'>,
@@ -198,16 +205,18 @@
     'original_name': 'Organic waste pickup',
     'platform': 'twentemilieu',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'organic_waste_pickup',
-    'unique_id': 'twentemilieu_12345_Organic',
+    'unique_id': '12345_organic',
     'unit_of_measurement': None,
   })
 # ---
 # name: test_sensors[sensor.twente_milieu_organic_waste_pickup].2
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'https://www.twentemilieu.nl',
     'connections': set({
     }),
@@ -221,7 +230,6 @@
         '12345',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Twente Milieu',
@@ -229,9 +237,7 @@
     'model_id': None,
     'name': 'Twente Milieu',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -239,8 +245,8 @@
 # name: test_sensors[sensor.twente_milieu_packages_waste_pickup]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'date',
-      'friendly_name': 'Twente Milieu Packages waste pickup',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'date',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Twente Milieu Packages waste pickup',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.twente_milieu_packages_waste_pickup',
@@ -252,11 +258,13 @@
 # ---
 # name: test_sensors[sensor.twente_milieu_packages_waste_pickup].1
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -270,6 +278,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Packages waste pickup',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.DATE: 'date'>,
@@ -277,16 +286,18 @@
     'original_name': 'Packages waste pickup',
     'platform': 'twentemilieu',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'packages_waste_pickup',
-    'unique_id': 'twentemilieu_12345_Plastic',
+    'unique_id': '12345_packages',
     'unit_of_measurement': None,
   })
 # ---
 # name: test_sensors[sensor.twente_milieu_packages_waste_pickup].2
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'https://www.twentemilieu.nl',
     'connections': set({
     }),
@@ -300,7 +311,6 @@
         '12345',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Twente Milieu',
@@ -308,9 +318,7 @@
     'model_id': None,
     'name': 'Twente Milieu',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })
@@ -318,8 +326,8 @@
 # name: test_sensors[sensor.twente_milieu_paper_waste_pickup]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'device_class': 'date',
-      'friendly_name': 'Twente Milieu Paper waste pickup',
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'date',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Twente Milieu Paper waste pickup',
     }),
     'context': <ANY>,
     'entity_id': 'sensor.twente_milieu_paper_waste_pickup',
@@ -331,11 +339,13 @@
 # ---
 # name: test_sensors[sensor.twente_milieu_paper_waste_pickup].1
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -349,6 +359,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Paper waste pickup',
     'options': dict({
     }),
     'original_device_class': <SensorDeviceClass.DATE: 'date'>,
@@ -356,16 +367,18 @@
     'original_name': 'Paper waste pickup',
     'platform': 'twentemilieu',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'paper_waste_pickup',
-    'unique_id': 'twentemilieu_12345_Paper',
+    'unique_id': '12345_paper',
     'unit_of_measurement': None,
   })
 # ---
 # name: test_sensors[sensor.twente_milieu_paper_waste_pickup].2
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': 'https://www.twentemilieu.nl',
     'connections': set({
     }),
@@ -379,7 +392,6 @@
         '12345',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Twente Milieu',
@@ -387,9 +399,7 @@
     'model_id': None,
     'name': 'Twente Milieu',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': None,
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })

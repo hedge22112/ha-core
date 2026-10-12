@@ -1,25 +1,24 @@
 """Config flow for the Daikin platform."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
-from typing import Any
+from typing import Any, override
 from uuid import uuid4
 
 from aiohttp import ClientError, web_exceptions
+import probatio
 from pydaikin.daikin_base import Appliance
 from pydaikin.discovery import Discovery
 from pydaikin.exceptions import DaikinException
 from pydaikin.factory import DaikinFactory
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_PASSWORD, CONF_UUID
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
+from homeassistant.util.ssl import client_context_no_verify
 
-from .const import DOMAIN, KEY_MAC, TIMEOUT
+from .const import DOMAIN, KEY_MAC, TIMEOUT_SEC
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,13 +33,13 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
         self.host: str | None = None
 
     @property
-    def schema(self) -> vol.Schema:
+    def schema(self) -> probatio.Schema:
         """Return current schema."""
-        return vol.Schema(
+        return probatio.Schema(
             {
-                vol.Required(CONF_HOST, default=self.host): str,
-                vol.Optional(CONF_API_KEY): str,
-                vol.Optional(CONF_PASSWORD): str,
+                probatio.Required(CONF_HOST, default=self.host): str,
+                probatio.Optional(probatio.Secret(CONF_API_KEY)): str,
+                probatio.Optional(probatio.Secret(CONF_PASSWORD)): str,
             }
         )
 
@@ -83,15 +82,16 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
             password = None
 
         try:
-            async with asyncio.timeout(TIMEOUT):
+            async with asyncio.timeout(TIMEOUT_SEC):
                 device: Appliance = await DaikinFactory(
                     host,
                     async_get_clientsession(self.hass),
                     key=key,
                     uuid=uuid,
                     password=password,
+                    ssl_context=client_context_no_verify(),
                 )
-        except (TimeoutError, ClientError):
+        except TimeoutError, ClientError:
             self.host = None
             return self.async_show_form(
                 step_id="user",
@@ -104,12 +104,11 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
                 data_schema=self.schema,
                 errors={"base": "invalid_auth"},
             )
-        except DaikinException as daikin_exp:
-            _LOGGER.error(daikin_exp)
+        except DaikinException:
             return self.async_show_form(
                 step_id="user",
                 data_schema=self.schema,
-                errors={"base": "unknown"},
+                errors={"base": "cannot_connect"},
             )
         except Exception:
             _LOGGER.exception("Unexpected error creating device")
@@ -122,6 +121,7 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
         mac = device.mac
         return await self._create_entry(host, mac, key, uuid, password)
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -141,6 +141,7 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
             user_input.get(CONF_PASSWORD),
         )
 
+    @override
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:

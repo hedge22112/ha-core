@@ -1,8 +1,7 @@
 """Support for monitoring an SABnzbd NZB client."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,7 +11,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfDataRate, UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .coordinator import SabnzbdConfigEntry
@@ -115,7 +114,7 @@ SENSOR_TYPES: tuple[SabnzbdSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SabnzbdConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a Sabnzbd sensor entry."""
     coordinator = config_entry.runtime_data
@@ -129,6 +128,7 @@ class SabnzbdSensor(SabnzbdEntity, SensorEntity):
     entity_description: SabnzbdSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return latest sensor data."""
         return self.coordinator.data.get(self.entity_description.key)

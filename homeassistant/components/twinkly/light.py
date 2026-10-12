@@ -1,9 +1,7 @@
 """The Twinkly light component."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -15,10 +13,10 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import TwinklyConfigEntry, TwinklyCoordinator
 from .const import DEV_LED_PROFILE, DEV_PROFILE_RGB, DEV_PROFILE_RGBW
+from .coordinator import TwinklyConfigEntry, TwinklyCoordinator
 from .entity import TwinklyEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,7 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: TwinklyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Setups an entity from a config entry (UI config flow)."""
     entity = TwinklyLight(config_entry.runtime_data)
@@ -64,6 +62,7 @@ class TwinklyLight(TwinklyEntity, LightEntity):
         self._update_attr()
 
     @property
+    @override
     def effect(self) -> str | None:
         """Return the current effect."""
         if (current_movie_id := self.coordinator.data.current_movie) is not None:
@@ -73,6 +72,7 @@ class TwinklyLight(TwinklyEntity, LightEntity):
         return None
 
     @property
+    @override
     def effect_list(self) -> list[str]:
         """Return the list of saved effects."""
         return [
@@ -80,6 +80,7 @@ class TwinklyLight(TwinklyEntity, LightEntity):
             for identifier, name in self.coordinator.data.movies.items()
         ]
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn device on."""
         if ATTR_BRIGHTNESS in kwargs:
@@ -99,9 +100,9 @@ class TwinklyLight(TwinklyEntity, LightEntity):
         ):
             await self.client.interview()
             if LightEntityFeature.EFFECT & self.supported_features:
-                # Static color only supports rgb
                 await self.client.set_static_colour(
                     (
+                        kwargs[ATTR_RGBW_COLOR][3],
                         kwargs[ATTR_RGBW_COLOR][0],
                         kwargs[ATTR_RGBW_COLOR][1],
                         kwargs[ATTR_RGBW_COLOR][2],
@@ -152,6 +153,7 @@ class TwinklyLight(TwinklyEntity, LightEntity):
             await self.client.turn_on()
         await self.coordinator.async_refresh()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn device off."""
         await self.client.turn_off()
@@ -162,6 +164,7 @@ class TwinklyLight(TwinklyEntity, LightEntity):
         self._attr_is_on = self.coordinator.data.is_on
         self._attr_brightness = self.coordinator.data.brightness
 
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._update_attr()

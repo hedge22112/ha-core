@@ -6,8 +6,18 @@ from unittest.mock import patch
 import pytest
 
 from homeassistant import config as hass_config
-from homeassistant.components.filter.sensor import (
+from homeassistant.components.filter.const import (
+    CONF_FILTER_NAME,
+    CONF_FILTER_PRECISION,
+    CONF_FILTER_WINDOW_SIZE,
+    CONF_TIME_SMA_TYPE,
+    DEFAULT_NAME,
+    DEFAULT_PRECISION,
     DOMAIN,
+    FILTER_NAME_TIME_SMA,
+    TIME_SMA_LAST,
+)
+from homeassistant.components.filter.sensor import (
     LowPassFilter,
     OutlierFilter,
     RangeFilter,
@@ -24,6 +34,8 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
+    CONF_ENTITY_ID,
+    CONF_NAME,
     SERVICE_RELOAD,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -32,14 +44,9 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
-from tests.common import assert_setup_component, get_fixture_path
-
-
-@pytest.fixture(autouse=True, name="stub_blueprint_populate")
-def stub_blueprint_populate_autouse(stub_blueprint_populate: None) -> None:
-    """Stub copying the blueprints to the config folder."""
+from tests.common import MockConfigEntry, assert_setup_component, get_fixture_path
 
 
 @pytest.fixture(name="values")
@@ -95,6 +102,41 @@ async def test_chain(
 
         state = hass.states.get("sensor.test")
         assert state.state == "18.05"
+
+
+async def test_from_config_entry(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+    loaded_entry: MockConfigEntry,
+) -> None:
+    """Test if filter works loaded from config entry."""
+
+    state = hass.states.get("sensor.filtered_sensor")
+    assert state.state == "22.0"
+
+
+@pytest.mark.parametrize(
+    "get_config",
+    [
+        {
+            CONF_NAME: DEFAULT_NAME,
+            CONF_ENTITY_ID: "sensor.test_monitored",
+            CONF_FILTER_NAME: FILTER_NAME_TIME_SMA,
+            CONF_TIME_SMA_TYPE: TIME_SMA_LAST,
+            CONF_FILTER_WINDOW_SIZE: {"hours": 40, "minutes": 5, "seconds": 5},
+            CONF_FILTER_PRECISION: DEFAULT_PRECISION,
+        }
+    ],
+)
+async def test_from_config_entry_duration(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+    loaded_entry: MockConfigEntry,
+) -> None:
+    """Test if filter works loaded from config entry with duration."""
+
+    state = hass.states.get("sensor.filtered_sensor")
+    assert state.state == "20.0"
 
 
 @pytest.mark.parametrize("missing", [True, False])
@@ -163,31 +205,38 @@ async def test_chain_history(
 async def test_source_state_none(recorder_mock: Recorder, hass: HomeAssistant) -> None:
     """Test is source sensor state is null and sets state to STATE_UNKNOWN."""
 
-    config = {
-        "sensor": [
-            {
-                "platform": "template",
-                "sensors": {
-                    "template_test": {
-                        "value_template": "{{ states.sensor.test_state.state }}"
-                    }
+    await async_setup_component(
+        hass,
+        "sensor",
+        {
+            "sensor": [
+                {
+                    "platform": "filter",
+                    "name": "test",
+                    "entity_id": "sensor.template_test",
+                    "filters": [
+                        {
+                            "filter": "time_simple_moving_average",
+                            "window_size": "00:01",
+                            "precision": "2",
+                        }
+                    ],
                 },
-            },
-            {
-                "platform": "filter",
-                "name": "test",
-                "entity_id": "sensor.template_test",
-                "filters": [
-                    {
-                        "filter": "time_simple_moving_average",
-                        "window_size": "00:01",
-                        "precision": "2",
-                    }
-                ],
-            },
-        ]
-    }
-    await async_setup_component(hass, "sensor", config)
+            ],
+        },
+    )
+    await async_setup_component(
+        hass,
+        "template",
+        {
+            "template": {
+                "sensor": {
+                    "name": "template_test",
+                    "state": "{{ states.sensor.test_state.state }}",
+                }
+            }
+        },
+    )
     await hass.async_block_till_done()
 
     hass.states.async_set("sensor.test_state", 0)
@@ -496,6 +545,30 @@ def test_time_sma(values: list[State]) -> None:
     for state in values:
         filtered = filt.filter_state(state)
     assert filtered.state == 21.5
+
+
+def test_time_sma_window() -> None:
+    """Test the time SMA as samples leave the window one by one, then all at once."""
+    filt = TimeSMAFilter(
+        window_size=timedelta(minutes=2), precision=2, entity=None, type="last"
+    )
+    start = dt_util.utcnow()
+    samples = [(0, 10), (60, 20), (120, 30), (180, 40), (240, 50), (600, 60), (630, 70)]
+
+    filtered = [
+        filt.filter_state(
+            State(
+                "sensor.test_monitored",
+                str(value),
+                last_updated=start + timedelta(seconds=offset),
+            )
+        ).state
+        for offset, value in samples
+    ]
+
+    # a value counts from its own timestamp until the next sample, and the value
+    # that left the window last covers the stretch before the oldest sample in it
+    assert filtered == [10, 10, 15, 25, 35, 50, 52.5]
 
 
 async def test_reload(recorder_mock: Recorder, hass: HomeAssistant) -> None:

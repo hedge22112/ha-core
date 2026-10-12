@@ -1,13 +1,10 @@
 """Library for extracting device specific information common to entities."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 
 from google_nest_sdm.device import Device
 from google_nest_sdm.device_traits import ConnectivityTrait, InfoTrait
 
-from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -80,24 +77,14 @@ class NestDeviceInfo:
 
 
 @callback
-def async_nest_devices(hass: HomeAssistant) -> Mapping[str, Device]:
-    """Return a mapping of all nest devices for all config entries."""
-    return {
-        device.name: device
-        for config_entry in hass.config_entries.async_entries(DOMAIN)
-        if config_entry.state == ConfigEntryState.LOADED
-        for device in config_entry.runtime_data.device_manager.devices.values()
-    }
-
-
-@callback
 def async_nest_devices_by_device_id(hass: HomeAssistant) -> Mapping[str, Device]:
-    """Return a mapping of all nest devices by home assistant device id, for all config entries."""
+    """Return a mapping of all nest devices by HA device id."""
     device_registry = dr.async_get(hass)
     devices = {}
-    for nest_device_id, device in async_nest_devices(hass).items():
-        if device_entry := device_registry.async_get_device(
-            identifiers={(DOMAIN, nest_device_id)}
-        ):
-            devices[device_entry.id] = device
+    for config_entry in hass.config_entries.async_loaded_entries(DOMAIN):
+        for device in config_entry.runtime_data.device_manager.devices.values():
+            if device_entry := device_registry.async_get_device_by_identifier(
+                (DOMAIN, device.name), config_entry.entry_id
+            ):
+                devices[device_entry.id] = device
     return devices

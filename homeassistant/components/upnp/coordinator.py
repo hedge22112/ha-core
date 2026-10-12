@@ -3,9 +3,11 @@
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import override
 
 from async_upnp_client.exceptions import UpnpCommunicationError
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -13,15 +15,20 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import LOGGER
 from .device import Device
 
+type UpnpConfigEntry = ConfigEntry[UpnpDataUpdateCoordinator]
+
 
 class UpnpDataUpdateCoordinator(
     DataUpdateCoordinator[dict[str, str | datetime | int | float | None]]
 ):
     """Define an object to update data from UPNP device."""
 
+    config_entry: UpnpConfigEntry
+
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: UpnpConfigEntry,
         device: Device,
         device_entry: DeviceEntry,
         update_interval: timedelta,
@@ -34,6 +41,7 @@ class UpnpDataUpdateCoordinator(
         super().__init__(
             hass,
             LOGGER,
+            config_entry=config_entry,
             name=device.name,
             update_interval=update_interval,
         )
@@ -60,6 +68,7 @@ class UpnpDataUpdateCoordinator(
 
         return list(self._features_by_entity_id)
 
+    @override
     async def _async_update_data(
         self,
     ) -> dict[str, str | datetime | int | float | None]:

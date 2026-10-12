@@ -1,6 +1,7 @@
 """Config flow for Mullvad VPN integration."""
 
-from typing import Any
+import logging
+from typing import Any, override
 
 from mullvad_api import MullvadAPI, MullvadAPIError
 
@@ -8,12 +9,15 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import DOMAIN
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class MullvadConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Mullvad VPN."""
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -24,7 +28,8 @@ class MullvadConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.hass.async_add_executor_job(MullvadAPI)
             except MullvadAPIError:
                 errors["base"] = "cannot_connect"
-            except Exception:  # noqa: BLE001
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
                 return self.async_create_entry(title="Mullvad VPN", data=user_input)

@@ -1,15 +1,13 @@
 """Config flow for Local Calendar integration."""
 
-from __future__ import annotations
-
 import logging
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, override
 
 from ical.calendar_stream import CalendarStream
 from ical.exceptions import CalendarParseError
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.file_upload import process_uploaded_file
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
@@ -31,10 +29,12 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
+STEP_USER_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_CALENDAR_NAME): str,
-        vol.Optional(CONF_IMPORT, default=ATTR_CREATE_EMPTY): selector.SelectSelector(
+        probatio.Required(CONF_CALENDAR_NAME): str,
+        probatio.Optional(
+            CONF_IMPORT, default=ATTR_CREATE_EMPTY
+        ): selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
                     ATTR_CREATE_EMPTY,
@@ -46,9 +46,9 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
-STEP_IMPORT_DATA_SCHEMA = vol.Schema(
+STEP_IMPORT_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_ICS_FILE): selector.FileSelector(
+        probatio.Required(CONF_ICS_FILE): selector.FileSelector(
             config=selector.FileSelectorConfig(accept=".ics")
         ),
     }
@@ -64,6 +64,7 @@ class LocalCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self.data: dict[str, Any] = {}
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -97,8 +98,7 @@ class LocalCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
                     user_input[CONF_ICS_FILE],
                     self.data[CONF_STORAGE_KEY],
                 )
-            except HomeAssistantError as err:
-                _LOGGER.debug("Error saving uploaded file: %s", err)
+            except InvalidIcsFile:
                 errors[CONF_ICS_FILE] = "invalid_ics_file"
             else:
                 return self.async_create_entry(
@@ -112,6 +112,10 @@ class LocalCalendarConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+class InvalidIcsFile(HomeAssistantError):
+    """Error to indicate that the uploaded file is not a valid ICS file."""
+
+
 def save_uploaded_ics_file(
     hass: HomeAssistant, uploaded_file_id: str, storage_key: str
 ):
@@ -122,6 +126,10 @@ def save_uploaded_ics_file(
         try:
             CalendarStream.from_ics(ics)
         except CalendarParseError as err:
-            raise HomeAssistantError("Failed to upload file: Invalid ICS file") from err
+            _LOGGER.error("Error reading the calendar information: %s", err.message)
+            _LOGGER.debug(
+                "Additional calendar error detail: %s", str(err.detailed_error)
+            )
+            raise InvalidIcsFile("Failed to upload file: Invalid ICS file") from err
         dest_path = Path(hass.config.path(STORAGE_PATH.format(key=storage_key)))
         shutil.move(file, dest_path)

@@ -1,28 +1,29 @@
 """Support for Obihai Sensors."""
 
-from __future__ import annotations
-
 import datetime
+from typing import override
 
 from requests.exceptions import RequestException
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import ObihaiConfigEntry
 from .connectivity import ObihaiConnection
-from .const import DOMAIN, LOGGER, OBIHAI
+from .const import LOGGER, OBIHAI
 
 SCAN_INTERVAL = datetime.timedelta(seconds=5)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ObihaiConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Obihai sensor entries."""
 
-    requester: ObihaiConnection = hass.data[DOMAIN][entry.entry_id]
+    requester = entry.runtime_data
 
     sensors = [ObihaiServiceSensors(requester, key) for key in requester.services]
 
@@ -53,6 +54,7 @@ class ObihaiServiceSensors(SensorEntity):
             self._attr_device_class = SensorDeviceClass.TIMESTAMP
 
     @property
+    @override
     def icon(self) -> str:
         """Return an icon."""
 

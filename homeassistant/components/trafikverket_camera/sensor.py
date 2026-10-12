@@ -1,10 +1,9 @@
 """Sensor platform for Trafikverket Camera integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -13,7 +12,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import DEGREE
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from . import TVCameraConfigEntry
@@ -74,7 +73,7 @@ SENSOR_TYPES: tuple[TVCameraSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TVCameraConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Trafikverket Camera sensor platform."""
 
@@ -91,6 +90,7 @@ class TrafikverketCameraSensor(TrafikverketCameraNonCameraEntity, SensorEntity):
     entity_description: TVCameraSensorEntityDescription
 
     @callback
+    @override
     def _update_attr(self) -> None:
         """Update _attr."""
         self._attr_native_value = self.entity_description.value_fn(

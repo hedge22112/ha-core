@@ -1,10 +1,9 @@
 """Support for Axis binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import override
 
 from axis.interfaces.applications.fence_guard import FenceGuardHandler
 from axis.interfaces.applications.loitering_guard import LoiteringGuardHandler
@@ -18,7 +17,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 
 from . import AxisConfigEntry
@@ -178,7 +177,7 @@ ENTITY_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AxisConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a Axis binary sensor."""
     config_entry.runtime_data.entity_loader.register_platform(
@@ -201,6 +200,7 @@ class AxisBinarySensor(AxisEventEntity, BinarySensorEntity):
         self.cancel_scheduled_update: Callable[[], None] | None = None
 
     @callback
+    @override
     def async_event_callback(self, event: Event) -> None:
         """Update the sensor's state, if needed."""
         self._attr_is_on = event.is_tripped

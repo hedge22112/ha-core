@@ -1,12 +1,12 @@
 """Select for Yale Alarm."""
 
-from __future__ import annotations
+from typing import override
 
 from yalesmartalarmclient import YaleLock, YaleLockVolume
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import YaleConfigEntry
 from .coordinator import YaleDataUpdateCoordinator
@@ -16,7 +16,9 @@ VOLUME_OPTIONS = {value.name.lower(): str(value.value) for value in YaleLockVolu
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: YaleConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: YaleConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Yale select entry."""
 
@@ -41,6 +43,7 @@ class YaleLockVolumeSelect(YaleLockEntity, SelectEntity):
         self._attr_current_option = self.lock_data.volume().name.lower()
         self._attr_options = [volume.name.lower() for volume in YaleLockVolume]
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         convert_to_value = VOLUME_OPTIONS[option]
@@ -52,6 +55,7 @@ class YaleLockVolumeSelect(YaleLockEntity, SelectEntity):
             self.async_write_ha_state()
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._attr_current_option = self.lock_data.volume().name.lower()

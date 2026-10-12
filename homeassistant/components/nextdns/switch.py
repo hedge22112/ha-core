@@ -1,24 +1,23 @@
 """Support for the NextDNS service."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from aiohttp import ClientError
 from aiohttp.client_exceptions import ClientConnectorError
-from nextdns import ApiError, Settings
+from nextdns import ApiError, InvalidApiKeyError, Settings
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NextDnsConfigEntry
+from .const import DOMAIN
 from .coordinator import NextDnsUpdateCoordinator
+from .entity import NextDnsEntity
 
 PARALLEL_UPDATES = 1
 
@@ -54,6 +53,12 @@ SWITCHES = (
         translation_key="anonymized_ecs",
         entity_category=EntityCategory.CONFIG,
         state=lambda data: data.anonymized_ecs,
+    ),
+    NextDnsSwitchEntityDescription(
+        key="bav",
+        translation_key="bypass_age_verification",
+        entity_category=EntityCategory.CONFIG,
+        state=lambda data: data.bav,
     ),
     NextDnsSwitchEntityDescription(
         key="logs",
@@ -108,6 +113,36 @@ SWITCHES = (
         translation_key="block_parked_domains",
         entity_category=EntityCategory.CONFIG,
         state=lambda data: data.block_parked_domains,
+    ),
+    NextDnsSwitchEntityDescription(
+        key="block_data_drop_services",
+        translation_key="block_data_drop_services",
+        entity_category=EntityCategory.CONFIG,
+        state=lambda data: data.block_data_drop_services,
+    ),
+    NextDnsSwitchEntityDescription(
+        key="block_decentralized_web_gateways",
+        translation_key="block_decentralized_web_gateways",
+        entity_category=EntityCategory.CONFIG,
+        state=lambda data: data.block_decentralized_web_gateways,
+    ),
+    NextDnsSwitchEntityDescription(
+        key="block_free_hosting_domains",
+        translation_key="block_free_hosting_domains",
+        entity_category=EntityCategory.CONFIG,
+        state=lambda data: data.block_free_hosting_domains,
+    ),
+    NextDnsSwitchEntityDescription(
+        key="block_residential_hosting",
+        translation_key="block_residential_hosting",
+        entity_category=EntityCategory.CONFIG,
+        state=lambda data: data.block_residential_hosting,
+    ),
+    NextDnsSwitchEntityDescription(
+        key="block_tunneling_endpoints",
+        translation_key="block_tunneling_endpoints",
+        entity_category=EntityCategory.CONFIG,
+        state=lambda data: data.block_tunneling_endpoints,
     ),
     NextDnsSwitchEntityDescription(
         key="cryptojacking_protection",
@@ -262,7 +297,7 @@ SWITCHES = (
     ),
     NextDnsSwitchEntityDescription(
         key="block_hulu",
-        name="Block Hulu",
+        translation_key="block_hulu",
         entity_category=EntityCategory.CONFIG,
         entity_registry_enabled_default=False,
         state=lambda data: data.block_hulu,
@@ -525,22 +560,20 @@ SWITCHES = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NextDnsConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add NextDNS entities from a config_entry."""
-    coordinator = entry.runtime_data.settings
+    for subentry_id, profile_data in entry.runtime_data.profiles.items():
+        coordinator = profile_data.settings
+        async_add_entities(
+            (NextDnsSwitch(coordinator, description) for description in SWITCHES),
+            config_subentry_id=subentry_id,
+        )
 
-    async_add_entities(
-        NextDnsSwitch(coordinator, description) for description in SWITCHES
-    )
 
-
-class NextDnsSwitch(
-    CoordinatorEntity[NextDnsUpdateCoordinator[Settings]], SwitchEntity
-):
+class NextDnsSwitch(NextDnsEntity, SwitchEntity):
     """Define an NextDNS switch."""
 
-    _attr_has_entity_name = True
     entity_description: NextDnsSwitchEntityDescription
 
     def __init__(
@@ -549,22 +582,22 @@ class NextDnsSwitch(
         description: NextDnsSwitchEntityDescription,
     ) -> None:
         """Initialize."""
-        super().__init__(coordinator)
-        self._attr_device_info = coordinator.device_info
-        self._attr_unique_id = f"{coordinator.profile_id}_{description.key}"
+        super().__init__(coordinator, description)
         self._attr_is_on = description.state(coordinator.data)
-        self.entity_description = description
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._attr_is_on = self.entity_description.state(self.coordinator.data)
         self.async_write_ha_state()
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on switch."""
         await self.async_set_setting(True)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off switch."""
         await self.async_set_setting(False)
@@ -582,10 +615,29 @@ class NextDnsSwitch(
             ClientError,
         ) as err:
             raise HomeAssistantError(
-                "NextDNS API returned an error calling set_setting for"
-                f" {self.entity_id}: {err}"
+                translation_domain=DOMAIN,
+                translation_key="method_error",
+                translation_placeholders={
+                    "entity": self.entity_id,
+                    "error": repr(err),
+                },
+            ) from err
+        except InvalidApiKeyError as err:
+            self.coordinator.config_entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="auth_error",
+                translation_placeholders={
+                    "entry": self.coordinator.config_entry.title,
+                },
             ) from err
 
-        if result:
-            self._attr_is_on = new_state
-            self.async_write_ha_state()
+        if not result:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="set_setting_error",
+                translation_placeholders={"entity": self.entity_id},
+            )
+
+        self._attr_is_on = new_state
+        self.async_write_ha_state()

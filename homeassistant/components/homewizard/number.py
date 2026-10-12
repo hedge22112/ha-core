@@ -1,14 +1,13 @@
 """Creates HomeWizard Number entities."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import HomeWizardConfigEntry
-from .coordinator import HWEnergyDeviceUpdateCoordinator
+from .coordinator import HomeWizardConfigEntry, HWEnergyDeviceUpdateCoordinator
 from .entity import HomeWizardEntity
 from .helpers import homewizard_exception_handler
 
@@ -18,10 +17,10 @@ PARALLEL_UPDATES = 1
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: HomeWizardConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up numbers for device."""
-    if entry.runtime_data.data.device.supports_state():
+    if entry.runtime_data.data.device.supports_led_brightness():
         async_add_entities([HWEnergyNumberEntity(entry.runtime_data)])
 
 
@@ -43,17 +42,20 @@ class HWEnergyNumberEntity(HomeWizardEntity, NumberEntity):
         )
 
     @homewizard_exception_handler
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set a new value."""
         await self.coordinator.api.system(status_led_brightness_pct=int(value))
         await self.coordinator.async_refresh()
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available."""
         return super().available and self.coordinator.data.system is not None
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the current value."""
         if (

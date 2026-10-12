@@ -1,4 +1,7 @@
-"""Constants for the Generic Thermostat helper."""
+"""Constants for the Generic Thermostat helper.
+
+DEVELOPMENT OF THE GENERIC THERMOSTAT INTEGRATION IS FROZEN.
+"""
 
 from homeassistant.components.climate import (
     PRESET_ACTIVITY,
@@ -20,6 +23,8 @@ CONF_HEATER = "heater"
 CONF_HOT_TOLERANCE = "hot_tolerance"
 CONF_MAX_TEMP = "max_temp"
 CONF_MIN_DUR = "min_cycle_duration"
+CONF_MAX_DUR = "max_cycle_duration"
+CONF_DUR_COOLDOWN = "cycle_cooldown"
 CONF_MIN_TEMP = "min_temp"
 CONF_PRESETS = {
     p: f"{p}_temp"
@@ -33,4 +38,5 @@ CONF_PRESETS = {
     )
 }
 CONF_SENSOR = "target_sensor"
+CONF_KEEP_ALIVE = "keep_alive"
 DEFAULT_TOLERANCE = 0.3

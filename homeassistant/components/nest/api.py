@@ -1,10 +1,8 @@
 """API for Google Nest Device Access bound to Home Assistant OAuth."""
 
-from __future__ import annotations
-
 import datetime
 import logging
-from typing import cast
+from typing import cast, override
 
 from aiohttp import ClientSession
 from google.oauth2.credentials import Credentials
@@ -29,7 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class AsyncConfigEntryAuth(AbstractAuth):
-    """Provide Google Nest Device Access authentication tied to an OAuth2 based config entry."""
+    """Provide Google Nest Device Access auth tied to an OAuth2 config entry."""
 
     def __init__(
         self,
@@ -44,19 +42,22 @@ class AsyncConfigEntryAuth(AbstractAuth):
         self._client_id = client_id
         self._client_secret = client_secret
 
+    @override
     async def async_get_access_token(self) -> str:
         """Return a valid access token for SDM API."""
         await self._oauth_session.async_ensure_token_valid()
         return cast(str, self._oauth_session.token["access_token"])
 
+    @override
     async def async_get_creds(self) -> Credentials:
-        """Return an OAuth credential for Pub/Sub Subscriber."""
-        # We don't have a way for Home Assistant to refresh creds on behalf
-        # of the google pub/sub subscriber. Instead, build a full
-        # Credentials object with enough information for the subscriber to
-        # handle this on its own. We purposely don't refresh the token here
-        # even when it is expired to fully hand off this responsibility and
-        # know it is working at startup (then if not, fail loudly).
+        """Return an OAuth credential for Pub/Sub Subscriber.
+
+        The subscriber will call this when connecting to the stream to refresh
+        the token. We construct a credentials object using the underlying
+        OAuth2Session since the subscriber may expect the expiry fields to
+        be present.
+        """
+        await self.async_get_access_token()
         token = self._oauth_session.token
         creds = Credentials(  # type: ignore[no-untyped-call]
             token=token["access_token"],
@@ -88,10 +89,12 @@ class AccessTokenAuthImpl(AbstractAuth):
         super().__init__(websession, host)
         self._access_token = access_token
 
+    @override
     async def async_get_access_token(self) -> str:
         """Return the access token."""
         return self._access_token
 
+    @override
     async def async_get_creds(self) -> Credentials:
         """Return an OAuth credential for Pub/Sub Subscriber."""
         return Credentials(  # type: ignore[no-untyped-call]
@@ -101,9 +104,7 @@ class AccessTokenAuthImpl(AbstractAuth):
         )
 
 
-async def new_subscriber(
-    hass: HomeAssistant, entry: NestConfigEntry
-) -> GoogleNestSubscriber | None:
+async def new_auth(hass: HomeAssistant, entry: NestConfigEntry) -> AbstractAuth:
     """Create a GoogleNestSubscriber."""
     implementation = (
         await config_entry_oauth2_flow.async_get_config_entry_implementation(
@@ -114,14 +115,22 @@ async def new_subscriber(
         implementation, config_entry_oauth2_flow.LocalOAuth2Implementation
     ):
         raise TypeError(f"Unexpected auth implementation {implementation}")
-    if (subscription_name := entry.data.get(CONF_SUBSCRIPTION_NAME)) is None:
-        subscription_name = entry.data[CONF_SUBSCRIBER_ID]
-    auth = AsyncConfigEntryAuth(
+    return AsyncConfigEntryAuth(
         aiohttp_client.async_get_clientsession(hass),
         config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation),
         implementation.client_id,
         implementation.client_secret,
     )
+
+
+async def new_subscriber(
+    hass: HomeAssistant,
+    entry: NestConfigEntry,
+    auth: AbstractAuth,
+) -> GoogleNestSubscriber:
+    """Create a GoogleNestSubscriber."""
+    if (subscription_name := entry.data.get(CONF_SUBSCRIPTION_NAME)) is None:
+        subscription_name = entry.data[CONF_SUBSCRIBER_ID]
     return GoogleNestSubscriber(auth, entry.data[CONF_PROJECT_ID], subscription_name)
 
 

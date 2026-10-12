@@ -1,14 +1,14 @@
 """Config flow for foscam integration."""
 
-from typing import Any
+from typing import Any, override
 
-from libpyfoscam import FoscamCamera
-from libpyfoscam.foscam import (
+from libpyfoscamcgi import FoscamCamera
+from libpyfoscamcgi.foscamcgi import (
     ERROR_FOSCAM_AUTH,
     ERROR_FOSCAM_UNAVAILABLE,
     FOSCAM_SUCCESS,
 )
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import (
@@ -26,17 +26,17 @@ from .const import CONF_RTSP_PORT, CONF_STREAM, DOMAIN, LOGGER
 STREAMS = ["Main", "Sub"]
 
 DEFAULT_PORT = 88
-DEFAULT_RTSP_PORT = 554
+DEFAULT_RTSP_PORT = 88
 
 
-DATA_SCHEMA = vol.Schema(
+DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_HOST): str,
-        vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_STREAM, default=STREAMS[0]): vol.In(STREAMS),
-        vol.Required(CONF_RTSP_PORT, default=DEFAULT_RTSP_PORT): int,
+        probatio.Required(CONF_HOST): str,
+        probatio.Required(CONF_PORT, default=DEFAULT_PORT): int,
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
+        probatio.Required(CONF_STREAM, default=STREAMS[0]): probatio.In(STREAMS),
+        probatio.Required(CONF_RTSP_PORT, default=DEFAULT_RTSP_PORT): int,
     }
 )
 
@@ -92,6 +92,7 @@ class FoscamConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(title=name, data=data)
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:

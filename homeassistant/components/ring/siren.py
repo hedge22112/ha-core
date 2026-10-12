@@ -3,7 +3,7 @@
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 import logging
-from typing import Any, Generic, cast
+from typing import Any, Generic, cast, override
 
 from ring_doorbell import (
     RingCapability,
@@ -22,7 +22,7 @@ from homeassistant.components.siren import (
 )
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import RingConfigEntry
 from .coordinator import RingDataCoordinator
@@ -36,10 +36,16 @@ from .entity import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Coordinator is used to centralize the data updates
+# Actions restricted to 1 at a time
+PARALLEL_UPDATES = 1
+
 
 @dataclass(frozen=True, kw_only=True)
 class RingSirenEntityDescription(
-    SirenEntityDescription, RingEntityDescription, Generic[RingDeviceT]
+    SirenEntityDescription,
+    RingEntityDescription,
+    Generic[RingDeviceT],  # noqa: UP046
 ):
     """Describes a Ring siren entity."""
 
@@ -81,7 +87,7 @@ SIRENS: tuple[RingSirenEntityDescription[Any], ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RingConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Create the sirens for the Ring devices."""
     ring_data = entry.runtime_data
@@ -139,16 +145,19 @@ class RingSiren(RingEntity[RingDeviceT], SirenEntity):
             self.async_write_ha_state()
 
     @refresh_after
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the siren."""
         await self._async_set_siren(True, **kwargs)
 
     @refresh_after
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the siren."""
         await self._async_set_siren(False)
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Call update method."""
         if not self.entity_description.is_on_fn:

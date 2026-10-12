@@ -1,19 +1,17 @@
 """Config flow for Roku."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 from urllib.parse import urlparse
 
+import probatio
 from rokuecp import Roku, RokuError
-import voluptuous as vol
 
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
@@ -25,10 +23,10 @@ from homeassistant.helpers.service_info.ssdp import (
 )
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
-from . import RokuConfigEntry
 from .const import CONF_PLAY_MEDIA_APP_ID, DEFAULT_PLAY_MEDIA_APP_ID, DOMAIN
+from .coordinator import RokuConfigEntry
 
-DATA_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str})
+DATA_SCHEMA = probatio.Schema({probatio.Required(CONF_HOST): str})
 
 ERROR_CANNOT_CONNECT = "cannot_connect"
 ERROR_UNKNOWN = "unknown"
@@ -89,6 +87,7 @@ class RokuConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle reconfiguration of the integration."""
         return await self.async_step_user(user_input)
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -121,6 +120,7 @@ class RokuConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(title=info["title"], data=user_input)
 
+    @override
     async def async_step_homekit(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -151,6 +151,7 @@ class RokuConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_discovery_confirm()
 
+    @override
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
@@ -195,6 +196,7 @@ class RokuConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: RokuConfigEntry,
     ) -> RokuOptionsFlowHandler:
@@ -202,7 +204,7 @@ class RokuConfigFlow(ConfigFlow, domain=DOMAIN):
         return RokuOptionsFlowHandler()
 
 
-class RokuOptionsFlowHandler(OptionsFlow):
+class RokuOptionsFlowHandler(OptionsFlowWithReload):
     """Handle Roku options."""
 
     async def async_step_init(
@@ -214,9 +216,9 @@ class RokuOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_PLAY_MEDIA_APP_ID,
                         default=self.config_entry.options.get(
                             CONF_PLAY_MEDIA_APP_ID, DEFAULT_PLAY_MEDIA_APP_ID

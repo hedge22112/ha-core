@@ -1,6 +1,6 @@
 """Fully Kiosk Browser sensor."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import FullyKioskConfigEntry
 from .coordinator import FullyKioskDataUpdateCoordinator
@@ -38,7 +38,7 @@ SENSORS: tuple[BinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: FullyKioskConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Fully Kiosk Browser sensor."""
     coordinator = config_entry.runtime_data
@@ -64,6 +64,7 @@ class FullyBinarySensor(FullyKioskEntity, BinarySensorEntity):
         self._attr_unique_id = f"{coordinator.data['deviceID']}-{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return if the binary sensor is on."""
         if (value := self.coordinator.data.get(self.entity_description.key)) is None:

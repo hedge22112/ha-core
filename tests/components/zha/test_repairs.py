@@ -9,7 +9,7 @@ import zigpy.backups
 from zigpy.exceptions import NetworkSettingsInconsistent
 
 from homeassistant.components.homeassistant_hardware.util import ApplicationType
-from homeassistant.components.homeassistant_sky_connect.const import (  # pylint: disable=hass-component-root-import
+from homeassistant.components.homeassistant_sky_connect.const import (  # pylint: disable=home-assistant-component-root-import
     DOMAIN as SKYCONNECT_DOMAIN,
 )
 from homeassistant.components.repairs import DOMAIN as REPAIRS_DOMAIN
@@ -18,7 +18,6 @@ from homeassistant.components.zha.repairs.network_settings_inconsistent import (
     ISSUE_INCONSISTENT_NETWORK_SETTINGS,
 )
 from homeassistant.components.zha.repairs.wrong_silabs_firmware import (
-    DISABLE_MULTIPAN_URL,
     ISSUE_WRONG_SILABS_FIRMWARE_INSTALLED,
     HardwareType,
     _detect_radio_hardware,
@@ -33,23 +32,30 @@ from homeassistant.setup import async_setup_component
 from tests.common import MockConfigEntry
 from tests.typing import ClientSessionGenerator
 
-SKYCONNECT_DEVICE = "/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0_9e2adbd75b8beb119fe564a0f320645d-if00-port0"
-CONNECT_ZBT1_DEVICE = "/dev/serial/by-id/usb-Nabu_Casa_Home_Assistant_Connect_ZBT-1_9e2adbd75b8beb119fe564a0f320645d-if00-port0"
+SKYCONNECT_DEVICE = (
+    "/dev/serial/by-id/usb-Nabu_Casa_SkyConnect_v1.0"
+    "_9e2adbd75b8beb119fe564a0f320645d-if00-port0"
+)
+CONNECT_ZBT1_DEVICE = (
+    "/dev/serial/by-id/usb-Nabu_Casa_Home_Assistant_Connect_ZBT-1"
+    "_3c0ed67c628beb11b1cd64a0f320645d-if00-port0"
+)
 
 
-def test_detect_radio_hardware(hass: HomeAssistant) -> None:
+async def test_detect_radio_hardware(hass: HomeAssistant) -> None:
     """Test logic to detect radio hardware."""
     skyconnect_config_entry = MockConfigEntry(
         data={
             "device": SKYCONNECT_DEVICE,
             "vid": "10C4",
             "pid": "EA60",
-            "serial_number": "3c0ed67c628beb11b1cd64a0f320645d",
+            "serial_number": "9e2adbd75b8beb119fe564a0f320645d",
             "manufacturer": "Nabu Casa",
             "product": "SkyConnect v1.0",
             "firmware": "ezsp",
         },
-        version=2,
+        version=1,
+        minor_version=4,
         domain=SKYCONNECT_DOMAIN,
         options={},
         title="Home Assistant SkyConnect",
@@ -66,12 +72,16 @@ def test_detect_radio_hardware(hass: HomeAssistant) -> None:
             "product": "Home Assistant Connect ZBT-1",
             "firmware": "ezsp",
         },
-        version=2,
+        version=1,
+        minor_version=4,
         domain=SKYCONNECT_DOMAIN,
         options={},
         title="Home Assistant Connect ZBT-1",
     )
     connect_zbt1_config_entry.add_to_hass(hass)
+
+    await async_setup_component(hass, SKYCONNECT_DOMAIN, {})
+    await hass.async_block_till_done()
 
     assert _detect_radio_hardware(hass, CONNECT_ZBT1_DEVICE) == HardwareType.SKYCONNECT
     assert _detect_radio_hardware(hass, SKYCONNECT_DEVICE) == HardwareType.SKYCONNECT
@@ -108,17 +118,12 @@ def test_detect_radio_hardware_failure(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.parametrize(
-    ("detected_hardware", "expected_learn_more_url"),
-    [
-        (HardwareType.SKYCONNECT, DISABLE_MULTIPAN_URL[HardwareType.SKYCONNECT]),
-        (HardwareType.YELLOW, DISABLE_MULTIPAN_URL[HardwareType.YELLOW]),
-        (HardwareType.OTHER, None),
-    ],
+    ("detected_hardware"),
+    [HardwareType.SKYCONNECT, HardwareType.YELLOW, HardwareType.OTHER],
 )
 async def test_multipan_firmware_repair(
     hass: HomeAssistant,
     detected_hardware: HardwareType,
-    expected_learn_more_url: str,
     config_entry: MockConfigEntry,
     mock_zigpy_connect: ControllerApplication,
     issue_registry: ir.IssueRegistry,
@@ -157,7 +162,6 @@ async def test_multipan_firmware_repair(
     # The issue is created when we fail to probe
     assert issue is not None
     assert issue.translation_placeholders["firmware_type"] == "CPC"
-    assert issue.learn_more_url == expected_learn_more_url
 
     # If ZHA manages to start up normally after this, the issue will be deleted
     await hass.config_entries.async_setup(config_entry.entry_id)

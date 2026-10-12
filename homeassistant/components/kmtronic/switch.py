@@ -1,24 +1,26 @@
 """KMtronic Switch integration."""
 
-from typing import Any
+from typing import Any, override
 import urllib.parse
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_REVERSE, DATA_COORDINATOR, DATA_HUB, DOMAIN, MANUFACTURER
+from .const import CONF_REVERSE, DOMAIN, MANUFACTURER
+from .coordinator import KMTronicConfigEntry
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: KMTronicConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Config entry example."""
-    coordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
-    hub = hass.data[DOMAIN][entry.entry_id][DATA_HUB]
+    coordinator = entry.runtime_data
+    hub = coordinator.hub
     reverse = entry.options.get(CONF_REVERSE, False)
     await hub.async_get_relays()
 
@@ -54,12 +56,14 @@ class KMtronicSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_unique_id = f"{config_entry_id}_relay{relay.id}"
 
     @property
-    def is_on(self):
+    @override
+    def is_on(self) -> bool:
         """Return entity state."""
         if self._reverse:
             return not self._relay.is_energised
         return self._relay.is_energised
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         if self._reverse:
@@ -68,6 +72,7 @@ class KMtronicSwitch(CoordinatorEntity, SwitchEntity):
             await self._relay.energise()
         self.async_write_ha_state()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         if self._reverse:
@@ -76,6 +81,7 @@ class KMtronicSwitch(CoordinatorEntity, SwitchEntity):
             await self._relay.de_energise()
         self.async_write_ha_state()
 
+    @override
     async def async_toggle(self, **kwargs: Any) -> None:
         """Toggle the switch."""
         await self._relay.toggle()

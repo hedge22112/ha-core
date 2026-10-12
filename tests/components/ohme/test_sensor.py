@@ -5,7 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
 from ohme import ApiException
-from syrupy import SnapshotAssertion
+import pytest
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.const import STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
@@ -16,6 +17,7 @@ from . import setup_integration
 from tests.common import MockConfigEntry, async_fire_time_changed, snapshot_platform
 
 
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_sensors(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
@@ -39,15 +41,15 @@ async def test_sensors_unavailable(
     """Test that sensors show as unavailable after a coordinator failure."""
     await setup_integration(hass, mock_config_entry)
 
-    state = hass.states.get("sensor.ohme_home_pro_energy")
-    assert state.state == "1.0"
+    state = hass.states.get("sensor.ohme_home_pro_status")
+    assert state.state == "charging"
 
     mock_client.async_get_charge_session.side_effect = ApiException
     freezer.tick(timedelta(seconds=60))
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    state = hass.states.get("sensor.ohme_home_pro_energy")
+    state = hass.states.get("sensor.ohme_home_pro_status")
     assert state.state == STATE_UNAVAILABLE
 
     mock_client.async_get_charge_session.side_effect = None
@@ -55,5 +57,5 @@ async def test_sensors_unavailable(
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    state = hass.states.get("sensor.ohme_home_pro_energy")
-    assert state.state == "1.0"
+    state = hass.states.get("sensor.ohme_home_pro_status")
+    assert state.state == "charging"

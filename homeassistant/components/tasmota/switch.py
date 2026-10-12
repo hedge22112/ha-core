@@ -1,6 +1,6 @@
 """Support for Tasmota switches."""
 
-from typing import Any
+from typing import Any, override
 
 from hatasmota import relay as tasmota_relay
 from hatasmota.entity import TasmotaEntity as HATasmotaEntity
@@ -11,7 +11,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DATA_REMOVE_DISCOVER_COMPONENT
 from .discovery import TASMOTA_DISCOVERY_ENTITY_NEW
@@ -21,7 +21,7 @@ from .entity import TasmotaAvailability, TasmotaDiscoveryUpdate, TasmotaOnOffEnt
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Tasmota switch dynamically through discovery."""
 
@@ -57,10 +57,12 @@ class TasmotaSwitch(
 
     _tasmota_entity: tasmota_relay.TasmotaRelay
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the device on."""
         await self._tasmota_entity.set_state(True)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off."""
         await self._tasmota_entity.set_state(False)

@@ -1,6 +1,6 @@
 """Support for Fibaro event entities."""
 
-from __future__ import annotations
+from typing import override
 
 from pyfibaro.fibaro_device import DeviceModel, SceneEvent
 from pyfibaro.fibaro_state_resolver import FibaroEvent
@@ -12,7 +12,7 @@ from homeassistant.components.event import (
 )
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import FibaroConfigEntry
 from .entity import FibaroEntity
@@ -21,7 +21,7 @@ from .entity import FibaroEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FibaroConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Fibaro event entities."""
     controller = entry.runtime_data
@@ -55,16 +55,22 @@ class FibaroEventEntity(FibaroEntity, EventEntity):
         self._attr_event_types = scene_event.key_event_types
         self._attr_unique_id = f"{fibaro_device.unique_id_str}.{key_id}"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Call when entity is added to hass."""
         await super().async_added_to_hass()
 
         # Register event callback
-        self.controller.register_event(
-            self.fibaro_device.fibaro_id, self._event_callback
+        self.async_on_remove(
+            self.controller.register_event(
+                self.fibaro_device.fibaro_id, self._event_callback
+            )
         )
 
     def _event_callback(self, event: FibaroEvent) -> None:
-        if event.key_id == self._button:
+        if (
+            event.event_type.lower() == "centralsceneevent"
+            and event.key_id == self._button
+        ):
             self._trigger_event(event.key_event_type)
             self.schedule_update_ha_state()

@@ -1,16 +1,19 @@
 """Config flow for Nanoleaf integration."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
 import os
-from typing import Any, Final, cast
+from typing import Any, Final, cast, override
 
-from aionanoleaf import InvalidToken, Nanoleaf, Unauthorized, Unavailable
-import voluptuous as vol
+from aionanoleaf2 import InvalidToken, Nanoleaf, Unauthorized, Unavailable
+import probatio
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    SOURCE_USER,
+    ConfigFlow,
+    ConfigFlowResult,
+)
 from homeassistant.const import CONF_HOST, CONF_TOKEN
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.json import save_json
@@ -28,9 +31,9 @@ _LOGGER = logging.getLogger(__name__)
 # For discovery integration import
 CONFIG_FILE: Final = ".nanoleaf.conf"
 
-USER_SCHEMA: Final = vol.Schema(
+USER_SCHEMA: Final = probatio.Schema(
     {
-        vol.Required(CONF_HOST): str,
+        probatio.Required(CONF_HOST): str,
     }
 )
 
@@ -46,6 +49,7 @@ class NanoleafConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -89,6 +93,7 @@ class NanoleafConfigFlow(ConfigFlow, domain=DOMAIN):
         self.context["title_placeholders"] = {"name": self._get_reauth_entry().title}
         return await self.async_step_link()
 
+    @override
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -96,6 +101,7 @@ class NanoleafConfigFlow(ConfigFlow, domain=DOMAIN):
         _LOGGER.debug("Zeroconf discovered: %s", discovery_info)
         return await self._async_homekit_zeroconf_discovery_handler(discovery_info)
 
+    @override
     async def async_step_homekit(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -113,6 +119,7 @@ class NanoleafConfigFlow(ConfigFlow, domain=DOMAIN):
             discovery_info.properties[ATTR_PROPERTIES_ID],
         )
 
+    @override
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
@@ -200,7 +207,9 @@ class NanoleafConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="unknown")
         name = self.nanoleaf.name
 
-        await self.async_set_unique_id(name)
+        await self.async_set_unique_id(
+            name, raise_on_progress=self.source != SOURCE_USER
+        )
         self._abort_if_unique_id_configured({CONF_HOST: self.nanoleaf.host})
 
         if discovery_integration_import:

@@ -13,8 +13,8 @@ from freezegun.api import FrozenDateTimeFactory
 import jinja2
 import pytest
 
+from homeassistant import core as ha
 from homeassistant.const import MATCH_ALL
-import homeassistant.core as ha
 from homeassistant.core import (
     Event,
     EventStateChangedData,
@@ -30,6 +30,7 @@ from homeassistant.helpers.event import (
     TrackTemplate,
     TrackTemplateResult,
     async_call_later,
+    async_has_entity_registry_updated_listeners,
     async_track_device_registry_updated_event,
     async_track_entity_registry_updated_event,
     async_track_point_in_time,
@@ -52,7 +53,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.template import Template, result_as_boolean
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from tests.common import async_fire_time_changed, async_fire_time_changed_exact
 
@@ -1456,13 +1457,30 @@ async def test_track_template_result_super_template_initially_false(
     "availability_template",
     [
         "{{ states('sensor.test2') != 'unavailable' }}",
-        "{% if states('sensor.test2') != 'unavailable' -%} true {%- else -%} false {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} 1 {%- else -%} 0 {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} yes {%- else -%} no {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} on {%- else -%} off {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} enable {%- else -%} disable {%- endif %}",
-        # This will throw when sensor.test2 is not "unavailable"
-        "{% if states('sensor.test2') != 'unavailable' -%} {{'a' + 5}} {%- else -%} false {%- endif %}",
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " true {%- else -%} false {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " 1 {%- else -%} 0 {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " yes {%- else -%} no {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " on {%- else -%} off {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " enable {%- else -%} disable {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " {{'a' + 5}} {%- else -%} false {%- endif %}"
+        ),
     ],
 )
 async def test_track_template_result_super_template_2(
@@ -1608,13 +1626,30 @@ async def test_track_template_result_super_template_2(
     "availability_template",
     [
         "{{ states('sensor.test2') != 'unavailable' }}",
-        "{% if states('sensor.test2') != 'unavailable' -%} true {%- else -%} false {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} 1 {%- else -%} 0 {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} yes {%- else -%} no {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} on {%- else -%} off {%- endif %}",
-        "{% if states('sensor.test2') != 'unavailable' -%} enable {%- else -%} disable {%- endif %}",
-        # This will throw when sensor.test2 is not "unavailable"
-        "{% if states('sensor.test2') != 'unavailable' -%} {{'a' + 5}} {%- else -%} false {%- endif %}",
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " true {%- else -%} false {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " 1 {%- else -%} 0 {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " yes {%- else -%} no {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " on {%- else -%} off {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " enable {%- else -%} disable {%- endif %}"
+        ),
+        (
+            "{% if states('sensor.test2') != 'unavailable' -%}"
+            " {{'a' + 5}} {%- else -%} false {%- endif %}"
+        ),
     ],
 )
 async def test_track_template_result_super_template_2_initially_false(
@@ -1979,11 +2014,14 @@ async def test_track_template_result_with_group(hass: HomeAssistant) -> None:
     specific_runs = []
     template_complex_str = r"""
 
-{{ states.group.power_sensors.attributes.entity_id | expand | map(attribute='state')|map('float')|sum  }}
+{{ states.group.power_sensors.attributes.entity_id
+   | expand | map(attribute='state')|map('float')|sum }}
 
 """
     template_complex = Template(template_complex_str, hass)
 
+    # Run in the event loop; executor jobs may append results out of order
+    @callback
     def specific_run_callback(
         event: Event[EventStateChangedData] | None,
         updates: list[TrackTemplateResult],
@@ -2023,7 +2061,9 @@ async def test_track_template_result_with_group(hass: HomeAssistant) -> None:
         "homeassistant.config.load_yaml_config_file",
         return_value={
             "group": {
-                "power_sensors": "sensor.power_1,sensor.power_2,sensor.power_3,sensor.power_4",
+                "power_sensors": (
+                    "sensor.power_1,sensor.power_2,sensor.power_3,sensor.power_4"
+                ),
             }
         },
     ):
@@ -2040,7 +2080,11 @@ async def test_track_template_result_and_conditional(hass: HomeAssistant) -> Non
     specific_runs = []
     hass.states.async_set("light.a", "off")
     hass.states.async_set("light.b", "off")
-    template_str = '{% if states.light.a.state == "on" and states.light.b.state == "on" %}on{% else %}off{% endif %}'
+    template_str = (
+        '{% if states.light.a.state == "on"'
+        ' and states.light.b.state == "on" %}'
+        "on{% else %}off{% endif %}"
+    )
 
     template = Template(template_str, hass)
 
@@ -2108,7 +2152,11 @@ async def test_track_template_result_and_conditional_upper_case(
     specific_runs = []
     hass.states.async_set("light.a", "off")
     hass.states.async_set("light.b", "off")
-    template_str = '{% if states.light.A.state == "on" and states.light.B.state == "on" %}on{% else %}off{% endif %}'
+    template_str = (
+        '{% if states.light.A.state == "on"'
+        ' and states.light.B.state == "on" %}'
+        "on{% else %}off{% endif %}"
+    )
 
     template = Template(template_str, hass)
 
@@ -2885,7 +2933,9 @@ async def test_track_template_unavailable_states_has_default_rate_limit(
     """Test template watching for unavailable states has a rate limit by default."""
     hass.states.async_set("sensor.zero", "unknown")
     template_refresh = Template(
-        "{{ states | selectattr('state', 'in', ['unavailable', 'unknown', 'none']) | list | count }}",
+        "{{ states | selectattr('state', 'in',"
+        " ['unavailable', 'unknown', 'none'])"
+        " | list | count }}",
         hass,
     )
 
@@ -3192,7 +3242,8 @@ async def test_async_track_template_result_multiple_templates_mixing_domain(
     template_2 = Template("{{ states.switch.test.state == 'on' }}", hass)
     template_3 = Template("{{ states.switch.test.state == 'off' }}", hass)
     template_4 = Template(
-        "{{ states.switch | sort(attribute='entity_id') | map(attribute='entity_id') | list }}",
+        "{{ states.switch | sort(attribute='entity_id')"
+        " | map(attribute='entity_id') | list }}",
         hass,
     )
 
@@ -3604,7 +3655,7 @@ async def test_track_time_interval_name(hass: HomeAssistant) -> None:
         timedelta(seconds=10),
         name=unique_string,
     )
-    scheduled = getattr(hass.loop, "_scheduled")
+    scheduled = hass.loop._scheduled
     assert any(handle for handle in scheduled if unique_string in str(handle))
     unsub()
 
@@ -4471,7 +4522,7 @@ async def test_async_call_later_cancel(hass: HomeAssistant) -> None:
 async def test_track_state_change_event_chain_multple_entity(
     hass: HomeAssistant,
 ) -> None:
-    """Test that adding a new state tracker inside a tracker does not fire right away."""
+    """Test adding a new state tracker inside a tracker doesn't fire right away."""
     tracker_called = []
     chained_tracker_called = []
 
@@ -4525,7 +4576,7 @@ async def test_track_state_change_event_chain_multple_entity(
 async def test_track_state_change_event_chain_single_entity(
     hass: HomeAssistant,
 ) -> None:
-    """Test that adding a new state tracker inside a tracker does not fire right away."""
+    """Test adding a new state tracker inside a tracker doesn't fire right away."""
     tracker_called = []
     chained_tracker_called = []
 
@@ -4682,12 +4733,17 @@ async def test_async_track_entity_registry_updated_event(hass: HomeAssistant) ->
     def run_callback(event):
         event_data.append(event.data)
 
+    assert async_has_entity_registry_updated_listeners(hass) is False
+
     unsub1 = async_track_entity_registry_updated_event(
         hass, entity_id, run_callback, job_type=ha.HassJobType.Callback
     )
     unsub2 = async_track_entity_registry_updated_event(
         hass, new_entity_id, run_callback
     )
+
+    assert async_has_entity_registry_updated_listeners(hass) is True
+
     hass.bus.async_fire(
         EVENT_ENTITY_REGISTRY_UPDATED, {"action": "create", "entity_id": entity_id}
     )
@@ -4736,7 +4792,7 @@ async def test_async_track_entity_registry_updated_event(hass: HomeAssistant) ->
 async def test_async_track_entity_registry_updated_event_with_a_callback_that_throws(
     hass: HomeAssistant,
 ) -> None:
-    """Test tracking entity registry updates for an entity_id when one callback throws."""
+    """Test tracking entity registry updates when one callback throws."""
 
     entity_id = "switch.puppy_feeder"
 
@@ -4769,7 +4825,7 @@ async def test_async_track_entity_registry_updated_event_with_a_callback_that_th
 async def test_async_track_entity_registry_updated_event_with_empty_list(
     hass: HomeAssistant,
 ) -> None:
-    """Test async_track_entity_registry_updated_event passing an empty list of entities."""
+    """Test async_track_entity_registry_updated_event with empty entity list."""
     unsub_single = async_track_entity_registry_updated_event(
         hass, [], ha.callback(lambda event: None)
     )
@@ -4841,7 +4897,7 @@ async def test_async_track_device_registry_updated_event(hass: HomeAssistant) ->
 async def test_async_track_device_registry_updated_event_with_empty_list(
     hass: HomeAssistant,
 ) -> None:
-    """Test async_track_device_registry_updated_event passing an empty list of devices."""
+    """Test async_track_device_registry_updated_event with empty device list."""
     unsub_single = async_track_device_registry_updated_event(
         hass, [], ha.callback(lambda event: None)
     )
@@ -4940,43 +4996,30 @@ async def test_async_track_state_report_event(hass: HomeAssistant) -> None:
     unsub()
 
 
-async def test_async_track_template_no_hass_deprecated(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Test async_track_template with a template without hass is deprecated."""
-    message = (
-        "Detected code that calls async_track_template_result with template without "
-        "hass. This will stop working in Home Assistant 2025.10, please "
-        "report this issue"
-    )
+async def test_async_track_state_report_change_event(hass: HomeAssistant) -> None:
+    """Test listen for both state change and state report events."""
+    tracker_called: dict[str, list[str]] = {"light.bowl": [], "light.top": []}
 
-    async_track_template(hass, Template("blah"), lambda x, y, z: None)
-    assert message in caplog.text
-    caplog.clear()
+    @ha.callback
+    def on_state_change(event: Event[EventStateChangedData]) -> None:
+        new_state = event.data["new_state"].state
+        tracker_called[event.data["entity_id"]].append(new_state)
 
-    async_track_template(hass, Template("blah", hass), lambda x, y, z: None)
-    assert message not in caplog.text
-    caplog.clear()
+    @ha.callback
+    def on_state_report(event: Event[EventStateReportedData]) -> None:
+        new_state = event.data["new_state"].state
+        tracker_called[event.data["entity_id"]].append(new_state)
 
+    async_track_state_change_event(hass, ["light.bowl", "light.top"], on_state_change)
+    async_track_state_report_event(hass, ["light.bowl", "light.top"], on_state_report)
+    entity_ids = ["light.bowl", "light.top"]
+    state_sequence = ["on", "on", "off", "off"]
+    for state in state_sequence:
+        for entity_id in entity_ids:
+            hass.states.async_set(entity_id, state)
+    await hass.async_block_till_done()
 
-async def test_async_track_template_result_no_hass_deprecated(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Test async_track_template_result with a template without hass is deprecated."""
-    message = (
-        "Detected code that calls async_track_template_result with template without "
-        "hass. This will stop working in Home Assistant 2025.10, please "
-        "report this issue"
-    )
-
-    async_track_template_result(
-        hass, [TrackTemplate(Template("blah"), None)], lambda x, y, z: None
-    )
-    assert message in caplog.text
-    caplog.clear()
-
-    async_track_template_result(
-        hass, [TrackTemplate(Template("blah", hass), None)], lambda x, y, z: None
-    )
-    assert message not in caplog.text
-    caplog.clear()
+    assert tracker_called == {
+        "light.bowl": ["on", "on", "off", "off"],
+        "light.top": ["on", "on", "off", "off"],
+    }

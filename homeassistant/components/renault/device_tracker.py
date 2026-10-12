@@ -1,8 +1,7 @@
 """Support for Renault device trackers."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import override
 
 from renault_api.kamereon.models import KamereonVehicleLocationData
 
@@ -11,7 +10,7 @@ from homeassistant.components.device_tracker import (
     TrackerEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import RenaultConfigEntry
 from .entity import RenaultDataEntity, RenaultDataEntityDescription
@@ -30,7 +29,7 @@ class RenaultTrackerEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: RenaultConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Renault entities from config entry."""
     entities: list[RenaultDeviceTracker] = [
@@ -50,14 +49,16 @@ class RenaultDeviceTracker(
     entity_description: RenaultTrackerEntityDescription
 
     @property
+    @override
     def latitude(self) -> float | None:
         """Return latitude value of the device."""
-        return self.coordinator.data.gpsLatitude if self.coordinator.data else None
+        return self.coordinator.data.gpsLatitude
 
     @property
+    @override
     def longitude(self) -> float | None:
         """Return longitude value of the device."""
-        return self.coordinator.data.gpsLongitude if self.coordinator.data else None
+        return self.coordinator.data.gpsLongitude
 
 
 DEVICE_TRACKER_TYPES: tuple[RenaultTrackerEntityDescription, ...] = (

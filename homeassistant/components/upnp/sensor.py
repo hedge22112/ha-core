@@ -1,9 +1,8 @@
 """Support for UPnP/IGD Sensors."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -18,19 +17,22 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import UpnpConfigEntry
 from .const import (
     BYTES_RECEIVED,
     BYTES_SENT,
     DATA_PACKETS,
     DATA_RATE_PACKETS_PER_SECOND,
     KIBIBYTES_PER_SEC_RECEIVED,
+    KIBIBYTES_PER_SEC_RECEIVED_NO_ROLLOVER,
     KIBIBYTES_PER_SEC_SENT,
+    KIBIBYTES_PER_SEC_SENT_NO_ROLLOVER,
     LOGGER,
     PACKETS_PER_SEC_RECEIVED,
+    PACKETS_PER_SEC_RECEIVED_NO_ROLLOVER,
     PACKETS_PER_SEC_SENT,
+    PACKETS_PER_SEC_SENT_NO_ROLLOVER,
     PACKETS_RECEIVED,
     PACKETS_SENT,
     PORT_MAPPING_NUMBER_OF_ENTRIES_IPV4,
@@ -38,6 +40,7 @@ from .const import (
     ROUTER_UPTIME,
     WAN_STATUS,
 )
+from .coordinator import UpnpConfigEntry
 from .entity import UpnpEntity, UpnpEntityDescription
 
 
@@ -128,6 +131,28 @@ SENSOR_DESCRIPTIONS: tuple[UpnpSensorEntityDescription, ...] = (
         suggested_display_precision=1,
     ),
     UpnpSensorEntityDescription(
+        key=BYTES_RECEIVED,
+        translation_key="download_speed_no_rollover_handling",
+        value_key=KIBIBYTES_PER_SEC_RECEIVED_NO_ROLLOVER,
+        unique_id="KiB/sec_received_no_rollover",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KIBIBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    UpnpSensorEntityDescription(
+        key=BYTES_SENT,
+        translation_key="upload_speed_no_rollover_handling",
+        value_key=KIBIBYTES_PER_SEC_SENT_NO_ROLLOVER,
+        unique_id="KiB/sec_sent_no_rollover",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KIBIBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    UpnpSensorEntityDescription(
         key=PACKETS_RECEIVED,
         translation_key="packet_download_speed",
         value_key=PACKETS_PER_SEC_RECEIVED,
@@ -147,13 +172,33 @@ SENSOR_DESCRIPTIONS: tuple[UpnpSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
     ),
+    UpnpSensorEntityDescription(
+        key=PACKETS_RECEIVED,
+        translation_key="packet_download_speed_no_rollover_handling",
+        value_key=PACKETS_PER_SEC_RECEIVED_NO_ROLLOVER,
+        unique_id="packets/sec_received_no_rollover",
+        native_unit_of_measurement=DATA_RATE_PACKETS_PER_SECOND,
+        entity_registry_enabled_default=False,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    UpnpSensorEntityDescription(
+        key=PACKETS_SENT,
+        translation_key="packet_upload_speed_no_rollover_handling",
+        value_key=PACKETS_PER_SEC_SENT_NO_ROLLOVER,
+        unique_id="packets/sec_sent_no_rollover",
+        native_unit_of_measurement=DATA_RATE_PACKETS_PER_SECOND,
+        entity_registry_enabled_default=False,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
 )
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UpnpConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the UPnP/IGD sensors."""
     coordinator = config_entry.runtime_data
@@ -177,12 +222,14 @@ class UpnpSensor(UpnpEntity, SensorEntity):
     entity_description: UpnpSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> str | datetime | int | float | None:
         """Return the state of the device."""
         if (key := self.entity_description.value_key) is None:
             return None
         return self.coordinator.data[key]
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe to updates."""
         await super().async_added_to_hass()

@@ -1,6 +1,6 @@
 """Demo notification entity."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.notify import (
     DOMAIN as NOTIFY_DOMAIN,
@@ -10,7 +10,7 @@ from homeassistant.components.notify import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 EVENT_NOTIFY = "notify"
 
@@ -18,7 +18,7 @@ EVENT_NOTIFY = "notify"
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the demo entity platform."""
     async_add_entities([DemoNotifyEntity(unique_id="notify", device_name="Notifier")])
@@ -43,6 +43,7 @@ class DemoNotifyEntity(NotifyEntity):
             name=device_name,
         )
 
+    @override
     async def async_send_message(self, message: str, title: str | None = None) -> None:
         """Send a message to a user."""
         event_notification = {"message": message}

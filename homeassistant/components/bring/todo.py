@@ -1,17 +1,16 @@
 """Todo platform for the Bring! integration."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from itertools import chain
+from typing import TYPE_CHECKING, override
 import uuid
 
 from bring_api import (
     BringItem,
     BringItemOperation,
+    BringList,
     BringNotificationType,
     BringRequestException,
 )
-import voluptuous as vol
 
 from homeassistant.components.todo import (
     TodoItem,
@@ -19,19 +18,12 @@ from homeassistant.components.todo import (
     TodoListEntity,
     TodoListEntityFeature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv, entity_platform
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import BringConfigEntry
-from .const import (
-    ATTR_ITEM_NAME,
-    ATTR_NOTIFICATION_TYPE,
-    DOMAIN,
-    SERVICE_PUSH_NOTIFICATION,
-)
-from .coordinator import BringData, BringDataUpdateCoordinator
+from .const import DOMAIN
+from .coordinator import BringConfigEntry, BringData, BringDataUpdateCoordinator
 from .entity import BringBaseEntity
 
 PARALLEL_UPDATES = 0
@@ -40,31 +32,27 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: BringConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensor from a config entry created in the integrations UI."""
-    coordinator = config_entry.runtime_data
+    coordinator = config_entry.runtime_data.data
+    lists_added: set[str] = set()
 
-    async_add_entities(
-        BringTodoListEntity(
-            coordinator,
-            bring_list=bring_list,
-        )
-        for bring_list in coordinator.data.values()
-    )
+    @callback
+    def add_entities() -> None:
+        """Add or remove todo list entities."""
+        nonlocal lists_added
 
-    platform = entity_platform.async_get_current_platform()
+        if new_lists := {lst.listUuid for lst in coordinator.lists} - lists_added:
+            async_add_entities(
+                BringTodoListEntity(coordinator, bring_list)
+                for bring_list in coordinator.lists
+                if bring_list.listUuid in new_lists
+            )
+            lists_added |= new_lists
 
-    platform.async_register_entity_service(
-        SERVICE_PUSH_NOTIFICATION,
-        {
-            vol.Required(ATTR_NOTIFICATION_TYPE): vol.All(
-                vol.Upper, cv.enum(BringNotificationType)
-            ),
-            vol.Optional(ATTR_ITEM_NAME): cv.string,
-        },
-        "async_send_message",
-    )
+    coordinator.async_add_listener(add_entities)
+    add_entities()
 
 
 class BringTodoListEntity(BringBaseEntity, TodoListEntity):
@@ -78,35 +66,39 @@ class BringTodoListEntity(BringBaseEntity, TodoListEntity):
         | TodoListEntityFeature.DELETE_TODO_ITEM
         | TodoListEntityFeature.SET_DESCRIPTION_ON_ITEM
     )
+    coordinator: BringDataUpdateCoordinator
 
     def __init__(
-        self, coordinator: BringDataUpdateCoordinator, bring_list: BringData
+        self, coordinator: BringDataUpdateCoordinator, bring_list: BringList
     ) -> None:
         """Initialize the entity."""
         super().__init__(coordinator, bring_list)
         self._attr_unique_id = f"{coordinator.config_entry.unique_id}_{self._list_uuid}"
 
     @property
+    @override
     def todo_items(self) -> list[TodoItem]:
         """Return the todo items."""
         return [
             *(
                 TodoItem(
-                    uid=item["uuid"],
-                    summary=item["itemId"],
-                    description=item["specification"] or "",
+                    uid=item.uuid,
+                    summary=item.itemId,
+                    description=item.specification,
                     status=TodoItemStatus.NEEDS_ACTION,
                 )
-                for item in self.bring_list["purchase"]
+                for item in sorted(
+                    self.bring_list.content.items.purchase, key=lambda i: i.itemId
+                )
             ),
             *(
                 TodoItem(
-                    uid=item["uuid"],
-                    summary=item["itemId"],
-                    description=item["specification"] or "",
+                    uid=item.uuid,
+                    summary=item.itemId,
+                    description=item.specification,
                     status=TodoItemStatus.COMPLETED,
                 )
-                for item in self.bring_list["recently"]
+                for item in self.bring_list.content.items.recently
             ),
         ]
 
@@ -115,11 +107,12 @@ class BringTodoListEntity(BringBaseEntity, TodoListEntity):
         """Return the bring list."""
         return self.coordinator.data[self._list_uuid]
 
+    @override
     async def async_create_todo_item(self, item: TodoItem) -> None:
         """Add an item to the To-do list."""
         try:
             await self.coordinator.bring.save_item(
-                self.bring_list["listUuid"],
+                self._list_uuid,
                 item.summary or "",
                 item.description or "",
                 str(uuid.uuid4()),
@@ -133,8 +126,9 @@ class BringTodoListEntity(BringBaseEntity, TodoListEntity):
 
         await self.coordinator.async_refresh()
 
+    @override
     async def async_update_todo_item(self, item: TodoItem) -> None:
-        """Update an item to the To-do list.
+        """Update an item in the To-do list.
 
         Bring has an internal 'recent' list which we want to use instead of a todo list
         status, therefore completed todo list items are matched to the recent list and
@@ -154,26 +148,25 @@ class BringTodoListEntity(BringBaseEntity, TodoListEntity):
 
         bring_list = self.bring_list
 
-        bring_purchase_item = next(
-            (i for i in bring_list["purchase"] if i["uuid"] == item.uid),
+        current_item = next(
+            (
+                i
+                for i in chain(
+                    bring_list.content.items.purchase, bring_list.content.items.recently
+                )
+                if i.uuid == item.uid
+            ),
             None,
         )
-
-        bring_recently_item = next(
-            (i for i in bring_list["recently"] if i["uuid"] == item.uid),
-            None,
-        )
-
-        current_item = bring_purchase_item or bring_recently_item
 
         if TYPE_CHECKING:
             assert item.uid
             assert current_item
 
-        if item.summary == current_item["itemId"]:
+        if item.summary == current_item.itemId:
             try:
                 await self.coordinator.bring.batch_update_list(
-                    bring_list["listUuid"],
+                    self._list_uuid,
                     BringItem(
                         itemId=item.summary or "",
                         spec=item.description or "",
@@ -192,10 +185,10 @@ class BringTodoListEntity(BringBaseEntity, TodoListEntity):
         else:
             try:
                 await self.coordinator.bring.batch_update_list(
-                    bring_list["listUuid"],
+                    self._list_uuid,
                     [
                         BringItem(
-                            itemId=current_item["itemId"],
+                            itemId=current_item.itemId,
                             spec=item.description or "",
                             uuid=item.uid,
                             operation=BringItemOperation.REMOVE,
@@ -220,12 +213,13 @@ class BringTodoListEntity(BringBaseEntity, TodoListEntity):
 
         await self.coordinator.async_refresh()
 
+    @override
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         """Delete an item from the To-do list."""
 
         try:
             await self.coordinator.bring.batch_update_list(
-                self.bring_list["listUuid"],
+                self._list_uuid,
                 [
                     BringItem(
                         itemId=uid,

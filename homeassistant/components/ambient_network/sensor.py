@@ -1,8 +1,7 @@
 """Support for Ambient Weather Network sensors."""
 
-from __future__ import annotations
-
 from datetime import datetime
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -11,25 +10,23 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
     CONF_MAC,
     DEGREE,
-    PERCENTAGE,
+    UnitOfDensity,
     UnitOfIrradiance,
     UnitOfLength,
     UnitOfPrecipitationDepth,
     UnitOfPressure,
+    UnitOfRatio,
     UnitOfSpeed,
     UnitOfTemperature,
     UnitOfVolumetricFlux,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from . import AmbientNetworkConfigEntry
-from .coordinator import AmbientNetworkDataUpdateCoordinator
+from .coordinator import AmbientNetworkConfigEntry, AmbientNetworkDataUpdateCoordinator
 from .entity import AmbientNetworkEntity
 
 TYPE_AQI_PM25 = "aqi_pm25"
@@ -96,7 +93,7 @@ SENSOR_DESCRIPTIONS = (
     ),
     SensorEntityDescription(
         key=TYPE_CO2,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         device_class=SensorDeviceClass.CO2,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
@@ -107,7 +104,7 @@ SENSOR_DESCRIPTIONS = (
         translation_key="daily_rain",
         native_unit_of_measurement=UnitOfPrecipitationDepth.INCHES,
         device_class=SensorDeviceClass.PRECIPITATION,
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
     ),
     SensorEntityDescription(
@@ -136,7 +133,7 @@ SENSOR_DESCRIPTIONS = (
     ),
     SensorEntityDescription(
         key=TYPE_HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
@@ -151,7 +148,7 @@ SENSOR_DESCRIPTIONS = (
         key=TYPE_LIGHTNING_PER_DAY,
         translation_key="lightning_strikes_per_day",
         native_unit_of_measurement="strikes",
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         entity_registry_enabled_default=False,
     ),
     SensorEntityDescription(
@@ -183,21 +180,21 @@ SENSOR_DESCRIPTIONS = (
         translation_key="monthly_rain",
         native_unit_of_measurement=UnitOfPrecipitationDepth.INCHES,
         device_class=SensorDeviceClass.PRECIPITATION,
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
     ),
     SensorEntityDescription(
         key=TYPE_PM25_24H,
         translation_key="pm25_24h_average",
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM25,
         suggested_display_precision=1,
         entity_registry_enabled_default=False,
     ),
     SensorEntityDescription(
         key=TYPE_PM25,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM25,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
@@ -230,7 +227,7 @@ SENSOR_DESCRIPTIONS = (
         translation_key="weekly_rain",
         native_unit_of_measurement=UnitOfPrecipitationDepth.INCHES,
         device_class=SensorDeviceClass.PRECIPITATION,
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
     ),
@@ -240,6 +237,8 @@ SENSOR_DESCRIPTIONS = (
         native_unit_of_measurement=DEGREE,
         suggested_display_precision=0,
         entity_registry_enabled_default=False,
+        device_class=SensorDeviceClass.WIND_DIRECTION,
+        state_class=SensorStateClass.MEASUREMENT_ANGLE,
     ),
     SensorEntityDescription(
         key=TYPE_WINDGUSTMPH,
@@ -261,7 +260,7 @@ SENSOR_DESCRIPTIONS = (
         translation_key="yearly_rain",
         native_unit_of_measurement=UnitOfPrecipitationDepth.INCHES,
         device_class=SensorDeviceClass.PRECIPITATION,
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=2,
         entity_registry_enabled_default=False,
     ),
@@ -271,7 +270,7 @@ SENSOR_DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AmbientNetworkConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Ambient Network sensor entities."""
 
@@ -300,6 +299,7 @@ class AmbientNetworkSensor(AmbientNetworkEntity, SensorEntity):
         """Initialize a sensor object."""
         super().__init__(coordinator, description, mac_address)
 
+    @override
     def _update_attrs(self) -> None:
         """Update sensor attributes."""
         value = self.coordinator.data.get(self.entity_description.key)

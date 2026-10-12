@@ -22,7 +22,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from tests.common import async_fire_time_changed
 
@@ -50,8 +50,11 @@ async def test_bluetooth(
 
     device = device_registry.async_get(entry.device_id)
     assert device
-    assert device.configuration_url is None
-    assert device.connections == {(dr.CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:ff")}
+    assert device.configuration_url == "https://127.0.0.1/"
+    assert device.connections == {
+        (dr.CONNECTION_NETWORK_MAC, "aa:bb:cc:dd:ee:ff"),
+        (dr.CONNECTION_BLUETOOTH, "aa:bb:cc:dd:ee:ee"),
+    }
     assert device.entry_type is None
     assert device.hw_version is None
     assert device.identifiers == {(DOMAIN, "SA110405124500W00BS9")}
@@ -147,3 +150,50 @@ async def test_switch_connection_error(
     state = hass.states.get("switch.frenck_s_lametric_bluetooth")
     assert state
     assert state.state == STATE_UNAVAILABLE
+
+
+@pytest.mark.parametrize("device_fixture", ["device_sa5_bluetooth_unavailable"])
+async def test_no_bluetooth_switch_without_bluetooth(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test a device without Bluetooth, like a SKY, gets no Bluetooth switch."""
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+
+    assert entities
+    assert not any(entity.domain == SWITCH_DOMAIN for entity in entities)
+
+
+async def test_screensaver(
+    hass: HomeAssistant,
+    mock_lametric: MagicMock,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test the LaMetric screensaver control."""
+    state = hass.states.get("switch.frenck_s_lametric_screensaver")
+    assert state
+    assert state.state == STATE_OFF
+
+    entry = entity_registry.async_get(state.entity_id)
+    assert entry
+    assert entry.entity_category is EntityCategory.CONFIG
+    assert entry.unique_id == "SA110405124500W00BS9-screensaver"
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "switch.frenck_s_lametric_screensaver"},
+        blocking=True,
+    )
+
+    mock_lametric.display.assert_called_once_with(screensaver_enabled=True)
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        SERVICE_TURN_OFF,
+        {ATTR_ENTITY_ID: "switch.frenck_s_lametric_screensaver"},
+        blocking=True,
+    )
+
+    mock_lametric.display.assert_called_with(screensaver_enabled=False)

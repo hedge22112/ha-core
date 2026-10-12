@@ -1,16 +1,15 @@
 """The Twinkly select component."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from ttls.client import TWINKLY_MODES
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import TwinklyConfigEntry, TwinklyCoordinator
+from .coordinator import TwinklyConfigEntry, TwinklyCoordinator
 from .entity import TwinklyEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: TwinklyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up a mode select from a config entry."""
     entity = TwinklyModeSelect(config_entry.runtime_data)
@@ -29,7 +28,7 @@ async def async_setup_entry(
 class TwinklyModeSelect(TwinklyEntity, SelectEntity):
     """Twinkly Mode Selection."""
 
-    _attr_name = "Mode"
+    _attr_translation_key = "mode"
     _attr_options = TWINKLY_MODES
 
     def __init__(self, coordinator: TwinklyCoordinator) -> None:
@@ -39,10 +38,12 @@ class TwinklyModeSelect(TwinklyEntity, SelectEntity):
         self.client = coordinator.client
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return current mode."""
         return self.coordinator.data.current_mode
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         await self.client.set_mode(option)

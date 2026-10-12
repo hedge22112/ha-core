@@ -1,11 +1,12 @@
 """Support for AlarmDecoder zone states- represented as binary sensors."""
 
 import logging
+from typing import override
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AlarmDecoderConfigEntry
 from .const import (
@@ -40,7 +41,7 @@ ATTR_RF_LOOP1 = "rf_loop1"
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AlarmDecoderConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up for AlarmDecoder sensor."""
 
@@ -103,6 +104,7 @@ class AlarmDecoderBinarySensor(AlarmDecoderEntity, BinarySensorEntity):
             CONF_ZONE_NUMBER: self._zone_number,
         }
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         self.async_on_remove(

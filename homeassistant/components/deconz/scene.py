@@ -1,27 +1,24 @@
 """Support for deCONZ scenes."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from pydeconz.models.event import EventType
 
 from homeassistant.components.scene import DOMAIN as SCENE_DOMAIN, Scene
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import DeconzConfigEntry
 from .entity import DeconzSceneMixin
-from .hub import DeconzHub
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: DeconzConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up scenes for deCONZ integration."""
-    hub = DeconzHub.get_hub(hass, config_entry)
+    hub = config_entry.runtime_data
     hub.entities[SCENE_DOMAIN] = set()
 
     @callback
@@ -41,6 +38,7 @@ class DeconzScene(DeconzSceneMixin, Scene):
 
     TYPE = SCENE_DOMAIN
 
+    @override
     async def async_activate(self, **kwargs: Any) -> None:
         """Activate the scene."""
         await self.hub.api.scenes.recall(

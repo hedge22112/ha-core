@@ -1,7 +1,5 @@
 """Test the Matter config flow."""
 
-from __future__ import annotations
-
 from collections.abc import Generator
 from ipaddress import ip_address
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -180,6 +178,17 @@ async def test_manual_errors(
     assert client_connect.call_count == 1
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": error}
+
+    client_connect.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "url": "ws://localhost:5580/ws",
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_manual_already_configured(
@@ -445,17 +454,15 @@ async def test_zeroconf_not_onboarded_installed(
         ]
     ],
 )
+@pytest.mark.usefixtures("supervisor", "addon_not_installed", "not_onboarded")
 async def test_zeroconf_not_onboarded_not_installed(
     hass: HomeAssistant,
-    supervisor: MagicMock,
     addon_info: AsyncMock,
     addon_store_info: AsyncMock,
-    addon_not_installed: AsyncMock,
     install_addon: AsyncMock,
     start_addon: AsyncMock,
     client_connect: AsyncMock,
     setup_entry: AsyncMock,
-    not_onboarded: MagicMock,
     zeroconf_info: ZeroconfServiceInfo,
 ) -> None:
     """Test flow Zeroconf discovery when not onboarded and add-on not installed."""
@@ -467,7 +474,7 @@ async def test_zeroconf_not_onboarded_not_installed(
     await hass.async_block_till_done()
 
     assert addon_info.call_count == 0
-    assert addon_store_info.call_count == 2
+    assert addon_store_info.call_count == 1
     assert install_addon.call_args == call("core_matter_server")
     assert start_addon.call_args == call("core_matter_server")
     assert client_connect.call_count == 1

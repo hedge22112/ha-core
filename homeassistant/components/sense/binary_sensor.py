@@ -1,6 +1,7 @@
 """Support for monitoring a Sense energy sensor device."""
 
 import logging
+from typing import override
 
 from sense_energy.sense_api import SenseDevice
 
@@ -10,7 +11,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import SenseConfigEntry
 from .const import DOMAIN
@@ -23,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SenseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Sense binary sensor."""
     sense_monitor_id = config_entry.runtime_data.data.sense_monitor_id
@@ -60,6 +61,7 @@ class SenseBinarySensor(SenseDeviceEntity, BinarySensorEntity):
         return self._id
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state of the sensor."""
         return self._device.is_on

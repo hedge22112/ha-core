@@ -1,54 +1,54 @@
 """Support for the GPSLogger device tracking."""
 
-from homeassistant.components.device_tracker import TrackerEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    ATTR_BATTERY_LEVEL,
-    ATTR_GPS_ACCURACY,
-    ATTR_LATITUDE,
-    ATTR_LONGITUDE,
+from typing import override
+
+from homeassistant.components.device_tracker import (
+    TrackerEntity,
+    TrackerEntityStateAttribute,
 )
+from homeassistant.const import ATTR_BATTERY_LEVEL, EntityStateAttribute
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import DOMAIN as GPL_DOMAIN, TRACKER_UPDATE
+from . import TRACKER_UPDATE, GPSLoggerConfigEntry
 from .const import (
     ATTR_ACTIVITY,
     ATTR_ALTITUDE,
     ATTR_DIRECTION,
     ATTR_PROVIDER,
     ATTR_SPEED,
+    DOMAIN,
 )
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: GPSLoggerConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Configure a dispatcher connection based on a config entry."""
 
     @callback
     def _receive_data(device, gps, battery, accuracy, attrs):
         """Receive set location."""
-        if device in hass.data[GPL_DOMAIN]["devices"]:
+        if device in entry.runtime_data:
             return
 
-        hass.data[GPL_DOMAIN]["devices"].add(device)
+        entry.runtime_data.add(device)
 
         async_add_entities([GPSLoggerEntity(device, gps, battery, accuracy, attrs)])
 
-    hass.data[GPL_DOMAIN]["unsub_device_tracker"][entry.entry_id] = (
-        async_dispatcher_connect(hass, TRACKER_UPDATE, _receive_data)
-    )
+    entry.async_on_unload(async_dispatcher_connect(hass, TRACKER_UPDATE, _receive_data))
 
     # Restore previously loaded devices
     dev_reg = dr.async_get(hass)
     dev_ids = {
         identifier[1]
-        for device in dev_reg.devices.get_devices_for_config_entry_id(entry.entry_id)
+        for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
         for identifier in device.identifiers
     }
     if not dev_ids:
@@ -56,7 +56,7 @@ async def async_setup_entry(
 
     entities = []
     for dev_id in dev_ids:
-        hass.data[GPL_DOMAIN]["devices"].add(dev_id)
+        entry.runtime_data.add(dev_id)
         entity = GPSLoggerEntity(dev_id, None, None, None, None)
         entities.append(entity)
 
@@ -81,15 +81,17 @@ class GPSLoggerEntity(TrackerEntity, RestoreEntity):
         self._unsub_dispatcher = None
         self._attr_unique_id = device
         self._attr_device_info = DeviceInfo(
-            identifiers={(GPL_DOMAIN, device)},
+            identifiers={(DOMAIN, device)},
             name=device,
         )
 
     @property
-    def battery_level(self):
+    @override
+    def battery_level(self) -> int | None:
         """Return battery value of the device."""
         return self._battery
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register state update callback."""
         await super().async_added_to_hass()
@@ -116,9 +118,11 @@ class GPSLoggerEntity(TrackerEntity, RestoreEntity):
             return
 
         attr = state.attributes
-        self._attr_latitude = attr.get(ATTR_LATITUDE)
-        self._attr_longitude = attr.get(ATTR_LONGITUDE)
-        self._attr_location_accuracy = attr.get(ATTR_GPS_ACCURACY, 0)
+        self._attr_latitude = attr.get(EntityStateAttribute.LATITUDE)
+        self._attr_longitude = attr.get(EntityStateAttribute.LONGITUDE)
+        self._attr_location_accuracy = attr.get(
+            TrackerEntityStateAttribute.GPS_ACCURACY, 0
+        )
         self._attr_extra_state_attributes = {
             ATTR_ALTITUDE: attr.get(ATTR_ALTITUDE),
             ATTR_ACTIVITY: attr.get(ATTR_ACTIVITY),
@@ -128,6 +132,7 @@ class GPSLoggerEntity(TrackerEntity, RestoreEntity):
         }
         self._battery = attr.get(ATTR_BATTERY_LEVEL)
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Clean up after entity before removal."""
         await super().async_will_remove_from_hass()

@@ -1,20 +1,20 @@
 """Support for Aurora Forecast sensor."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AuroraConfigEntry
+from .coordinator import AuroraConfigEntry
 from .entity import AuroraEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AuroraConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensor platform."""
 
@@ -35,6 +35,7 @@ class AuroraSensor(AuroraEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
+    @override
     def native_value(self) -> int:
         """Return % chance the aurora is visible."""
         return self.coordinator.data

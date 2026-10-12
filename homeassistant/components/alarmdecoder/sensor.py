@@ -1,9 +1,11 @@
 """Support for AlarmDecoder sensors (Shows Panel Display)."""
 
+from typing import override
+
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AlarmDecoderConfigEntry
 from .const import SIGNAL_PANEL_MESSAGE
@@ -13,7 +15,7 @@ from .entity import AlarmDecoderEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: AlarmDecoderConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up for AlarmDecoder sensor."""
 
@@ -33,6 +35,7 @@ class AlarmDecoderSensor(AlarmDecoderEntity, SensorEntity):
         super().__init__(client)
         self._attr_unique_id = f"{client.serial_number}-display"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         self.async_on_remove(

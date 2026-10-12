@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 import pytest
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components import camera
 from homeassistant.components.axis.const import CONF_STREAM_PROFILE
@@ -75,5 +75,5 @@ async def test_camera(
 @pytest.mark.parametrize("param_properties_payload", [PROPERTY_DATA])
 @pytest.mark.usefixtures("config_entry_setup")
 async def test_camera_disabled(hass: HomeAssistant) -> None:
-    """Test that Axis camera platform is loaded properly but does not create camera entity."""
+    """Test Axis camera platform loads but does not create camera entity."""
     assert len(hass.states.async_entity_ids(CAMERA_DOMAIN)) == 0

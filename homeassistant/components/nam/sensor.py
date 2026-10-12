@@ -1,39 +1,38 @@
 """Support for the Nettigo Air Monitor service."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
+from typing import override
 
 from nettigo_air_monitor import NAMSensors
 
 from homeassistant.components.sensor import (
-    DOMAIN as PLATFORM,
+    DOMAIN as SENSOR_DOMAIN,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
-    PERCENTAGE,
+    LIGHT_LUX,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfDensity,
     UnitOfPressure,
+    UnitOfRatio,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.dt import utcnow
 
-from . import NAMConfigEntry, NAMDataUpdateCoordinator
 from .const import (
+    ATTR_BH1750_ILLUMINANCE,
     ATTR_BME280_HUMIDITY,
     ATTR_BME280_PRESSURE,
     ATTR_BME280_TEMPERATURE,
@@ -69,6 +68,7 @@ from .const import (
     DOMAIN,
     MIGRATION_SENSORS,
 )
+from .coordinator import NAMConfigEntry, NAMDataUpdateCoordinator
 
 PARALLEL_UPDATES = 1
 
@@ -84,10 +84,19 @@ class NAMSensorEntityDescription(SensorEntityDescription):
 
 SENSORS: tuple[NAMSensorEntityDescription, ...] = (
     NAMSensorEntityDescription(
+        key=ATTR_BH1750_ILLUMINANCE,
+        translation_key="bh1750_illuminance",
+        suggested_display_precision=0,
+        native_unit_of_measurement=LIGHT_LUX,
+        device_class=SensorDeviceClass.ILLUMINANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda sensors: sensors.bh1750_illuminance,
+    ),
+    NAMSensorEntityDescription(
         key=ATTR_BME280_HUMIDITY,
         translation_key="bme280_humidity",
         suggested_display_precision=1,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.bme280_humidity,
@@ -159,7 +168,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_HECA_HUMIDITY,
         translation_key="heca_humidity",
         suggested_display_precision=1,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.heca_humidity,
@@ -177,7 +186,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_MHZ14A_CARBON_DIOXIDE,
         translation_key="mhz14a_carbon_dioxide",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
         device_class=SensorDeviceClass.CO2,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.mhz14a_carbon_dioxide,
@@ -198,7 +207,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_PMSX003_P0,
         translation_key="pmsx003_pm1",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM1,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.pms_p0,
@@ -207,7 +216,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_PMSX003_P1,
         translation_key="pmsx003_pm10",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM10,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.pms_p1,
@@ -216,7 +225,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_PMSX003_P2,
         translation_key="pmsx003_pm25",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM25,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.pms_p2,
@@ -237,7 +246,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SDS011_P1,
         translation_key="sds011_pm10",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM10,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sds011_p1,
@@ -246,7 +255,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SDS011_P2,
         translation_key="sds011_pm25",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM25,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sds011_p2,
@@ -255,7 +264,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SHT3X_HUMIDITY,
         translation_key="sht3x_humidity",
         suggested_display_precision=1,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sht3x_humidity,
@@ -285,7 +294,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SPS30_P0,
         translation_key="sps30_pm1",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM1,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sps30_p0,
@@ -294,7 +303,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SPS30_P1,
         translation_key="sps30_pm10",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM10,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sps30_p1,
@@ -303,7 +312,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SPS30_P2,
         translation_key="sps30_pm25",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM25,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sps30_p2,
@@ -312,7 +321,8 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_SPS30_P4,
         translation_key="sps30_pm4",
         suggested_display_precision=0,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        native_unit_of_measurement=UnitOfDensity.MICROGRAMS_PER_CUBIC_METER,
+        device_class=SensorDeviceClass.PM4,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.sps30_p4,
     ),
@@ -320,7 +330,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
         key=ATTR_DHT22_HUMIDITY,
         translation_key="dht22_humidity",
         suggested_display_precision=1,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda sensors: sensors.dht22_humidity,
@@ -346,8 +356,7 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
     ),
     NAMSensorEntityDescription(
         key=ATTR_UPTIME,
-        translation_key="last_restart",
-        device_class=SensorDeviceClass.TIMESTAMP,
+        device_class=SensorDeviceClass.UPTIME,
         entity_registry_enabled_default=False,
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda sensors: utcnow() - timedelta(seconds=sensors.uptime or 0),
@@ -356,7 +365,9 @@ SENSORS: tuple[NAMSensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: NAMConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: NAMConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Add a Nettigo Air Monitor entities from a config_entry."""
     coordinator = entry.runtime_data
@@ -367,7 +378,9 @@ async def async_setup_entry(
     for old_sensor, new_sensor in MIGRATION_SENSORS:
         old_unique_id = f"{coordinator.unique_id}-{old_sensor}"
         new_unique_id = f"{coordinator.unique_id}-{new_sensor}"
-        if entity_id := ent_reg.async_get_entity_id(PLATFORM, DOMAIN, old_unique_id):
+        if entity_id := ent_reg.async_get_entity_id(
+            SENSOR_DOMAIN, DOMAIN, old_unique_id
+        ):
             _LOGGER.debug(
                 "Migrating entity %s from old unique ID '%s' to new unique ID '%s'",
                 entity_id,
@@ -401,6 +414,7 @@ class NAMSensor(CoordinatorEntity[NAMDataUpdateCoordinator], SensorEntity):
         self.entity_description = description
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available."""
         available = super().available
@@ -414,6 +428,7 @@ class NAMSensor(CoordinatorEntity[NAMDataUpdateCoordinator], SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType | datetime:
         """Return the state."""
         return self.entity_description.value(self.coordinator.data)

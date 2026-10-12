@@ -1,18 +1,15 @@
 """Test the SSDP integration."""
 
-from datetime import datetime
 from ipaddress import IPv4Address
-from typing import Any
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, call, patch
 
 from async_upnp_client.server import UpnpServer
-from async_upnp_client.ssdp import udn_from_headers
 from async_upnp_client.ssdp_listener import SsdpListener
-from async_upnp_client.utils import CaseInsensitiveDict
 import pytest
 
 from homeassistant import config_entries
 from homeassistant.components import ssdp
+from homeassistant.components.ssdp import scanner
 from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
     EVENT_HOMEASSISTANT_STOP,
@@ -21,47 +18,22 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.discovery_flow import DiscoveryKey
 from homeassistant.helpers.service_info.ssdp import (
-    ATTR_NT,
-    ATTR_ST,
     ATTR_UPNP_DEVICE_TYPE,
-    ATTR_UPNP_FRIENDLY_NAME,
     ATTR_UPNP_MANUFACTURER,
-    ATTR_UPNP_MANUFACTURER_URL,
-    ATTR_UPNP_MODEL_DESCRIPTION,
-    ATTR_UPNP_MODEL_NAME,
-    ATTR_UPNP_MODEL_NUMBER,
-    ATTR_UPNP_MODEL_URL,
-    ATTR_UPNP_PRESENTATION_URL,
-    ATTR_UPNP_SERIAL,
-    ATTR_UPNP_SERVICE_LIST,
     ATTR_UPNP_UDN,
-    ATTR_UPNP_UPC,
     SsdpServiceInfo,
 )
-from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
+
+from . import _ssdp_headers, init_ssdp_component
 
 from tests.common import (
     MockConfigEntry,
     MockModule,
     async_fire_time_changed,
-    import_and_test_deprecated_constant,
     mock_integration,
 )
 from tests.test_util.aiohttp import AiohttpClientMocker
-
-
-def _ssdp_headers(headers):
-    ssdp_headers = CaseInsensitiveDict(headers, _timestamp=datetime.now())
-    ssdp_headers["_udn"] = udn_from_headers(ssdp_headers)
-    return ssdp_headers
-
-
-async def init_ssdp_component(hass: HomeAssistant) -> SsdpListener:
-    """Initialize ssdp component and get SsdpListener."""
-    await async_setup_component(hass, ssdp.DOMAIN, {ssdp.DOMAIN: {}})
-    await hass.async_block_till_done()
-    return hass.data[ssdp.DOMAIN][ssdp.SSDP_SCANNER]._ssdp_listeners[0]
 
 
 @patch(
@@ -69,7 +41,11 @@ async def init_ssdp_component(hass: HomeAssistant) -> SsdpListener:
     return_value={"mock-domain": [{"st": "mock-st"}]},
 )
 async def test_ssdp_flow_dispatched_on_st(
-    mock_get_ssdp, hass: HomeAssistant, caplog: pytest.LogCaptureFixture, mock_flow_init
+    mock_get_ssdp,
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    mock_flow_init,
+    aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test matching based on ST."""
     mock_ssdp_search_response = _ssdp_headers(
@@ -112,7 +88,11 @@ async def test_ssdp_flow_dispatched_on_st(
     return_value={"mock-domain": [{"manufacturerURL": "mock-url"}]},
 )
 async def test_ssdp_flow_dispatched_on_manufacturer_url(
-    mock_get_ssdp, hass: HomeAssistant, caplog: pytest.LogCaptureFixture, mock_flow_init
+    mock_get_ssdp,
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    mock_flow_init,
+    aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test matching based on manufacturerURL."""
     mock_ssdp_search_response = _ssdp_headers(
@@ -481,7 +461,7 @@ async def test_discovery_from_advertisement_sets_ssdp_st(
 
 
 @patch(
-    "homeassistant.components.ssdp.async_build_source_set",
+    "homeassistant.components.ssdp.common.async_build_source_set",
     return_value={IPv4Address("192.168.1.1")},
 )
 async def test_start_stop_scanner(mock_source_set, hass: HomeAssistant) -> None:
@@ -490,7 +470,7 @@ async def test_start_stop_scanner(mock_source_set, hass: HomeAssistant) -> None:
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
     await hass.async_block_till_done()
 
-    async_fire_time_changed(hass, dt_util.utcnow() + ssdp.SCAN_INTERVAL)
+    async_fire_time_changed(hass, dt_util.utcnow() + scanner.SCAN_INTERVAL)
     await hass.async_block_till_done()
     assert ssdp_listener.async_start.call_count == 1
     assert ssdp_listener.async_search.call_count == 4
@@ -498,7 +478,7 @@ async def test_start_stop_scanner(mock_source_set, hass: HomeAssistant) -> None:
 
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
     await hass.async_block_till_done()
-    async_fire_time_changed(hass, dt_util.utcnow() + ssdp.SCAN_INTERVAL)
+    async_fire_time_changed(hass, dt_util.utcnow() + scanner.SCAN_INTERVAL)
     await hass.async_block_till_done()
     assert ssdp_listener.async_start.call_count == 1
     assert ssdp_listener.async_search.call_count == 4
@@ -625,7 +605,10 @@ async def test_getting_existing_headers(
         {
             "ST": "mock-st",
             "LOCATION": "http://1.1.1.1",
-            "USN": "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL::urn:mdx-netflix-com:service:target:3",
+            "USN": (
+                "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL"
+                "::urn:mdx-netflix-com:service:target:3"
+            ),
             "SERVER": "mock-server",
             "EXT": "",
             "_source": "search",
@@ -641,8 +624,8 @@ async def test_getting_existing_headers(
     assert discovery_info_by_st.ssdp_server == "mock-server"
     assert discovery_info_by_st.ssdp_st == "mock-st"
     assert (
-        discovery_info_by_st.ssdp_usn
-        == "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL::urn:mdx-netflix-com:service:target:3"
+        discovery_info_by_st.ssdp_usn == "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL"
+        "::urn:mdx-netflix-com:service:target:3"
     )
     assert discovery_info_by_st.ssdp_udn == ANY
     assert discovery_info_by_st.ssdp_headers["_timestamp"] == ANY
@@ -660,8 +643,8 @@ async def test_getting_existing_headers(
     assert discovery_info_by_udn.ssdp_server == "mock-server"
     assert discovery_info_by_udn.ssdp_st == "mock-st"
     assert (
-        discovery_info_by_udn.ssdp_usn
-        == "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL::urn:mdx-netflix-com:service:target:3"
+        discovery_info_by_udn.ssdp_usn == "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL"
+        "::urn:mdx-netflix-com:service:target:3"
     )
     assert discovery_info_by_udn.ssdp_udn == ANY
     assert discovery_info_by_udn.ssdp_headers["_timestamp"] == ANY
@@ -679,7 +662,8 @@ async def test_getting_existing_headers(
     assert discovery_info_by_udn_st.ssdp_st == "mock-st"
     assert (
         discovery_info_by_udn_st.ssdp_usn
-        == "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL::urn:mdx-netflix-com:service:target:3"
+        == "uuid:TIVRTLSR7ANF-D6E-1557809135086-RETAIL"
+        "::urn:mdx-netflix-com:service:target:3"
     )
     assert discovery_info_by_udn_st.ssdp_udn == ANY
     assert discovery_info_by_udn_st.ssdp_headers["_timestamp"] == ANY
@@ -739,7 +723,7 @@ _ADAPTERS_WITH_MANUAL_CONFIG = [
     },
 )
 @patch(
-    "homeassistant.components.ssdp.network.async_get_adapters",
+    "homeassistant.components.ssdp.common.network.async_get_adapters",
     return_value=_ADAPTERS_WITH_MANUAL_CONFIG,
 )
 async def test_async_detect_interfaces_setting_empty_route(
@@ -764,7 +748,7 @@ async def test_async_detect_interfaces_setting_empty_route(
     },
 )
 @patch(
-    "homeassistant.components.ssdp.network.async_get_adapters",
+    "homeassistant.components.ssdp.common.network.async_get_adapters",
     return_value=_ADAPTERS_WITH_MANUAL_CONFIG,
 )
 async def test_bind_failure_skips_adapter(
@@ -778,6 +762,11 @@ async def test_bind_failure_skips_adapter(
     async def _async_start(self):
         if self.source == ("2001:db8::", 0, 0, 1):
             raise OSError
+
+    # The UPnP server needs a presentation URL, which is derived from the
+    # instance URL. In production http is set up before ssdp; set an internal
+    # URL here so get_url() succeeds without relying on http being set up.
+    hass.config.internal_url = "http://10.10.10.10:8123"
 
     SsdpListener.async_start = _async_start
     UpnpServer.async_start = _async_start
@@ -813,7 +802,7 @@ async def test_bind_failure_skips_adapter(
     },
 )
 @patch(
-    "homeassistant.components.ssdp.network.async_get_adapters",
+    "homeassistant.components.ssdp.common.network.async_get_adapters",
     return_value=_ADAPTERS_WITH_MANUAL_CONFIG,
 )
 async def test_ipv4_does_additional_search_for_sonos(
@@ -824,7 +813,7 @@ async def test_ipv4_does_additional_search_for_sonos(
 
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
     await hass.async_block_till_done()
-    async_fire_time_changed(hass, dt_util.utcnow() + ssdp.SCAN_INTERVAL)
+    async_fire_time_changed(hass, dt_util.utcnow() + scanner.SCAN_INTERVAL)
     await hass.async_block_till_done()
 
     assert ssdp_listener.async_search.call_count == 6
@@ -910,12 +899,15 @@ async def test_flow_dismiss_on_byebye(
     )
 
     mock_ssdp_advertisement["nts"] = "ssdp:byebye"
-    # ssdp:byebye advertisement should dismiss existing flows
+    # ssdp:byebye dismisses existing flows, but not one the user is working through
     with (
         patch.object(
             hass.config_entries.flow,
             "async_progress_by_init_data_type",
-            return_value=[{"flow_id": "mock_flow_id"}],
+            return_value=[
+                {"flow_id": "mock_flow_id", "context": {}},
+                {"flow_id": "pairing", "context": {"dismiss_protected": True}},
+            ],
         ) as mock_async_progress_by_init_data_type,
         patch.object(hass.config_entries.flow, "async_abort") as mock_async_abort,
     ):
@@ -923,7 +915,7 @@ async def test_flow_dismiss_on_byebye(
         await hass.async_block_till_done(wait_background_tasks=True)
 
     assert len(mock_async_progress_by_init_data_type.mock_calls) == 1
-    assert mock_async_abort.mock_calls[0][1][0] == "mock_flow_id"
+    assert mock_async_abort.mock_calls == [call("mock_flow_id")]
 
 
 @patch(
@@ -1066,6 +1058,7 @@ async def test_ssdp_rediscover(
 async def test_ssdp_rediscover_no_match(
     mock_get_ssdp,
     hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
     mock_flow_init,
     entry_domain: str,
     entry_discovery_keys: dict[str, tuple[DiscoveryKey, ...]],
@@ -1114,105 +1107,3 @@ async def test_ssdp_rediscover_no_match(
     await hass.async_block_till_done()
 
     assert len(mock_flow_init.mock_calls) == 1
-
-
-@pytest.mark.parametrize(
-    ("constant_name", "replacement_name", "replacement"),
-    [
-        (
-            "SsdpServiceInfo",
-            "homeassistant.helpers.service_info.ssdp.SsdpServiceInfo",
-            SsdpServiceInfo,
-        ),
-        (
-            "ATTR_ST",
-            "homeassistant.helpers.service_info.ssdp.ATTR_ST",
-            ATTR_ST,
-        ),
-        (
-            "ATTR_NT",
-            "homeassistant.helpers.service_info.ssdp.ATTR_NT",
-            ATTR_NT,
-        ),
-        (
-            "ATTR_UPNP_DEVICE_TYPE",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_DEVICE_TYPE",
-            ATTR_UPNP_DEVICE_TYPE,
-        ),
-        (
-            "ATTR_UPNP_FRIENDLY_NAME",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_FRIENDLY_NAME",
-            ATTR_UPNP_FRIENDLY_NAME,
-        ),
-        (
-            "ATTR_UPNP_MANUFACTURER",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_MANUFACTURER",
-            ATTR_UPNP_MANUFACTURER,
-        ),
-        (
-            "ATTR_UPNP_MANUFACTURER_URL",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_MANUFACTURER_URL",
-            ATTR_UPNP_MANUFACTURER_URL,
-        ),
-        (
-            "ATTR_UPNP_MODEL_DESCRIPTION",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_MODEL_DESCRIPTION",
-            ATTR_UPNP_MODEL_DESCRIPTION,
-        ),
-        (
-            "ATTR_UPNP_MODEL_NAME",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_MODEL_NAME",
-            ATTR_UPNP_MODEL_NAME,
-        ),
-        (
-            "ATTR_UPNP_MODEL_NUMBER",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_MODEL_NUMBER",
-            ATTR_UPNP_MODEL_NUMBER,
-        ),
-        (
-            "ATTR_UPNP_MODEL_URL",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_MODEL_URL",
-            ATTR_UPNP_MODEL_URL,
-        ),
-        (
-            "ATTR_UPNP_SERIAL",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_SERIAL",
-            ATTR_UPNP_SERIAL,
-        ),
-        (
-            "ATTR_UPNP_SERVICE_LIST",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_SERVICE_LIST",
-            ATTR_UPNP_SERVICE_LIST,
-        ),
-        (
-            "ATTR_UPNP_UDN",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_UDN",
-            ATTR_UPNP_UDN,
-        ),
-        (
-            "ATTR_UPNP_UPC",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_UPC",
-            ATTR_UPNP_UPC,
-        ),
-        (
-            "ATTR_UPNP_PRESENTATION_URL",
-            "homeassistant.helpers.service_info.ssdp.ATTR_UPNP_PRESENTATION_URL",
-            ATTR_UPNP_PRESENTATION_URL,
-        ),
-    ],
-)
-def test_deprecated_constants(
-    caplog: pytest.LogCaptureFixture,
-    constant_name: str,
-    replacement_name: str,
-    replacement: Any,
-) -> None:
-    """Test deprecated automation constants."""
-    import_and_test_deprecated_constant(
-        caplog,
-        ssdp,
-        constant_name,
-        replacement_name,
-        replacement,
-        "2026.2",
-    )

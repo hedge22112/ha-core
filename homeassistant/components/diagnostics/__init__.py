@@ -1,7 +1,5 @@
 """The Diagnostics integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -10,7 +8,7 @@ import logging
 from typing import Any, Protocol
 
 from aiohttp import web
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import http, websocket_api
 from homeassistant.config_entries import ConfigEntry
@@ -19,8 +17,8 @@ from homeassistant.helpers import (
     config_validation as cv,
     device_registry as dr,
     integration_platform,
+    issue_registry as ir,
 )
-from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.json import (
     ExtendedJSONEncoder,
     find_paths_unserializable_data,
@@ -33,17 +31,24 @@ from homeassistant.loader import (
     async_get_integration,
 )
 from homeassistant.setup import async_get_domain_setup_times
+from homeassistant.util.hass_dict import HassKey
 from homeassistant.util.json import format_unserializable_data
 
 from .const import DOMAIN, REDACTED, DiagnosticsSubType, DiagnosticsType
-from .util import async_redact_data
+from .util import async_redact_data, device_entry_as_dict, entity_entry_as_dict
 
-__all__ = ["REDACTED", "async_redact_data"]
+__all__ = [
+    "REDACTED",
+    "async_redact_data",
+    "device_entry_as_dict",
+    "entity_entry_as_dict",
+]
 
 _LOGGER = logging.getLogger(__name__)
 
 
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
+_DIAGNOSTICS_DATA: HassKey[DiagnosticsData] = HassKey(DOMAIN)
 
 
 @dataclass(slots=True)
@@ -56,7 +61,7 @@ class DiagnosticsPlatformData:
     )
     device_diagnostics: (
         Callable[
-            [HomeAssistant, ConfigEntry, DeviceEntry],
+            [HomeAssistant, ConfigEntry, dr.AnyDeviceEntry],
             Coroutine[Any, Any, Mapping[str, Any]],
         ]
         | None
@@ -71,8 +76,8 @@ class DiagnosticsData:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up Diagnostics from a config entry."""
-    hass.data[DOMAIN] = DiagnosticsData()
+    """Set up Diagnostics integration."""
+    hass.data[_DIAGNOSTICS_DATA] = DiagnosticsData()
 
     await integration_platform.async_process_integration_platforms(
         hass, DOMAIN, _register_diagnostics_platform
@@ -94,9 +99,12 @@ class DiagnosticsProtocol(Protocol):
         """Return diagnostics for a config entry."""
 
     async def async_get_device_diagnostics(
-        self, hass: HomeAssistant, config_entry: ConfigEntry, device: DeviceEntry
+        self, hass: HomeAssistant, config_entry: ConfigEntry, device: dr.AnyDeviceEntry
     ) -> Mapping[str, Any]:
-        """Return diagnostics for a device."""
+        """Return diagnostics for a device.
+
+        Only integrations that register child devices can receive a child device.
+        """
 
 
 @callback
@@ -104,7 +112,7 @@ def _register_diagnostics_platform(
     hass: HomeAssistant, integration_domain: str, platform: DiagnosticsProtocol
 ) -> None:
     """Register a diagnostics platform."""
-    diagnostics_data: DiagnosticsData = hass.data[DOMAIN]
+    diagnostics_data = hass.data[_DIAGNOSTICS_DATA]
     diagnostics_data.platforms[integration_domain] = DiagnosticsPlatformData(
         getattr(platform, "async_get_config_entry_diagnostics", None),
         getattr(platform, "async_get_device_diagnostics", None),
@@ -112,13 +120,13 @@ def _register_diagnostics_platform(
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "diagnostics/list"})
+@websocket_api.websocket_command({probatio.Required("type"): "diagnostics/list"})
 @callback
 def handle_info(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
     """List all possible diagnostic handlers."""
-    diagnostics_data: DiagnosticsData = hass.data[DOMAIN]
+    diagnostics_data = hass.data[_DIAGNOSTICS_DATA]
     result = [
         {
             "domain": domain,
@@ -135,8 +143,8 @@ def handle_info(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "diagnostics/get",
-        vol.Required("domain"): str,
+        probatio.Required("type"): "diagnostics/get",
+        probatio.Required("domain"): str,
     }
 )
 @callback
@@ -145,7 +153,7 @@ def handle_get(
 ) -> None:
     """List all diagnostic handlers for a domain."""
     domain = msg["domain"]
-    diagnostics_data: DiagnosticsData = hass.data[DOMAIN]
+    diagnostics_data = hass.data[_DIAGNOSTICS_DATA]
 
     if (info := diagnostics_data.platforms.get(domain)) is None:
         connection.send_error(
@@ -185,6 +193,7 @@ def async_format_manifest(manifest: Manifest) -> Manifest:
 async def _async_get_json_file_response(
     hass: HomeAssistant,
     data: Mapping[str, Any],
+    data_issues: list[dict[str, Any]] | None,
     filename: str,
     domain: str,
     d_id: str,
@@ -211,6 +220,8 @@ async def _async_get_json_file_response(
         "setup_times": async_get_domain_setup_times(hass, domain),
         "data": data,
     }
+    if data_issues is not None:
+        payload["issues"] = data_issues
     try:
         json_data = json.dumps(payload, indent=2, cls=ExtendedJSONEncoder)
     except TypeError:
@@ -239,6 +250,7 @@ class DownloadDiagnosticsView(http.HomeAssistantView):
     extra_urls = ["/api/diagnostics/{d_type}/{d_id}/{sub_type}/{sub_id}"]
     name = "api:diagnostics"
 
+    @http.require_admin
     async def get(
         self,
         request: web.Request,
@@ -267,11 +279,19 @@ class DownloadDiagnosticsView(http.HomeAssistantView):
         if (config_entry := hass.config_entries.async_get_entry(d_id)) is None:
             return web.Response(status=HTTPStatus.NOT_FOUND)
 
-        diagnostics_data: DiagnosticsData = hass.data[DOMAIN]
+        diagnostics_data = hass.data[_DIAGNOSTICS_DATA]
         if (info := diagnostics_data.platforms.get(config_entry.domain)) is None:
             return web.Response(status=HTTPStatus.NOT_FOUND)
 
         filename = f"{config_entry.domain}-{config_entry.entry_id}"
+
+        issue_registry = ir.async_get(hass)
+        issues = issue_registry.issues
+        data_issues = [
+            issue_reg.to_json()
+            for issue_id, issue_reg in issues.items()
+            if issue_id[0] == config_entry.domain
+        ]
 
         if not device_diagnostics:
             # Config entry diagnostics
@@ -280,7 +300,7 @@ class DownloadDiagnosticsView(http.HomeAssistantView):
             data = await info.config_entry_diagnostics(hass, config_entry)
             filename = f"{DiagnosticsType.CONFIG_ENTRY}-{filename}"
             return await _async_get_json_file_response(
-                hass, data, filename, config_entry.domain, d_id
+                hass, data, data_issues, filename, config_entry.domain, d_id
             )
 
         # Device diagnostics
@@ -288,7 +308,16 @@ class DownloadDiagnosticsView(http.HomeAssistantView):
         if sub_id is None:
             return web.Response(status=HTTPStatus.BAD_REQUEST)
 
-        if (device := dev_reg.async_get(sub_id)) is None:
+        # Reject unknown and composite device which spans multiple config entries and
+        # has no single owner; not supported.
+        if (
+            device := dev_reg.async_get(sub_id, include_composite_devices=False)
+        ) is None:
+            return web.Response(status=HTTPStatus.NOT_FOUND)
+
+        # Reject a device not owned by this config entry; without this a foreign
+        # (possibly child) device would be handed to the integration's handler.
+        if device.config_entry_id != config_entry.entry_id:
             return web.Response(status=HTTPStatus.NOT_FOUND)
 
         filename += f"-{device.name}-{device.id}"
@@ -298,5 +327,5 @@ class DownloadDiagnosticsView(http.HomeAssistantView):
 
         data = await info.device_diagnostics(hass, config_entry, device)
         return await _async_get_json_file_response(
-            hass, data, filename, config_entry.domain, d_id, sub_id
+            hass, data, data_issues, filename, config_entry.domain, d_id, sub_id
         )

@@ -1,10 +1,7 @@
 """The jvc_projector integration."""
 
-from __future__ import annotations
+from jvcprojector import JvcProjector, JvcProjectorAuthError, JvcProjectorTimeoutError
 
-from jvcprojector import JvcProjector, JvcProjectorAuthError, JvcProjectorConnectError
-
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -12,14 +9,19 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers.entity_registry import RegistryEntry, async_migrate_entries
 
-from .coordinator import JvcProjectorDataUpdateCoordinator
+from .coordinator import JVCConfigEntry, JvcProjectorDataUpdateCoordinator
 
-type JVCConfigEntry = ConfigEntry[JvcProjectorDataUpdateCoordinator]
-
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.REMOTE, Platform.SELECT, Platform.SENSOR]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.REMOTE,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: JVCConfigEntry) -> bool:
@@ -31,8 +33,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: JVCConfigEntry) -> bool:
     )
 
     try:
-        await device.connect(True)
-    except JvcProjectorConnectError as err:
+        await device.connect()
+    except JvcProjectorTimeoutError as err:
         await device.disconnect()
         raise ConfigEntryNotReady(
             f"Unable to connect to {entry.data[CONF_HOST]}"
@@ -41,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: JVCConfigEntry) -> bool:
         await device.disconnect()
         raise ConfigEntryAuthFailed("Password authentication failed") from err
 
-    coordinator = JvcProjectorDataUpdateCoordinator(hass, device)
+    coordinator = JvcProjectorDataUpdateCoordinator(hass, entry, device)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
@@ -53,6 +55,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: JVCConfigEntry) -> bool:
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, disconnect)
     )
 
+    await async_migrate_entities(hass, entry, coordinator)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
@@ -63,3 +67,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: JVCConfigEntry) -> bool
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         await entry.runtime_data.device.disconnect()
     return unload_ok
+
+
+async def async_migrate_entities(
+    hass: HomeAssistant,
+    config_entry: JVCConfigEntry,
+    coordinator: JvcProjectorDataUpdateCoordinator,
+) -> None:
+    """Migrate old entities as needed."""
+
+    @callback
+    def _update_entry(entry: RegistryEntry) -> dict[str, str] | None:
+        """Fix unique_id of power binary_sensor entry."""
+        if entry.domain == Platform.BINARY_SENSOR and ":" not in entry.unique_id:
+            if entry.unique_id.endswith("_power"):
+                return {"new_unique_id": f"{coordinator.unique_id}_power"}
+        return None
+
+    await async_migrate_entries(hass, config_entry.entry_id, _update_entry)

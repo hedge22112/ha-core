@@ -1,10 +1,8 @@
 """Support for interface with an Samsung TV."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, override
 
 from async_upnp_client.aiohttp import AiohttpNotifyServer, AiohttpSessionRequester
 from async_upnp_client.client import UpnpDevice, UpnpService, UpnpStateVariable
@@ -19,7 +17,7 @@ from async_upnp_client.exceptions import (
 )
 from async_upnp_client.profiles.dlna import DmrDevice
 from async_upnp_client.utils import async_get_local_ip
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
@@ -29,15 +27,15 @@ from homeassistant.components.media_player import (
     MediaType,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.async_ import create_eager_task
 
-from . import SamsungTVConfigEntry
 from .bridge import SamsungTVWSBridge
-from .const import CONF_SSDP_RENDERING_CONTROL_LOCATION, LOGGER
-from .coordinator import SamsungTVDataUpdateCoordinator
+from .const import CONF_SSDP_RENDERING_CONTROL_LOCATION, DOMAIN, LOGGER
+from .coordinator import SamsungTVConfigEntry, SamsungTVDataUpdateCoordinator
 from .entity import SamsungTVEntity
 
 SOURCES = {"TV": "KEY_TV", "HDMI": "KEY_HDMI"}
@@ -60,11 +58,14 @@ SUPPORT_SAMSUNGTV = (
 # Max delay waiting for app_list to return, as some TVs simply ignore the request
 APP_LIST_DELAY = 3
 
+# Coordinator is used to centralize the data updates
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SamsungTVConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Samsung TV from a config entry."""
     coordinator = entry.runtime_data
@@ -93,19 +94,14 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
         self._app_list_event: asyncio.Event = asyncio.Event()
 
         self._attr_supported_features = SUPPORT_SAMSUNGTV
-        if self._mac:
-            # (deprecated) add turn-on if mac is available
-            # Triggers have not yet been registered so this is adjusted in the property
-            self._attr_supported_features |= MediaPlayerEntityFeature.TURN_ON
         if self._ssdp_rendering_control_location:
             self._attr_supported_features |= MediaPlayerEntityFeature.VOLUME_SET
-
-        self._bridge.register_app_list_callback(self._app_list_callback)
 
         self._dmr_device: DmrDevice | None = None
         self._upnp_server: AiohttpNotifyServer | None = None
 
     @property
+    @override
     def supported_features(self) -> MediaPlayerEntityFeature:
         """Flag media player features that are supported."""
         # `turn_on` triggers are not yet registered during initialisation,
@@ -125,23 +121,29 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
         self._update_sources()
         self._app_list_event.set()
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
+
+        self._bridge.register_app_list_callback(self._app_list_callback)
         await self._async_extra_update()
         self.coordinator.async_extra_update = self._async_extra_update
+
         if self.coordinator.is_on:
             self._attr_state = MediaPlayerState.ON
             self._update_from_upnp()
         else:
             self._attr_state = MediaPlayerState.OFF
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Handle removal."""
         self.coordinator.async_extra_update = None
         await self._async_shutdown_dmr()
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle data update."""
         if self.coordinator.is_on:
@@ -297,10 +299,7 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
             return
         await self._bridge.async_send_keys(keys)
 
-    async def async_turn_off(self) -> None:
-        """Turn off media player."""
-        await super()._async_turn_off()
-
+    @override
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level on the media player."""
         if (dmr_device := self._dmr_device) is None:
@@ -309,20 +308,29 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
         try:
             await dmr_device.async_set_volume_level(volume)
         except UpnpActionResponseError as err:
-            LOGGER.warning("Unable to set volume level on %s: %r", self._host, err)
+            assert self._host
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="error_set_volume",
+                translation_placeholders={"error": repr(err), "host": self._host},
+            ) from err
 
+    @override
     async def async_volume_up(self) -> None:
         """Volume up the media player."""
         await self._async_send_keys(["KEY_VOLUP"])
 
+    @override
     async def async_volume_down(self) -> None:
         """Volume down media player."""
         await self._async_send_keys(["KEY_VOLDOWN"])
 
+    @override
     async def async_mute_volume(self, mute: bool) -> None:
         """Send mute command."""
         await self._async_send_keys(["KEY_MUTE"])
 
+    @override
     async def async_media_play_pause(self) -> None:
         """Simulate play pause media player."""
         if self._playing:
@@ -330,24 +338,29 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
         else:
             await self.async_media_play()
 
+    @override
     async def async_media_play(self) -> None:
         """Send play command."""
         self._playing = True
         await self._async_send_keys(["KEY_PLAY"])
 
+    @override
     async def async_media_pause(self) -> None:
         """Send media pause command to media player."""
         self._playing = False
         await self._async_send_keys(["KEY_PAUSE"])
 
+    @override
     async def async_media_next_track(self) -> None:
         """Send next track command."""
         await self._async_send_keys(["KEY_CHUP"])
 
+    @override
     async def async_media_previous_track(self) -> None:
         """Send the previous track command."""
         await self._async_send_keys(["KEY_CHDOWN"])
 
+    @override
     async def async_play_media(
         self, media_type: MediaType | str, media_id: str, **kwargs: Any
     ) -> None:
@@ -363,18 +376,17 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
         # media_id should only be a channel number
         try:
             cv.positive_int(media_id)
-        except vol.Invalid:
-            LOGGER.error("Media ID must be positive integer")
-            return
+        except probatio.Invalid as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="media_id_invalid",
+            ) from err
 
         await self._async_send_keys(
             keys=[f"KEY_{digit}" for digit in media_id] + ["KEY_ENTER"]
         )
 
-    async def async_turn_on(self) -> None:
-        """Turn the media player on."""
-        await super()._async_turn_on()
-
+    @override
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
         if self._app_list and source in self._app_list:
@@ -385,4 +397,8 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
             await self._async_send_keys([SOURCES[source]])
             return
 
-        LOGGER.error("Unsupported source")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="source_unsupported",
+            translation_placeholders={"entity": self.entity_id, "source": source},
+        )

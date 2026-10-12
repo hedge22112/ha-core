@@ -1,11 +1,10 @@
 """Support for LG ThinQ Connect device."""
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass, field
 import logging
 
+from aiohttp import ClientError
 from thinqconnect import ThinQApi, ThinQAPIException
 from thinqconnect.integration import async_get_ha_bridge_list
 
@@ -22,7 +21,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import CONF_CONNECT_CLIENT_ID, MQTT_SUBSCRIPTION_INTERVAL
+from .const import CONF_CONNECT_CLIENT_ID, DOMAIN, MQTT_SUBSCRIPTION_INTERVAL
 from .coordinator import DeviceDataUpdateCoordinator, async_setup_device_coordinator
 from .mqtt import ThinQMQTT
 
@@ -42,11 +41,13 @@ PLATFORMS = [
     Platform.CLIMATE,
     Platform.EVENT,
     Platform.FAN,
+    Platform.HUMIDIFIER,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
     Platform.VACUUM,
+    Platform.WATER_HEATER,
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,11 +71,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ThinqConfigEntry) -> boo
     # Setup coordinators and register devices.
     await async_setup_coordinators(hass, entry, thinq_api)
 
+    # Set up MQTT connection before the platforms, as it can still raise
+    # ConfigEntryNotReady and forwarded platforms would not be unloaded.
+    await async_setup_mqtt(hass, entry, thinq_api, client_id)
+
     # Set up all platforms for this device/entry.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Set up MQTT connection.
-    await async_setup_mqtt(hass, entry, thinq_api, client_id)
 
     # Clean up devices they are no longer in use.
     async_cleanup_device_registry(hass, entry)
@@ -93,6 +95,11 @@ async def async_setup_coordinators(
         bridge_list = await async_get_ha_bridge_list(thinq_api)
     except ThinQAPIException as exc:
         raise ConfigEntryNotReady(exc.message) from exc
+    except (ClientError, TimeoutError) as exc:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="connection_error",
+        ) from exc
 
     if not bridge_list:
         _LOGGER.warning("No devices registered with the correct profile")
@@ -100,7 +107,7 @@ async def async_setup_coordinators(
 
     # Setup coordinator per device.
     task_list = [
-        hass.async_create_task(async_setup_device_coordinator(hass, bridge))
+        hass.async_create_task(async_setup_device_coordinator(hass, entry, bridge))
         for bridge in bridge_list
     ]
     task_result = await asyncio.gather(*task_list)
@@ -136,7 +143,23 @@ async def async_setup_mqtt(
     entry.runtime_data.mqtt_client = mqtt_client
 
     # Try to connect.
-    result = await mqtt_client.async_connect()
+    try:
+        result = await mqtt_client.async_connect()
+    except (AttributeError, ThinQAPIException, TypeError, ValueError) as exc:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="failed_to_connect_mqtt",
+            translation_placeholders={"error": str(exc)},
+        ) from exc
+    except (ClientError, TimeoutError) as exc:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="connection_error",
+        ) from exc
+
+    # Also runs when setup fails after this point, unlike async_unload_entry
+    entry.async_on_unload(mqtt_client.async_disconnect)
+
     if not result:
         _LOGGER.error("Failed to set up mqtt connection")
         return
@@ -161,7 +184,4 @@ async def async_setup_mqtt(
 
 async def async_unload_entry(hass: HomeAssistant, entry: ThinqConfigEntry) -> bool:
     """Unload the entry."""
-    if entry.runtime_data.mqtt_client:
-        await entry.runtime_data.mqtt_client.async_disconnect()
-
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

@@ -13,7 +13,7 @@ from homeassistant.components.switch import (
     SERVICE_TURN_ON,
 )
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID, Platform
+from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -37,8 +37,8 @@ async def test_entities(
     await snapshot_platform(hass, entity_registry, snapshot, mock_config_entry.entry_id)
 
     # Ensure all entities are correctly assigned to the Peblar EV charger
-    device_entry = device_registry.async_get_device(
-        identifiers={(DOMAIN, "23-45-A4O-MOF")}
+    device_entry = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "23-45-A4O-MOF"), mock_config_entry.entry_id
     )
     assert device_entry
     entity_entries = er.async_entries_for_config_entry(
@@ -49,10 +49,32 @@ async def test_entities(
 
 
 @pytest.mark.parametrize(
-    ("service", "force_single_phase"),
+    ("service", "entity_id", "parameter", "parameter_value"),
     [
-        (SERVICE_TURN_ON, True),
-        (SERVICE_TURN_OFF, False),
+        (
+            SERVICE_TURN_ON,
+            "switch.peblar_ev_charger_force_single_phase",
+            "force_single_phase",
+            True,
+        ),
+        (
+            SERVICE_TURN_OFF,
+            "switch.peblar_ev_charger_force_single_phase",
+            "force_single_phase",
+            False,
+        ),
+        (
+            SERVICE_TURN_ON,
+            "switch.peblar_ev_charger_charge",
+            "charge_current_limit",
+            16,
+        ),
+        (
+            SERVICE_TURN_OFF,
+            "switch.peblar_ev_charger_charge",
+            "charge_current_limit",
+            0,
+        ),
     ],
 )
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
@@ -60,10 +82,11 @@ async def test_switch(
     hass: HomeAssistant,
     mock_peblar: MagicMock,
     service: str,
-    force_single_phase: bool,
+    entity_id: str,
+    parameter: str,
+    parameter_value: bool | int,
 ) -> None:
     """Test the Peblar EV charger switches."""
-    entity_id = "switch.peblar_ev_charger_force_single_phase"
     mocked_method = mock_peblar.rest_api.return_value.ev_interface
     mocked_method.reset_mock()
 
@@ -76,9 +99,7 @@ async def test_switch(
     )
 
     assert len(mocked_method.mock_calls) == 2
-    mocked_method.mock_calls[0].assert_called_with(
-        {"force_single_phase": force_single_phase}
-    )
+    mocked_method.mock_calls[0].assert_called_with({parameter: parameter_value})
 
 
 @pytest.mark.parametrize(
@@ -181,3 +202,88 @@ async def test_switch_authentication_error(
     assert "context" in flow
     assert flow["context"].get("source") == SOURCE_REAUTH
     assert flow["context"].get("entry_id") == mock_config_entry.entry_id
+
+
+@pytest.mark.parametrize(
+    ("service", "locked"),
+    [(SERVICE_TURN_ON, True), (SERVICE_TURN_OFF, False)],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_keep_socket_locked(
+    hass: HomeAssistant,
+    mock_peblar: MagicMock,
+    service: str,
+    locked: bool,
+) -> None:
+    """Test the keep socket locked switch, which writes the user configuration."""
+    entity_id = "switch.peblar_ev_charger_keep_socket_locked"
+
+    # UserKeepSocketLocked is false in the fixture.
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_OFF
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    mock_peblar.socket_lock.assert_called_once_with(locked=locked)
+
+
+@pytest.mark.parametrize("mock_peblar", [{"HwHasSocket": False}], indirect=True)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_keep_socket_locked_absent_without_socket(hass: HomeAssistant) -> None:
+    """A charger with a fixed cable has no socket to keep locked."""
+    assert hass.states.get("switch.peblar_ev_charger_keep_socket_locked") is None
+
+
+@pytest.mark.parametrize(
+    ("service", "always_charge"),
+    [(SERVICE_TURN_ON, True), (SERVICE_TURN_OFF, False)],
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_custom_solar_always_charge(
+    hass: HomeAssistant,
+    mock_peblar: MagicMock,
+    service: str,
+    always_charge: bool,
+) -> None:
+    """Test the switch that lets custom solar skip its own threshold."""
+    entity_id = "switch.peblar_ev_charger_custom_solar_always_charge"
+
+    # SolarChargingCustomAlwaysCharge is false in the fixture.
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == STATE_OFF
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    mock_peblar.update_user_configuration.assert_called_once()
+    written = mock_peblar.update_user_configuration.call_args.args[0]
+    assert written.solar_charging_custom_always_charge is always_charge
+    assert written.solar_charging_custom_power_target is None
+
+
+@pytest.mark.parametrize(
+    "mock_peblar",
+    [
+        {"SolarChargingCustomPowerTarget": None},
+        {"SolarChargingAllowed": False},
+    ],
+    ids=["firmware without custom solar", "no power meter configured"],
+    indirect=True,
+)
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_custom_solar_always_charge_absent(hass: HomeAssistant) -> None:
+    """Test a charger that cannot do custom solar is not offered the switch."""
+    assert (
+        hass.states.get("switch.peblar_ev_charger_custom_solar_always_charge") is None
+    )

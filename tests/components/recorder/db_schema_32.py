@@ -4,8 +4,6 @@ This file contains the model definitions for schema version 30.
 It is used to test the schema migration logic.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import datetime, timedelta
 import logging
@@ -51,7 +49,7 @@ from homeassistant.const import (
 from homeassistant.core import Context, Event, EventOrigin, State, split_entity_id
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.json import JSON_DUMP, json_bytes
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 from homeassistant.util.json import JSON_DECODE_EXCEPTIONS, json_loads
 
 ALL_DOMAIN_EXCLUDE_ATTRS = {ATTR_ATTRIBUTION, ATTR_RESTORED, ATTR_SUPPORTED_FEATURES}
@@ -405,19 +403,21 @@ class States(Base):  # type: ignore[misc,valid-type]
     def __repr__(self) -> str:
         """Return string representation of instance for debugging."""
         return (
-            f"<recorder.States(id={self.state_id}, entity_id='{self.entity_id}',"
+            f"<recorder.States(id={self.state_id},"
+            f" entity_id='{self.entity_id}',"
             f" state='{self.state}', event_id='{self.event_id}',"
-            f" last_updated='{self.last_updated.isoformat(sep=' ', timespec='seconds')}',"
-            f" old_state_id={self.old_state_id}, attributes_id={self.attributes_id})>"
+            f" last_updated="
+            f"'{self.last_updated.isoformat(sep=' ', timespec='seconds')}',"
+            f" old_state_id={self.old_state_id},"
+            f" attributes_id={self.attributes_id})>"
         )
 
     @staticmethod
     def from_event(event: Event) -> States:
         """Create object from a state_changed event."""
-        entity_id = event.data["entity_id"]
         state: State | None = event.data.get("new_state")
         dbstate = States(
-            entity_id=entity_id,
+            entity_id=None,
             attributes=None,
             context_id=event.context.id,
             context_user_id=event.context.user_id,
@@ -583,6 +583,8 @@ class StatisticsBase:
     last_reset_ts = Column(TIMESTAMP_TYPE)
     state = Column(DOUBLE_TYPE)
     sum = Column(DOUBLE_TYPE)
+    # *** Not originally in v32, only added for tests. Added in v49
+    mean_weight = Column(DOUBLE_TYPE)
 
     @classmethod
     def from_stats(cls, metadata_id: int, stats: StatisticData) -> Self:

@@ -1,6 +1,9 @@
 """Support for HLK-SW16 relay switches."""
 
 import logging
+from typing import override
+
+from hlk_sw16.protocol import SW16Client
 
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -17,12 +20,12 @@ class SW16Entity(Entity):
 
     _attr_should_poll = False
 
-    def __init__(self, device_port, entry_id, client):
+    def __init__(self, device_port: str, entry_id: str, client: SW16Client) -> None:
         """Initialize the device."""
         # HLK-SW16 specific attributes for every component type
         self._entry_id = entry_id
         self._device_port = device_port
-        self._is_on = None
+        self._is_on: bool | None = None
         self._client = client
         self._attr_name = device_port
         self._attr_unique_id = f"{self._entry_id}_{self._device_port}"
@@ -35,7 +38,8 @@ class SW16Entity(Entity):
         self.async_write_ha_state()
 
     @property
-    def available(self):
+    @override
+    def available(self) -> bool:
         """Return True if entity is available."""
         return bool(self._client.is_connected)
 
@@ -44,7 +48,8 @@ class SW16Entity(Entity):
         """Update availability state."""
         self.async_write_ha_state()
 
-    async def async_added_to_hass(self):
+    @override
+    async def async_added_to_hass(self) -> None:
         """Register update callback."""
         self._client.register_status_callback(
             self.handle_event_callback, self._device_port

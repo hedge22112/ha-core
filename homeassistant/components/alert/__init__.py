@@ -1,21 +1,19 @@
-"""Support for repeating alerts when conditions are met."""
+"""Support for repeating alerts when conditions are met.
 
-from __future__ import annotations
+DEVELOPMENT OF THE ALERT INTEGRATION IS FROZEN.
+"""
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.const import (
     CONF_ENTITY_ID,
     CONF_NAME,
     CONF_REPEAT,
     CONF_STATE,
-    SERVICE_TOGGLE,
-    SERVICE_TURN_OFF,
-    SERVICE_TURN_ON,
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.helpers.typing import ConfigType
 
@@ -27,44 +25,51 @@ from .const import (
     CONF_NOTIFIERS,
     CONF_SKIP_FIRST,
     CONF_TITLE,
+    DATA_COMPONENT,
     DEFAULT_CAN_ACK,
     DEFAULT_SKIP_FIRST,
     DOMAIN,
     LOGGER,
 )
 from .entity import AlertEntity
+from .services import async_setup_services
 
-ALERT_SCHEMA = vol.Schema(
+ALERT_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_NAME): cv.string,
-        vol.Required(CONF_ENTITY_ID): cv.entity_id,
-        vol.Optional(CONF_STATE, default=STATE_ON): cv.string,
-        vol.Required(CONF_REPEAT): vol.All(
-            cv.ensure_list,
-            [vol.Coerce(float)],
+        probatio.Required(CONF_NAME): cv.string,
+        probatio.Required(CONF_ENTITY_ID): cv.entity_id,
+        probatio.Optional(CONF_STATE, default=STATE_ON): cv.string,
+        probatio.Required(CONF_REPEAT): probatio.All(
+            probatio.EnsureList(),
+            [probatio.Coerce(float)],
             # Minimum delay is 1 second = 0.016 minutes
-            [vol.Range(min=0.016)],
+            [probatio.Range(min=0.016)],
         ),
-        vol.Optional(CONF_CAN_ACK, default=DEFAULT_CAN_ACK): cv.boolean,
-        vol.Optional(CONF_SKIP_FIRST, default=DEFAULT_SKIP_FIRST): cv.boolean,
-        vol.Optional(CONF_ALERT_MESSAGE): cv.template,
-        vol.Optional(CONF_DONE_MESSAGE): cv.template,
-        vol.Optional(CONF_TITLE): cv.template,
-        vol.Optional(CONF_DATA): dict,
-        vol.Optional(CONF_NOTIFIERS, default=list): vol.All(
-            cv.ensure_list, [cv.string]
+        probatio.Optional(CONF_CAN_ACK, default=DEFAULT_CAN_ACK): cv.boolean,
+        probatio.Optional(CONF_SKIP_FIRST, default=DEFAULT_SKIP_FIRST): cv.boolean,
+        probatio.Optional(CONF_ALERT_MESSAGE): cv.template,
+        probatio.Optional(CONF_DONE_MESSAGE): cv.template,
+        probatio.Optional(CONF_TITLE): cv.template,
+        probatio.Optional(CONF_DATA): dict,
+        probatio.Optional(CONF_NOTIFIERS, default=list): probatio.All(
+            probatio.EnsureList(), [cv.string]
         ),
     }
 )
 
-CONFIG_SCHEMA = vol.Schema(
-    {DOMAIN: cv.schema_with_slug_keys(ALERT_SCHEMA)}, extra=vol.ALLOW_EXTRA
+CONFIG_SCHEMA = probatio.Schema(
+    {DOMAIN: cv.schema_with_slug_keys(ALERT_SCHEMA)}, extra=probatio.ALLOW_EXTRA
 )
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Alert component."""
-    component = EntityComponent[AlertEntity](LOGGER, DOMAIN, hass)
+    """Set up the Alert component.
+
+    DEVELOPMENT OF THE ALERT INTEGRATION IS FROZEN.
+    """
+    component = hass.data[DATA_COMPONENT] = EntityComponent[AlertEntity](
+        LOGGER, DOMAIN, hass
+    )
 
     entities: list[AlertEntity] = []
 
@@ -105,9 +110,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if not entities:
         return False
 
-    component.async_register_entity_service(SERVICE_TURN_OFF, None, "async_turn_off")
-    component.async_register_entity_service(SERVICE_TURN_ON, None, "async_turn_on")
-    component.async_register_entity_service(SERVICE_TOGGLE, None, "async_toggle")
+    async_setup_services(hass)
 
     await component.async_add_entities(entities)
 

@@ -1,16 +1,18 @@
 # serializer version: 1
 # name: test_states[siren.downstairs_siren-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': dict({
-      'available_tones': list([
+      <SirenEntityCapabilityAttribute.AVAILABLE_TONES: 'available_tones'>: list([
         'ding',
         'motion',
       ]),
     }),
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -24,6 +26,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Siren',
     'options': dict({
     }),
     'original_device_class': None,
@@ -31,6 +34,7 @@
     'original_name': 'Siren',
     'platform': 'ring',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <SirenEntityFeature: 5>,
     'translation_key': 'siren',
     'unique_id': '123456-siren',
@@ -40,13 +44,13 @@
 # name: test_states[siren.downstairs_siren-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'attribution': 'Data provided by Ring.com',
-      'available_tones': list([
+      <EntityStateAttribute.ATTRIBUTION: 'attribution'>: 'Data provided by Ring.com',
+      <SirenEntityCapabilityAttribute.AVAILABLE_TONES: 'available_tones'>: list([
         'ding',
         'motion',
       ]),
-      'friendly_name': 'Downstairs Siren',
-      'supported_features': <SirenEntityFeature: 5>,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Downstairs Siren',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <SirenEntityFeature: 5>,
     }),
     'context': <ANY>,
     'entity_id': 'siren.downstairs_siren',
@@ -58,11 +62,13 @@
 # ---
 # name: test_states[siren.front_siren-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -76,6 +82,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Siren',
     'options': dict({
     }),
     'original_device_class': None,
@@ -83,6 +90,7 @@
     'original_name': 'Siren',
     'platform': 'ring',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <SirenEntityFeature: 3>,
     'translation_key': 'siren',
     'unique_id': '765432',
@@ -92,9 +100,9 @@
 # name: test_states[siren.front_siren-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'attribution': 'Data provided by Ring.com',
-      'friendly_name': 'Front Siren',
-      'supported_features': <SirenEntityFeature: 3>,
+      <EntityStateAttribute.ATTRIBUTION: 'attribution'>: 'Data provided by Ring.com',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Front Siren',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <SirenEntityFeature: 3>,
     }),
     'context': <ANY>,
     'entity_id': 'siren.front_siren',
@@ -106,11 +114,13 @@
 # ---
 # name: test_states[siren.internal_siren-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -124,6 +134,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Siren',
     'options': dict({
     }),
     'original_device_class': None,
@@ -131,6 +142,7 @@
     'original_name': 'Siren',
     'platform': 'ring',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': <SirenEntityFeature: 3>,
     'translation_key': 'siren',
     'unique_id': '345678',
@@ -140,9 +152,9 @@
 # name: test_states[siren.internal_siren-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'attribution': 'Data provided by Ring.com',
-      'friendly_name': 'Internal Siren',
-      'supported_features': <SirenEntityFeature: 3>,
+      <EntityStateAttribute.ATTRIBUTION: 'attribution'>: 'Data provided by Ring.com',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Internal Siren',
+      <EntityStateAttribute.SUPPORTED_FEATURES: 'supported_features'>: <SirenEntityFeature: 3>,
     }),
     'context': <ANY>,
     'entity_id': 'siren.internal_siren',

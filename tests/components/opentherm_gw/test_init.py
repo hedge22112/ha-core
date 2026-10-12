@@ -2,20 +2,15 @@
 
 from unittest.mock import MagicMock
 
+import pyotgw.vars as gw_vars
 from pyotgw.vars import OTGW, OTGW_ABOUT
 
-from homeassistant import setup
 from homeassistant.components.opentherm_gw.const import (
     DOMAIN,
     OpenThermDeviceIdentifier,
 )
-from homeassistant.const import CONF_ID
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import (
-    device_registry as dr,
-    entity_registry as er,
-    issue_registry as ir,
-)
+from homeassistant.helpers import device_registry as dr
 
 from .conftest import MOCK_GATEWAY_ID, VERSION_TEST
 
@@ -37,8 +32,9 @@ async def test_device_registry_insert(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    gw_dev = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.GATEWAY}")}
+    gw_dev = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.GATEWAY}"),
+        mock_config_entry.entry_id,
     )
     assert gw_dev is not None
     assert gw_dev.sw_version == VERSION_TEST
@@ -69,109 +65,64 @@ async def test_device_registry_update(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    gw_dev = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.GATEWAY}")}
+    gw_dev = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.GATEWAY}"),
+        mock_config_entry.entry_id,
     )
     assert gw_dev is not None
     assert gw_dev.sw_version == VERSION_NEW
 
 
-# Device migration test can be removed in 2025.4.0
-async def test_device_migration(
+async def test_device_registry_report_numeric_fields(
     hass: HomeAssistant,
     device_registry: dr.DeviceRegistry,
     mock_config_entry: MockConfigEntry,
     mock_pyotgw: MagicMock,
 ) -> None:
-    """Test that the device registry is updated correctly."""
+    """Test that numeric device info fields from reports are cast to strings."""
     mock_config_entry.add_to_hass(hass)
-
-    device_registry.async_get_or_create(
-        config_entry_id=mock_config_entry.entry_id,
-        identifiers={
-            (DOMAIN, MOCK_GATEWAY_ID),
-        },
-        name="Mock Gateway",
-        manufacturer="Schelte Bron",
-        model="OpenTherm Gateway",
-        sw_version=VERSION_TEST,
-    )
 
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    assert (
-        device_registry.async_get_device(identifiers={(DOMAIN, MOCK_GATEWAY_ID)})
-        is None
+    subscribe_call = mock_pyotgw.return_value.subscribe
+    assert subscribe_call.call_count == 1
+    report_callback = subscribe_call.call_args[0][0]
+
+    await report_callback(
+        {
+            gw_vars.BOILER: {
+                gw_vars.DATA_SLAVE_MEMBERID: 42,
+                gw_vars.DATA_SLAVE_PRODUCT_TYPE: 3,
+                gw_vars.DATA_SLAVE_PRODUCT_VERSION: 7,
+                gw_vars.DATA_SLAVE_OT_VERSION: 2.5,
+            },
+            gw_vars.THERMOSTAT: {
+                gw_vars.DATA_MASTER_MEMBERID: 10,
+                gw_vars.DATA_MASTER_PRODUCT_TYPE: 1,
+                gw_vars.DATA_MASTER_PRODUCT_VERSION: 4,
+                gw_vars.DATA_MASTER_OT_VERSION: 3.0,
+            },
+        }
     )
-
-    gw_dev = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.GATEWAY}")}
-    )
-    assert gw_dev is not None
-
-    assert (
-        device_registry.async_get_device(
-            identifiers={
-                (DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.BOILER}")
-            }
-        )
-        is not None
-    )
-
-    assert (
-        device_registry.async_get_device(
-            identifiers={
-                (DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.THERMOSTAT}")
-            }
-        )
-        is not None
-    )
-
-
-# Entity migration test can be removed in 2025.4.0
-async def test_climate_entity_migration(
-    hass: HomeAssistant,
-    entity_registry: er.EntityRegistry,
-    mock_config_entry: MockConfigEntry,
-    mock_pyotgw: MagicMock,
-) -> None:
-    """Test that the climate entity unique_id gets migrated correctly."""
-    mock_config_entry.add_to_hass(hass)
-    entry = entity_registry.async_get_or_create(
-        domain="climate",
-        platform="opentherm_gw",
-        unique_id=mock_config_entry.data[CONF_ID],
-    )
-
-    await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    updated_entry = entity_registry.async_get(entry.entity_id)
-    assert updated_entry is not None
-    assert (
-        updated_entry.unique_id
-        == f"{mock_config_entry.data[CONF_ID]}-{OpenThermDeviceIdentifier.THERMOSTAT}-thermostat_entity"
+    boiler_dev = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.BOILER}"),
+        mock_config_entry.entry_id,
     )
+    assert boiler_dev is not None
+    assert boiler_dev.manufacturer == "42"
+    assert boiler_dev.model_id == "3"
+    assert boiler_dev.hw_version == "7"
+    assert boiler_dev.sw_version == "2.5"
 
-
-# Deprecation test, can be removed in 2025.4.0
-async def test_configuration_yaml_deprecation(
-    hass: HomeAssistant,
-    issue_registry: ir.IssueRegistry,
-    mock_config_entry: MockConfigEntry,
-    mock_pyotgw: MagicMock,
-) -> None:
-    """Test that existing configuration in configuration.yaml creates an issue."""
-
-    await setup.async_setup_component(
-        hass, DOMAIN, {DOMAIN: {"legacy_gateway": {"device": "/dev/null"}}}
+    thermostat_dev = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{MOCK_GATEWAY_ID}-{OpenThermDeviceIdentifier.THERMOSTAT}"),
+        mock_config_entry.entry_id,
     )
-
-    await hass.async_block_till_done()
-    assert (
-        issue_registry.async_get_issue(
-            DOMAIN, "deprecated_import_from_configuration_yaml"
-        )
-        is not None
-    )
+    assert thermostat_dev is not None
+    assert thermostat_dev.manufacturer == "10"
+    assert thermostat_dev.model_id == "1"
+    assert thermostat_dev.hw_version == "4"
+    assert thermostat_dev.sw_version == "3.0"

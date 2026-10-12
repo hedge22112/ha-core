@@ -1,24 +1,19 @@
 """Config flow to configure Philips Hue."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
-from typing import Any
+from typing import Any, override
 
 import aiohttp
 from aiohue import LinkButtonNotPressed, create_app_key
 from aiohue.discovery import DiscoveredHueBridge, discover_bridge, discover_nupnp
+from aiohue.errors import AiohueException
 from aiohue.util import normalize_bridge_id
+from aiohue.v2 import HueBridgeV2
+import probatio
 import slugify as unicode_slug
-import voluptuous as vol
 
-from homeassistant.config_entries import (
-    ConfigEntry,
-    ConfigFlow,
-    ConfigFlowResult,
-    OptionsFlow,
-)
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_API_KEY, CONF_API_VERSION, CONF_HOST
 from homeassistant.core import callback
 from homeassistant.helpers import (
@@ -28,6 +23,7 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
+from .bridge import HueConfigEntry
 from .const import (
     CONF_ALLOW_HUE_GROUPS,
     CONF_ALLOW_UNREACHABLE,
@@ -44,16 +40,21 @@ HUE_MANUFACTURERURL = ("http://www.philips.com", "http://www.philips-hue.com")
 HUE_IGNORED_BRIDGE_NAMES = ["Home Assistant Bridge", "Espalexa"]
 HUE_MANUAL_BRIDGE_ID = "manual"
 
+BSB002_MODEL_ID = "BSB002"
+BSB003_MODEL_ID = "BSB003"
+
 
 class HueFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a Hue config flow."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
-        config_entry: ConfigEntry,
+        config_entry: HueConfigEntry,
     ) -> HueV1OptionsFlowHandler | HueV2OptionsFlowHandler:
         """Get the options flow for this handler."""
         if config_entry.data.get(CONF_API_VERSION, 1) == 1:
@@ -65,6 +66,7 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         self.bridge: DiscoveredHueBridge | None = None
         self.discovered_bridges: dict[str, DiscoveredHueBridge] | None = None
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -78,7 +80,16 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         """Return a DiscoveredHueBridge object."""
         try:
             bridge = await discover_bridge(
-                host, websession=aiohttp_client.async_get_clientsession(self.hass)
+                host,
+                websession=aiohttp_client.async_get_clientsession(
+                    # NOTE: we disable SSL verification for now
+                    # due to the fact that the (BSB003) Hue bridge
+                    # uses a certificate from a on-bridge root
+                    # authority.
+                    # We need to specifically handle this case in a follow-up update.
+                    self.hass,
+                    verify_ssl=False,
+                ),
             )
         except aiohttp.ClientError as err:
             LOGGER.warning(
@@ -114,7 +125,9 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         try:
             async with asyncio.timeout(5):
                 bridges = await discover_nupnp(
-                    websession=aiohttp_client.async_get_clientsession(self.hass)
+                    websession=aiohttp_client.async_get_clientsession(
+                        self.hass, verify_ssl=False
+                    )
                 )
         except TimeoutError:
             bridges = []
@@ -132,9 +145,9 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required("id"): vol.In(
+                    probatio.Required("id"): probatio.In(
                         {
                             **{bridge.id: bridge.host for bridge in bridges},
                             HUE_MANUAL_BRIDGE_ID: "Manually add a Hue Bridge",
@@ -151,7 +164,7 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(
                 step_id="manual",
-                data_schema=vol.Schema({vol.Required(CONF_HOST): str}),
+                data_schema=probatio.Schema({probatio.Required(CONF_HOST): str}),
             )
 
         self._async_abort_entries_match({"host": user_input["host"]})
@@ -182,7 +195,9 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
             app_key = await create_app_key(
                 bridge.host,
                 f"home-assistant#{device_name}",
-                websession=aiohttp_client.async_get_clientsession(self.hass),
+                websession=aiohttp_client.async_get_clientsession(
+                    self.hass, verify_ssl=False
+                ),
             )
         except LinkButtonNotPressed:
             errors["base"] = "register_failed"
@@ -213,6 +228,7 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
             },
         )
 
+    @override
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -232,7 +248,6 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured(
             updates={CONF_HOST: discovery_info.host}, reload_on_update=True
         )
-
         # we need to query the other capabilities too
         bridge = await self._get_bridge(
             discovery_info.host, discovery_info.properties["bridgeid"]
@@ -240,8 +255,17 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         if bridge is None:
             return self.async_abort(reason="cannot_connect")
         self.bridge = bridge
+        if (
+            bridge.supports_v2
+            and discovery_info.properties.get("modelid") == BSB003_MODEL_ID
+        ):
+            # try to handle migration of BSB002 --> BSB003
+            if await self._check_migrated_bridge(bridge):
+                return self.async_abort(reason="migrated_bridge")
+
         return await self.async_step_link()
 
+    @override
     async def async_step_homekit(
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
@@ -276,6 +300,56 @@ class HueFlowHandler(ConfigFlow, domain=DOMAIN):
         self.bridge = bridge
         return await self.async_step_link()
 
+    async def _check_migrated_bridge(self, bridge: DiscoveredHueBridge) -> bool:
+        """Check if the discovered bridge is a migrated bridge."""
+        # Try to handle migration of BSB002 --> BSB003.
+        # Once we detect a BSB003 bridge on the network which has not yet been
+        # configured in HA (otherwise we would have had a unique id match),
+        # we check if we have any existing (BSB002) entries and if we can connect to the
+        # new bridge with our previously stored api key.
+        # If that succeeds, we migrate the entry to the new bridge.
+        for conf_entry in self.hass.config_entries.async_entries(
+            DOMAIN, include_ignore=False, include_disabled=False
+        ):
+            if conf_entry.data[CONF_API_VERSION] != 2:
+                continue
+            if conf_entry.data[CONF_HOST] == bridge.host:
+                continue
+            # found an existing (BSB002) bridge entry,
+            # check if we can connect to the new BSB003 bridge using the old credentials
+            api = HueBridgeV2(bridge.host, conf_entry.data[CONF_API_KEY])
+            try:
+                await api.fetch_full_state()
+            except AiohueException, aiohttp.ClientError:
+                continue
+            old_bridge_id = conf_entry.unique_id
+            assert old_bridge_id is not None
+            # found a matching entry, migrate it
+            self.hass.config_entries.async_update_entry(
+                conf_entry,
+                data={
+                    **conf_entry.data,
+                    CONF_HOST: bridge.host,
+                },
+                unique_id=bridge.id,
+            )
+            # also update the bridge device
+            dev_reg = dr.async_get(self.hass)
+            if bridge_device := dev_reg.async_get_device_by_identifier(
+                (DOMAIN, old_bridge_id), conf_entry.entry_id
+            ):
+                dev_reg.async_update_device(
+                    bridge_device.id,
+                    # overwrite identifiers with new bridge id
+                    new_identifiers={(DOMAIN, bridge.id)},
+                    # overwrite mac addresses with empty set to drop
+                    # the old (incorrect) addresses
+                    # this will be auto corrected once the integration is loaded
+                    new_connections=set(),
+                )
+            return True
+        return False
+
 
 class HueV1OptionsFlowHandler(OptionsFlow):
     """Handle Hue options for V1 implementation."""
@@ -289,15 +363,15 @@ class HueV1OptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_ALLOW_HUE_GROUPS,
                         default=self.config_entry.options.get(
                             CONF_ALLOW_HUE_GROUPS, DEFAULT_ALLOW_HUE_GROUPS
                         ),
                     ): bool,
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_ALLOW_UNREACHABLE,
                         default=self.config_entry.options.get(
                             CONF_ALLOW_UNREACHABLE, DEFAULT_ALLOW_UNREACHABLE
@@ -337,9 +411,9 @@ class HueV2OptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_IGNORE_AVAILABILITY,
                         default=cur_ids,
                     ): cv.multi_select(dev_ids),

@@ -1,15 +1,13 @@
 """Support for the AEMET OpenData images."""
 
-from __future__ import annotations
-
-from typing import Final
+from typing import Final, override
 
 from aemet_opendata.const import AOD_DATETIME, AOD_IMG_BYTES, AOD_IMG_TYPE, AOD_RADAR
 from aemet_opendata.helpers import dict_nested_value
 
 from homeassistant.components.image import Image, ImageEntity, ImageEntityDescription
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import AemetConfigEntry, WeatherUpdateCoordinator
 from .entity import AemetEntity
@@ -25,7 +23,7 @@ AEMET_IMAGES: Final[tuple[ImageEntityDescription, ...]] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AemetConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up AEMET OpenData image entities based on a config entry."""
     domain_data = config_entry.runtime_data
@@ -70,6 +68,7 @@ class AemetImage(AemetEntity, ImageEntity):
         self._async_update_attrs()
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Update attributes when the coordinator updates."""
         self._async_update_attrs()

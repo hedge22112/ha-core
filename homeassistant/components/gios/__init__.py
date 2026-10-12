@@ -1,32 +1,23 @@
 """The GIOS component."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
 import logging
 
-from homeassistant.components.air_quality import DOMAIN as AIR_QUALITY_PLATFORM
-from homeassistant.config_entries import ConfigEntry
+from aiohttp.client_exceptions import ClientConnectorError
+from gios import Gios
+from gios.exceptions import GiosError
+
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import CONF_STATION_ID, DOMAIN
-from .coordinator import GiosDataUpdateCoordinator
+from .coordinator import GiosConfigEntry, GiosDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR]
-
-type GiosConfigEntry = ConfigEntry[GiosData]
-
-
-@dataclass
-class GiosData:
-    """Data for GIOS integration."""
-
-    coordinator: GiosDataUpdateCoordinator
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: GiosConfigEntry) -> bool:
@@ -41,28 +32,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: GiosConfigEntry) -> bool
     # We used to use int in device_entry identifiers, convert this to str.
     device_registry = dr.async_get(hass)
     old_ids = (DOMAIN, station_id)
-    device_entry = device_registry.async_get_device(identifiers={old_ids})  # type: ignore[arg-type]
-    if device_entry and entry.entry_id in device_entry.config_entries:
+    device_entry = device_registry.async_get_device_by_identifier(
+        old_ids,  # type: ignore[arg-type]
+        entry.entry_id,
+    )
+    if device_entry:
         new_ids = (DOMAIN, str(station_id))
         device_registry.async_update_device(device_entry.id, new_identifiers={new_ids})
 
     websession = async_get_clientsession(hass)
+    try:
+        gios = await Gios.create(websession, station_id)
+    except (GiosError, ConnectionError, ClientConnectorError) as err:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="cannot_connect",
+            translation_placeholders={
+                "entry": entry.title,
+                "error": repr(err),
+            },
+        ) from err
 
-    coordinator = GiosDataUpdateCoordinator(hass, websession, station_id)
+    coordinator = GiosDataUpdateCoordinator(hass, entry, gios)
     await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = GiosData(coordinator)
+    entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Remove air_quality entities from registry if they exist
-    ent_reg = er.async_get(hass)
-    unique_id = str(coordinator.gios.station_id)
-    if entity_id := ent_reg.async_get_entity_id(
-        AIR_QUALITY_PLATFORM, DOMAIN, unique_id
-    ):
-        _LOGGER.debug("Removing deprecated air_quality entity %s", entity_id)
-        ent_reg.async_remove(entity_id)
 
     return True
 

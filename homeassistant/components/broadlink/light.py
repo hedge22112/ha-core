@@ -1,7 +1,7 @@
 """Support for Broadlink lights."""
 
 import logging
-from typing import Any
+from typing import Any, override
 
 from broadlink.exceptions import BroadlinkException
 
@@ -14,9 +14,9 @@ from homeassistant.components.light import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
+from .const import BROADLINK_DATA
 from .entity import BroadlinkEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,10 +29,10 @@ BROADLINK_COLOR_MODE_SCENES = 2
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Broadlink light."""
-    device = hass.data[DOMAIN].devices[config_entry.entry_id]
+    device = hass.data[BROADLINK_DATA].devices[config_entry.entry_id]
     lights = []
 
     if device.api.type in {"LB1", "LB2"}:
@@ -66,6 +66,7 @@ class BroadlinkLight(BroadlinkEntity, LightEntity):
 
         self._update_state(data)
 
+    @override
     def _update_state(self, data):
         """Update the state of the entity."""
         if "pwr" in data:
@@ -93,6 +94,7 @@ class BroadlinkLight(BroadlinkEntity, LightEntity):
                 # Scenes are not yet supported.
                 self._attr_color_mode = ColorMode.UNKNOWN
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
         state = {"pwr": 1}
@@ -117,6 +119,7 @@ class BroadlinkLight(BroadlinkEntity, LightEntity):
 
         await self._async_set_state(state)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
         await self._async_set_state({"pwr": 0})

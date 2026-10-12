@@ -1,24 +1,22 @@
 """Support for Ecobee Send Message service."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.notify import NotifyEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import EcobeeData
-from .const import DOMAIN
+from . import EcobeeConfigEntry, EcobeeData
 from .entity import EcobeeBaseEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    config_entry: EcobeeConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the ecobee thermostat."""
-    data: EcobeeData = hass.data[DOMAIN]
+    data = config_entry.runtime_data
     async_add_entities(
         EcobeeNotifyEntity(data, index) for index in range(len(data.ecobee.thermostats))
     )
@@ -28,15 +26,16 @@ class EcobeeNotifyEntity(EcobeeBaseEntity, NotifyEntity):
     """Implement the notification entity for the Ecobee thermostat."""
 
     _attr_name = None
-    _attr_has_entity_name = True
 
     def __init__(self, data: EcobeeData, thermostat_index: int) -> None:
         """Initialize the thermostat."""
         super().__init__(data, thermostat_index)
+        # Legacy format, kept as migrating existing unique IDs is not worth the risk
         self._attr_unique_id = (
-            f"{self.thermostat['identifier']}_notify_{thermostat_index}"
+            f"{self.thermostat['identifier']}_notify_{thermostat_index}"  # pylint: disable=home-assistant-entity-unique-id-redundant-platform
         )
 
+    @override
     def send_message(self, message: str, title: str | None = None) -> None:
         """Send a message."""
         self.data.ecobee.send_message(self.thermostat_index, message)

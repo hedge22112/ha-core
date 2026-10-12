@@ -1,21 +1,32 @@
 """Test the Tesla Fleet config flow."""
 
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from tesla_fleet_api.const import SERVERS
+from tesla_fleet_api.exceptions import (
+    InvalidResponse,
+    LoginRequired,
+    PreconditionFailed,
+    TeslaFleetError,
+)
 
 from homeassistant.components.application_credentials import (
+    DOMAIN as APPLICATION_CREDENTIALS_DOMAIN,
     ClientCredential,
     async_import_client_credential,
 )
+from homeassistant.components.tesla_fleet.config_flow import OAuth2FlowHandler
 from homeassistant.components.tesla_fleet.const import (
     AUTHORIZE_URL,
     DOMAIN,
     SCOPES,
     TOKEN_URL,
 )
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_USER, ConfigFlowResult
+from homeassistant.const import CONF_DOMAIN, CONF_REGION
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import config_entry_oauth2_flow
@@ -55,7 +66,7 @@ async def access_token(hass: HomeAssistant) -> str:
 async def create_credential(hass: HomeAssistant) -> None:
     """Create a user credential."""
     # Create user application credential
-    assert await async_setup_component(hass, "application_credentials", {})
+    assert await async_setup_component(hass, APPLICATION_CREDENTIALS_DOMAIN, {})
     await async_import_client_credential(
         hass,
         DOMAIN,
@@ -64,15 +75,183 @@ async def create_credential(hass: HomeAssistant) -> None:
     )
 
 
+async def _complete_registration(
+    hass: HomeAssistant, flow_id: str, user_input: dict[str, Any]
+) -> ConfigFlowResult:
+    """Submit a step that registers the domain and finish the flow."""
+    with patch(
+        "homeassistant.components.tesla_fleet.async_setup_entry", return_value=True
+    ):
+        result = await hass.config_entries.flow.async_configure(flow_id, user_input)
+        assert result["step_id"] == "registration_complete"
+        return await hass.config_entries.flow.async_configure(flow_id, {})
+
+
+@pytest.fixture
+def mock_private_key():
+    """Mock private key for testing."""
+    private_key = Mock()
+    public_key = Mock()
+    private_key.public_key.return_value = public_key
+    public_key.public_bytes.side_effect = [
+        b"-----BEGIN PUBLIC KEY-----\n"
+        b"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\n"
+        b"-----END PUBLIC KEY-----",
+        bytes.fromhex(
+            "0404112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff1122"
+        ),
+    ]
+    return private_key
+
+
 @pytest.mark.usefixtures("current_request_with_host")
-async def test_full_flow_user_cred(
+async def test_partner_login_auth_error(
     hass: HomeAssistant,
     hass_client_no_auth: ClientSessionGenerator,
     aioclient_mock: AiohttpClientMocker,
     access_token: str,
+    mock_private_key,
 ) -> None:
-    """Check full flow."""
+    """Test partner login auth errors abort the flow cleanly."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
 
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    with patch(
+        "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+    ) as mock_api_class:
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock(side_effect=LoginRequired)
+        mock_api_class.return_value = mock_api
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "region"
+
+        # Selecting a region triggers partner login, which fails to authenticate
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "oauth_error"
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_region_partner_login_error(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key: Mock,
+) -> None:
+    """Test a partner login error keeps the user on the region step."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    public_key = (
+        "0404112233445566778899aabbccddeeff"
+        "112233445566778899aabbccddeeff"
+        "112233445566778899aabbccddeeff"
+        "112233445566778899aabbccddeeff1122"
+    )
+
+    mock_api = AsyncMock()
+    mock_api.private_key = mock_private_key
+    mock_api.get_private_key = AsyncMock()
+    mock_api.partner_login = AsyncMock(
+        side_effect=[TeslaFleetError("Partner login failed"), None]
+    )
+    mock_api.public_uncompressed_point = public_key
+    mock_api.partner.register.return_value = {"response": {"public_key": public_key}}
+
+    with patch(
+        "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi",
+        return_value=mock_api,
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "region"
+
+        # Partner login fails, stay on the region step with an error
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "region"
+        assert result["errors"] == {"base": "cannot_connect"}
+
+        # Retrying succeeds and advances to the domain step
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "domain_input"
+
+    result = await _complete_registration(
+        hass, result["flow_id"], {CONF_DOMAIN: "example.com"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_full_flow_with_domain_registration(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key,
+) -> None:
+    """Test full flow with domain registration."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_USER}
     )
@@ -94,8 +273,9 @@ async def test_full_flow_user_cred(
     assert parsed_query["client_id"][0] == "user_client_id"
     assert parsed_query["redirect_uri"][0] == REDIRECT
     assert parsed_query["state"][0] == state
+    assert parsed_query["prompt_missing_scopes"][0] == "true"
     assert parsed_query["scope"][0] == " ".join(SCOPES)
-    assert "code_challenge" not in parsed_query  # Ensure not a PKCE flow
+    assert "code_challenge" not in parsed_query
 
     client = await hass_client_no_auth()
     resp = await client.get(f"/auth/external/callback?code=abcd&state={state}")
@@ -112,21 +292,648 @@ async def test_full_flow_user_cred(
             "expires_in": 60,
         },
     )
-    with patch(
-        "homeassistant.components.tesla_fleet.async_setup_entry", return_value=True
-    ) as mock_setup:
-        result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
-    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
-    assert len(mock_setup.mock_calls) == 1
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+        patch(
+            "homeassistant.components.tesla_fleet.async_setup_entry", return_value=True
+        ),
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api.public_uncompressed_point = (
+            "0404112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff1122"
+        )
+        mock_api.partner.register.return_value = {
+            "response": {
+                "public_key": (
+                    "0404112233445566778899aabbccddeeff"
+                    "112233445566778899aabbccddeeff"
+                    "112233445566778899aabbccddeeff"
+                    "112233445566778899aabbccddeeff1122"
+                )
+            }
+        }
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "region"
+
+        # The region detected from the token is the default selection
+        region_key = next(
+            key for key in result["data_schema"].schema if key == CONF_REGION
+        )
+        assert region_key.default() == "na"
+
+        # Accept the detected region
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_input"
+
+        # Enter domain - this should automatically register and go to
+        # registration_complete
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "registration_complete"
+
+        # Complete flow - provide user input to complete registration
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == UNIQUE_ID
-    assert "result" in result
     assert result["result"].unique_id == UNIQUE_ID
-    assert "token" in result["result"].data
-    assert result["result"].data["token"]["access_token"] == access_token
-    assert result["result"].data["token"]["refresh_token"] == "mock-refresh-token"
+    # The selected region determines which server is registered
+    assert mock_api_class.call_args.kwargs["server"] == SERVERS["na"]
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_domain_input_invalid_domain(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key: Mock,
+) -> None:
+    """Test domain input with invalid domain."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "region"
+
+        # Accept the detected region
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_input"
+
+        # Enter invalid domain
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "invalid-domain"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_input"
+        assert result["errors"] == {CONF_DOMAIN: "invalid_domain"}
+
+        # Enter valid domain - this should automatically register
+        # and go to registration_complete
+        mock_api.public_uncompressed_point = (
+            "0404112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff"
+            "112233445566778899aabbccddeeff1122"
+        )
+        mock_api.partner.register.return_value = {
+            "response": {
+                "public_key": (
+                    "0404112233445566778899aabbccddeeff"
+                    "112233445566778899aabbccddeeff"
+                    "112233445566778899aabbccddeeff"
+                    "112233445566778899aabbccddeeff1122"
+                )
+            }
+        }
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "registration_complete"
+
+    with patch(
+        "homeassistant.components.tesla_fleet.async_setup_entry", return_value=True
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.parametrize(
+    ("side_effect", "expected_error"),
+    [
+        (InvalidResponse, "invalid_response"),
+        (TeslaFleetError("Custom error"), "invalid_response"),
+    ],
+)
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_domain_registration_errors(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key: Mock,
+    side_effect: Exception | type[Exception],
+    expected_error: str,
+) -> None:
+    """Test domain registration with errors that stay on domain_registration step."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api.public_uncompressed_point = "test_point"
+        mock_api.partner.register.side_effect = side_effect
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["step_id"] == "region"
+
+        # Accept the detected region
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["step_id"] == "domain_input"
+
+        # Enter domain - this should fail and stay on domain_registration
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_registration"
+        assert result["errors"] == {"base": expected_error}
+
+    mock_api.partner.register.side_effect = None
+    mock_api.partner.register.return_value = {"response": {"public_key": "test_point"}}
+    result = await _complete_registration(hass, result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_domain_registration_precondition_failed(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key: Mock,
+) -> None:
+    """Test domain registration with PreconditionFailed redirects to domain_input."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api.public_uncompressed_point = "test_point"
+        mock_api.partner.register.side_effect = PreconditionFailed
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["step_id"] == "region"
+
+        # Accept the detected region
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["step_id"] == "domain_input"
+
+        # Enter domain - this should go to domain_registration
+        # and then fail back to domain_input
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_input"
+        assert result["errors"] == {CONF_DOMAIN: "precondition_failed"}
+
+    mock_api.partner.register.side_effect = None
+    mock_api.partner.register.return_value = {"response": {"public_key": "test_point"}}
+    result = await _complete_registration(
+        hass, result["flow_id"], {CONF_DOMAIN: "example.com"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_domain_registration_public_key_not_found(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key: Mock,
+) -> None:
+    """Test domain registration with missing public key."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api.public_uncompressed_point = "test_point"
+        mock_api.partner.register.return_value = {"response": {}}
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["step_id"] == "region"
+
+        # Accept the detected region
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["step_id"] == "domain_input"
+
+        # Enter domain - this should fail and stay on domain_registration
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_registration"
+        assert result["errors"] == {"base": "public_key_not_found"}
+
+    mock_api.partner.register.return_value = {"response": {"public_key": "test_point"}}
+    result = await _complete_registration(hass, result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_domain_registration_public_key_mismatch(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key: Mock,
+) -> None:
+    """Test domain registration with public key mismatch."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api.public_uncompressed_point = "expected_key"
+        mock_api.partner.register.return_value = {
+            "response": {"public_key": "different_key"}
+        }
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["step_id"] == "region"
+
+        # Accept the detected region
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "na"}
+        )
+        assert result["step_id"] == "domain_input"
+
+        # Enter domain - this should fail and stay on domain_registration
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "domain_registration"
+        assert result["errors"] == {"base": "public_key_mismatch"}
+
+    mock_api.partner.register.return_value = {
+        "response": {"public_key": "expected_key"}
+    }
+    result = await _complete_registration(hass, result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_region_override(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+    mock_private_key,
+) -> None:
+    """Test overriding the detected region registers using the selected region."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    public_key = (
+        "0404112233445566778899aabbccddeeff"
+        "112233445566778899aabbccddeeff"
+        "112233445566778899aabbccddeeff"
+        "112233445566778899aabbccddeeff1122"
+    )
+
+    with (
+        patch(
+            "homeassistant.components.tesla_fleet.config_flow.TeslaFleetApi"
+        ) as mock_api_class,
+        patch(
+            "homeassistant.components.tesla_fleet.async_setup_entry", return_value=True
+        ),
+    ):
+        mock_api = AsyncMock()
+        mock_api.private_key = mock_private_key
+        mock_api.get_private_key = AsyncMock()
+        mock_api.partner_login = AsyncMock()
+        mock_api.public_uncompressed_point = public_key
+        mock_api.partner.register.return_value = {
+            "response": {"public_key": public_key}
+        }
+        mock_api_class.return_value = mock_api
+
+        # Complete OAuth
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["step_id"] == "region"
+
+        # Override the detected region (NA) with EU
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "eu"}
+        )
+        assert result["step_id"] == "domain_input"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_DOMAIN: "example.com"}
+        )
+        assert result["step_id"] == "registration_complete"
+
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == UNIQUE_ID
+    assert result["result"].unique_id == UNIQUE_ID
+    # The overridden region determines which server is registered
+    assert mock_api_class.call_args.kwargs["server"] == SERVERS["eu"]
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_region_default_fallback(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test the region defaults to a selectable region when the token region is not."""
+    token = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "sub": UNIQUE_ID,
+            "aud": [],
+            "scp": ["openid", "offline_access"],
+            "ou_code": "CN",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "region"
+
+    region_key = next(key for key in result["data_schema"].schema if key == CONF_REGION)
+    assert region_key.default() == "na"
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_registration_complete_no_domain(
+    hass: HomeAssistant,
+) -> None:
+    """Test registration complete step without domain."""
+
+    flow_instance = OAuth2FlowHandler()
+    flow_instance.hass = hass
+    flow_instance.domain = None
+
+    result = await flow_instance.async_step_registration_complete({})
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "domain_input"
+
+
+async def test_registration_complete_with_domain_and_user_input(
+    hass: HomeAssistant,
+) -> None:
+    """Test registration complete step with domain and user input."""
+
+    flow_instance = OAuth2FlowHandler()
+    flow_instance.hass = hass
+    flow_instance.domain = "example.com"
+    flow_instance.uid = UNIQUE_ID
+    flow_instance.data = {"token": {"access_token": "test"}}
+
+    result = await flow_instance.async_step_registration_complete({"complete": True})
+    # pylint: disable-next=home-assistant-tests-config-flow-unique-id
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == UNIQUE_ID
+
+
+async def test_registration_complete_with_domain_no_user_input(
+    hass: HomeAssistant,
+) -> None:
+    """Test registration complete step with domain but no user input."""
+
+    flow_instance = OAuth2FlowHandler()
+    flow_instance.hass = hass
+    flow_instance.domain = "example.com"
+
+    result = await flow_instance.async_step_registration_complete(None)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "registration_complete"
+    assert (
+        result["description_placeholders"]["virtual_key_url"]
+        == "https://www.tesla.com/_ak/example.com"
+    )
 
 
 @pytest.mark.usefixtures("current_request_with_host")
@@ -225,3 +1032,94 @@ async def test_reauth_account_mismatch(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_account_mismatch"
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_duplicate_unique_id_abort(
+    hass: HomeAssistant,
+    hass_client_no_auth: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    access_token: str,
+) -> None:
+    """Test duplicate unique ID aborts flow."""
+    # Create existing entry
+    existing_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=UNIQUE_ID,
+        version=1,
+        data={},
+    )
+    existing_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": REDIRECT,
+        },
+    )
+
+    client = await hass_client_no_auth()
+    await client.get(f"/auth/external/callback?code=abcd&state={state}")
+
+    aioclient_mock.post(
+        TOKEN_URL,
+        json={
+            "refresh_token": "mock-refresh-token",
+            "access_token": access_token,
+            "type": "Bearer",
+            "expires_in": 60,
+        },
+    )
+
+    # Complete OAuth - should abort due to duplicate unique_id
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_reauth_confirm_form(hass: HomeAssistant) -> None:
+    """Test reauth confirm form display."""
+    old_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=UNIQUE_ID,
+        version=1,
+        data={},
+    )
+    old_entry.add_to_hass(hass)
+
+    result = await old_entry.start_reauth_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    assert result["description_placeholders"] == {"name": "Tesla Fleet"}
+
+
+@pytest.mark.parametrize(
+    ("domain", "expected_valid"),
+    [
+        ("example.com", True),
+        ("exa-mple.com", True),
+        ("test.example.com", True),
+        ("tes-t.example.com", True),
+        ("sub.domain.example.org", True),
+        ("su-b.dom-ain.exam-ple.org", True),
+        ("https://example.com", False),
+        ("invalid-domain", False),
+        ("", False),
+        ("example", False),
+        ("example.", False),
+        (".example.com", False),
+        ("exam ple.com", False),
+        ("-example.com", False),
+        ("domain-.example.com", False),
+    ],
+)
+def test_is_valid_domain(domain: str, expected_valid: bool) -> None:
+    """Test domain validation."""
+
+    assert OAuth2FlowHandler()._is_valid_domain(domain) == expected_valid

@@ -1,10 +1,8 @@
 """Config flow for the Huawei LTE platform."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 from urllib.parse import urlparse
 
 from huawei_lte_api.Client import Client
@@ -17,16 +15,11 @@ from huawei_lte_api.exceptions import (
     ResponseErrorException,
 )
 from huawei_lte_api.Session import GetResponseType
+import probatio
 from requests.exceptions import SSLError, Timeout
 from url_normalize import url_normalize
-import voluptuous as vol
 
-from homeassistant.config_entries import (
-    ConfigEntry,
-    ConfigFlow,
-    ConfigFlowResult,
-    OptionsFlow,
-)
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import (
     CONF_MAC,
     CONF_NAME,
@@ -40,16 +33,19 @@ from homeassistant.core import callback
 from homeassistant.helpers.service_info.ssdp import (
     ATTR_UPNP_FRIENDLY_NAME,
     ATTR_UPNP_MANUFACTURER,
+    ATTR_UPNP_MODEL_NAME,
     ATTR_UPNP_PRESENTATION_URL,
     ATTR_UPNP_SERIAL,
     ATTR_UPNP_UDN,
     SsdpServiceInfo,
 )
 
+from . import HuaweiLteConfigEntry
 from .const import (
     CONF_MANUFACTURER,
     CONF_TRACK_WIRED_CLIENTS,
     CONF_UNAUTHENTICATED_MODE,
+    CONF_UPNP_UDN,
     CONNECTION_TIMEOUT,
     DEFAULT_DEVICE_NAME,
     DEFAULT_NOTIFY_SERVICE_NAME,
@@ -62,21 +58,23 @@ from .utils import get_device_macs, non_verifying_requests_session
 _LOGGER = logging.getLogger(__name__)
 
 
-class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
-    """Handle Huawei LTE config flow."""
+class HuaweiLteConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Huawei LTE config flow."""
 
     VERSION = 3
 
     manufacturer: str | None = None
+    upnp_udn: str | None = None
     url: str | None = None
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
-        config_entry: ConfigEntry,
-    ) -> OptionsFlowHandler:
+        config_entry: HuaweiLteConfigEntry,
+    ) -> HuaweiLteOptionsFlow:
         """Get options flow."""
-        return OptionsFlowHandler()
+        return HuaweiLteOptionsFlow()
 
     async def _async_show_user_form(
         self,
@@ -87,28 +85,32 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             user_input = {}
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Required(
+                    probatio.Required(
                         CONF_URL,
                         default=user_input.get(CONF_URL, self.url or ""),
                     ): str,
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_VERIFY_SSL,
                         default=user_input.get(
                             CONF_VERIFY_SSL,
                             False,
                         ),
                     ): bool,
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_USERNAME, default=user_input.get(CONF_USERNAME) or ""
                     ): str,
-                    vol.Optional(
-                        CONF_PASSWORD, default=user_input.get(CONF_PASSWORD) or ""
+                    probatio.Optional(
+                        probatio.Secret(CONF_PASSWORD),
+                        default=user_input.get(CONF_PASSWORD) or "",
                     ): str,
                 }
             ),
             errors=errors or {},
+            description_placeholders={
+                "sample_ip": "http://192.168.X.1",
+            },
         )
 
     async def _async_show_reauth_form(
@@ -118,17 +120,21 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema(
+            data_schema=probatio.Schema(
                 {
-                    vol.Optional(
+                    probatio.Optional(
                         CONF_USERNAME, default=user_input.get(CONF_USERNAME) or ""
                     ): str,
-                    vol.Optional(
-                        CONF_PASSWORD, default=user_input.get(CONF_PASSWORD) or ""
+                    probatio.Optional(
+                        probatio.Secret(CONF_PASSWORD),
+                        default=user_input.get(CONF_PASSWORD) or "",
                     ): str,
                 }
             ),
             errors=errors or {},
+            description_placeholders={
+                "sample_ip": "http://192.168.X.1",
+            },
         )
 
     async def _connect(
@@ -178,8 +184,8 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         except Timeout:
             _LOGGER.warning("Connection timeout", exc_info=True)
             errors[CONF_URL] = "connection_timeout"
-        except Exception:  # noqa: BLE001
-            _LOGGER.warning("Unknown error connecting to device", exc_info=True)
+        except Exception:
+            _LOGGER.exception("Unknown error connecting to device")
             errors[CONF_URL] = "unknown"
         return conn
 
@@ -188,9 +194,10 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         try:
             conn.close()
             conn.requests_session.close()
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Disconnect error", exc_info=True)
+        except Exception:
+            _LOGGER.exception("Disconnect error")
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -217,18 +224,18 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             client = Client(conn)
             try:
                 device_info = client.device.information()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Could not get device.information", exc_info=True)
                 try:
                     device_info = client.device.basic_information()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     _LOGGER.debug(
                         "Could not get device.basic_information", exc_info=True
                     )
                     device_info = {}
             try:
                 wlan_settings = client.wlan.multi_basic_settings()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Could not get wlan.multi_basic_settings", exc_info=True)
                 wlan_settings = {}
             return device_info, wlan_settings
@@ -240,15 +247,20 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             )
         assert conn
 
+        def _get_info_and_disconnect() -> tuple[dict, dict]:
+            result = get_device_info(conn)
+            self._disconnect(conn)
+            return result
+
         info, wlan_settings = await self.hass.async_add_executor_job(
-            get_device_info, conn
+            _get_info_and_disconnect
         )
-        await self.hass.async_add_executor_job(self._disconnect, conn)
 
         user_input.update(
             {
                 CONF_MAC: get_device_macs(info, wlan_settings),
                 CONF_MANUFACTURER: self.manufacturer,
+                CONF_UPNP_UDN: self.upnp_udn,
             }
         )
 
@@ -268,6 +280,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(title=title, data=user_input)
 
+    @override
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
@@ -276,17 +289,19 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         if TYPE_CHECKING:
             assert discovery_info.ssdp_location
         url = url_normalize(
-            discovery_info.upnp.get(
-                ATTR_UPNP_PRESENTATION_URL,
-                f"http://{urlparse(discovery_info.ssdp_location).hostname}/",
-            )
+            discovery_info.upnp.get(ATTR_UPNP_PRESENTATION_URL)
+            or f"http://{urlparse(discovery_info.ssdp_location).hostname}/"
         )
+        if TYPE_CHECKING:
+            # url_normalize only returns None if passed None, and we don't do that
+            assert url is not None
 
-        unique_id = discovery_info.upnp.get(
-            ATTR_UPNP_SERIAL, discovery_info.upnp[ATTR_UPNP_UDN]
-        )
+        upnp_udn = discovery_info.upnp.get(ATTR_UPNP_UDN)
+        unique_id = discovery_info.upnp.get(ATTR_UPNP_SERIAL, upnp_udn)
         await self.async_set_unique_id(unique_id)
-        self._abort_if_unique_id_configured(updates={CONF_URL: url})
+        self._abort_if_unique_id_configured(
+            updates={CONF_UPNP_UDN: upnp_udn, CONF_URL: url}
+        )
 
         def _is_supported_device() -> bool:
             """See if we are looking at a possibly supported device.
@@ -308,12 +323,16 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         self.context.update(
             {
                 "title_placeholders": {
-                    CONF_NAME: discovery_info.upnp.get(ATTR_UPNP_FRIENDLY_NAME)
-                    or "Huawei LTE"
+                    CONF_NAME: (
+                        discovery_info.upnp.get(ATTR_UPNP_MODEL_NAME)
+                        or discovery_info.upnp.get(ATTR_UPNP_FRIENDLY_NAME)
+                        or "Huawei LTE"
+                    )
                 }
             }
         )
         self.manufacturer = discovery_info.upnp.get(ATTR_UPNP_MANUFACTURER)
+        self.upnp_udn = upnp_udn
         self.url = url
         return await self._async_show_user_form()
 
@@ -349,7 +368,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_update_reload_and_abort(entry, data=new_data)
 
 
-class OptionsFlowHandler(OptionsFlow):
+class HuaweiLteOptionsFlow(OptionsFlow):
     """Huawei LTE options flow."""
 
     async def async_step_init(
@@ -357,7 +376,8 @@ class OptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Handle options flow."""
 
-        # Recipients are persisted as a list, but handled as comma separated string in UI
+        # Recipients are persisted as a list, but handled as comma
+        # separated string in UI
 
         if user_input is not None:
             # Preserve existing options, for example *_from_yaml markers
@@ -368,27 +388,29 @@ class OptionsFlowHandler(OptionsFlow):
                 ]
             return self.async_create_entry(title="", data=data)
 
-        data_schema = vol.Schema(
+        data_schema = probatio.Schema(
             {
-                vol.Optional(
+                # Name field is no longer allowed in config flow schemas
+                # pylint: disable-next=home-assistant-config-flow-name-field
+                probatio.Optional(
                     CONF_NAME,
                     default=self.config_entry.options.get(
                         CONF_NAME, DEFAULT_NOTIFY_SERVICE_NAME
                     ),
                 ): str,
-                vol.Optional(
+                probatio.Optional(
                     CONF_RECIPIENT,
                     default=", ".join(
                         self.config_entry.options.get(CONF_RECIPIENT, [])
                     ),
                 ): str,
-                vol.Optional(
+                probatio.Optional(
                     CONF_TRACK_WIRED_CLIENTS,
                     default=self.config_entry.options.get(
                         CONF_TRACK_WIRED_CLIENTS, DEFAULT_TRACK_WIRED_CLIENTS
                     ),
                 ): bool,
-                vol.Optional(
+                probatio.Optional(
                     CONF_UNAUTHENTICATED_MODE,
                     default=self.config_entry.options.get(
                         CONF_UNAUTHENTICATED_MODE, DEFAULT_UNAUTHENTICATED_MODE
@@ -396,4 +418,10 @@ class OptionsFlowHandler(OptionsFlow):
                 ): bool,
             }
         )
-        return self.async_show_form(step_id="init", data_schema=data_schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=data_schema,
+            description_placeholders={
+                "sample_ip": "http://192.168.X.1",
+            },
+        )

@@ -4,8 +4,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from functools import partial
+from typing import override
 
 from pyotgw.vars import (
+    OTGW_DHW_OVRD,
     OTGW_GPIO_A,
     OTGW_GPIO_B,
     OTGW_LED_A,
@@ -20,7 +22,7 @@ from homeassistant.components.select import SelectEntity, SelectEntityDescriptio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ID, EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OpenThermGatewayHub
 from .const import (
@@ -30,6 +32,15 @@ from .const import (
     OpenThermDataSource,
 )
 from .entity import OpenThermEntityDescription, OpenThermStatusEntity
+
+MAP_DHW_OVRD_MODES = {
+    "force_off": 0,
+    "force_on": 1,
+    "override_disabled": "A",
+}
+
+
+INVERSE_MAP_DHW_OVRD_MODES = {v: k for k, v in MAP_DHW_OVRD_MODES.items()}
 
 
 class OpenThermSelectGPIOMode(StrEnum):
@@ -105,6 +116,12 @@ def pyotgw_led_mode_to_ha_led_mode(
     )
 
 
+async def set_dhw_ovrd_mode(gw_hub: OpenThermGatewayHub, mode: str) -> str | None:
+    """Set hot water override mode, return selected option."""
+    value = await gw_hub.gateway.set_hot_water_ovrd(MAP_DHW_OVRD_MODES[mode])
+    return INVERSE_MAP_DHW_OVRD_MODES.get(value)
+
+
 async def set_gpio_mode(
     gpio_id: str, gw_hub: OpenThermGatewayHub, mode: str
 ) -> OpenThermSelectGPIOMode | None:
@@ -145,6 +162,14 @@ class OpenThermSelectEntityDescription(
 
 SELECT_DESCRIPTIONS: tuple[OpenThermSelectEntityDescription, ...] = (
     OpenThermSelectEntityDescription(
+        key=OTGW_DHW_OVRD,
+        translation_key="dhw_ovrd_mode",
+        device_description=GATEWAY_DEVICE_DESCRIPTION,
+        options=list(MAP_DHW_OVRD_MODES.keys()),
+        select_action=set_dhw_ovrd_mode,
+        convert_pyotgw_state_to_ha_state=INVERSE_MAP_DHW_OVRD_MODES.get,
+    ),
+    OpenThermSelectEntityDescription(
         key=OTGW_GPIO_A,
         translation_key="gpio_mode_n",
         translation_placeholders={"gpio_id": "A"},
@@ -156,9 +181,11 @@ SELECT_DESCRIPTIONS: tuple[OpenThermSelectEntityDescription, ...] = (
         ],
         select_action=partial(set_gpio_mode, "A"),
         convert_pyotgw_state_to_ha_state=(
-            lambda state: OpenThermSelectGPIOMode[PyotgwGPIOMode(state).name]
-            if state in PyotgwGPIOMode
-            else None
+            lambda state: (
+                OpenThermSelectGPIOMode[PyotgwGPIOMode(state).name]
+                if state in PyotgwGPIOMode
+                else None
+            )
         ),
     ),
     OpenThermSelectEntityDescription(
@@ -169,9 +196,11 @@ SELECT_DESCRIPTIONS: tuple[OpenThermSelectEntityDescription, ...] = (
         options=list(OpenThermSelectGPIOMode),
         select_action=partial(set_gpio_mode, "B"),
         convert_pyotgw_state_to_ha_state=(
-            lambda state: OpenThermSelectGPIOMode[PyotgwGPIOMode(state).name]
-            if state in PyotgwGPIOMode
-            else None
+            lambda state: (
+                OpenThermSelectGPIOMode[PyotgwGPIOMode(state).name]
+                if state in PyotgwGPIOMode
+                else None
+            )
         ),
     ),
     OpenThermSelectEntityDescription(
@@ -234,7 +263,7 @@ SELECT_DESCRIPTIONS: tuple[OpenThermSelectEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the OpenTherm Gateway select entities."""
     gw_hub = hass.data[DATA_OPENTHERM_GW][DATA_GATEWAYS][config_entry.data[CONF_ID]]
@@ -251,6 +280,7 @@ class OpenThermSelect(OpenThermStatusEntity, SelectEntity):
     _attr_entity_category = EntityCategory.CONFIG
     entity_description: OpenThermSelectEntityDescription
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         new_option = await self.entity_description.select_action(self._gateway, option)
@@ -259,6 +289,7 @@ class OpenThermSelect(OpenThermStatusEntity, SelectEntity):
             self.async_write_ha_state()
 
     @callback
+    @override
     def receive_report(self, status: dict[OpenThermDataSource, dict]) -> None:
         """Handle status updates from the component."""
         state = status[self.entity_description.device_description.data_source].get(

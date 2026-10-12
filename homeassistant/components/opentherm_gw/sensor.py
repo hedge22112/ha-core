@@ -1,6 +1,7 @@
 """Support for OpenTherm Gateway sensors."""
 
 from dataclasses import dataclass
+from typing import override
 
 import pyotgw.vars as gw_vars
 
@@ -22,7 +23,7 @@ from homeassistant.const import (
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     BOILER_DEVICE_DESCRIPTION,
@@ -875,7 +876,7 @@ SENSOR_DESCRIPTIONS: tuple[OpenThermSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the OpenTherm Gateway sensors."""
     gw_hub = hass.data[DATA_OPENTHERM_GW][DATA_GATEWAYS][config_entry.data[CONF_ID]]
@@ -896,6 +897,7 @@ class OpenThermSensor(OpenThermStatusEntity, SensorEntity):
     entity_description: OpenThermSensorEntityDescription
 
     @callback
+    @override
     def receive_report(self, status: dict[OpenThermDataSource, dict]) -> None:
         """Handle status updates from the component."""
         self._attr_native_value = status[

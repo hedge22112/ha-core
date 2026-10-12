@@ -1,10 +1,9 @@
 """The Tankerkoenig update coordinator."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
 from math import ceil
+from typing import override
 
 from aiotankerkoenig import (
     PriceInfo,
@@ -24,7 +23,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CONF_FUEL_TYPES, CONF_STATIONS
+from .const import CONF_STATIONS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ class TankerkoenigDataUpdateCoordinator(DataUpdateCoordinator[dict[str, PriceInf
     def __init__(
         self,
         hass: HomeAssistant,
-        name: str,
+        config_entry: TankerkoenigConfigEntry,
         update_interval: int,
     ) -> None:
         """Initialize the data object."""
@@ -47,13 +46,13 @@ class TankerkoenigDataUpdateCoordinator(DataUpdateCoordinator[dict[str, PriceInf
         super().__init__(
             hass=hass,
             logger=_LOGGER,
-            name=name,
+            config_entry=config_entry,
+            name=config_entry.unique_id or DOMAIN,
             update_interval=timedelta(minutes=update_interval),
         )
 
         self._selected_stations: list[str] = self.config_entry.data[CONF_STATIONS]
         self.stations: dict[str, Station] = {}
-        self.fuel_types: list[str] = self.config_entry.data[CONF_FUEL_TYPES]
         self.show_on_map: bool = self.config_entry.options[CONF_SHOW_ON_MAP]
 
         self._tankerkoenig = Tankerkoenig(
@@ -72,14 +71,20 @@ class TankerkoenigDataUpdateCoordinator(DataUpdateCoordinator[dict[str, PriceInf
                     station_id,
                     err,
                 )
-                raise ConfigEntryAuthFailed(err) from err
+                raise ConfigEntryAuthFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_api_key",
+                ) from err
             except TankerkoenigConnectionError as err:
                 _LOGGER.debug(
                     "connection error occur during setup of station %s %s",
                     station_id,
                     err,
                 )
-                raise ConfigEntryNotReady(err) from err
+                raise ConfigEntryNotReady(
+                    translation_domain=DOMAIN,
+                    translation_key="connection_error",
+                ) from err
             except TankerkoenigError as err:
                 _LOGGER.error("Error when adding station %s %s", station_id, err)
                 continue
@@ -103,9 +108,7 @@ class TankerkoenigDataUpdateCoordinator(DataUpdateCoordinator[dict[str, PriceInf
                 for station_id in self._selected_stations
             ):
                 _LOGGER.debug("Removing obsolete device entry %s", device.name)
-                device_reg.async_update_device(
-                    device.id, remove_config_entry_id=self.config_entry.entry_id
-                )
+                device_reg.async_remove_device(device.id)
 
         if len(self.stations) > 10:
             _LOGGER.warning(
@@ -114,12 +117,14 @@ class TankerkoenigDataUpdateCoordinator(DataUpdateCoordinator[dict[str, PriceInf
                 "Try using a smaller radius"
             )
 
+    @override
     async def _async_update_data(self) -> dict[str, PriceInfo]:
         """Get the latest data from tankerkoenig.de."""
         station_ids = list(self.stations)
 
         prices = {}
-        # The API seems to only return at most 10 results, so split the list in chunks of 10
+        # The API seems to only return at most 10 results,
+        # so split the list in chunks of 10
         # and merge it together.
         for index in range(ceil(len(station_ids) / 10)):
             stations = station_ids[index * 10 : (index + 1) * 10]
@@ -131,19 +136,28 @@ class TankerkoenigDataUpdateCoordinator(DataUpdateCoordinator[dict[str, PriceInf
                     stations,
                     err,
                 )
-                raise ConfigEntryAuthFailed(err) from err
+                raise ConfigEntryAuthFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_api_key",
+                ) from err
             except TankerkoenigRateLimitError as err:
-                _LOGGER.warning(
-                    "API rate limit reached, consider to increase polling interval"
-                )
-                raise UpdateFailed(err) from err
+                raise UpdateFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="rate_limit_reached",
+                ) from err
             except (TankerkoenigError, TankerkoenigConnectionError) as err:
                 _LOGGER.debug(
                     "error occur during update of stations %s %s",
                     stations,
                     err,
                 )
-                raise UpdateFailed(err) from err
+                raise UpdateFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="station_update_failed",
+                    translation_placeholders={
+                        "station_ids": ", ".join(stations),
+                    },
+                ) from err
 
             prices.update(data)
 

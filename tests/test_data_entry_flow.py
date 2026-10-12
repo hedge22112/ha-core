@@ -5,8 +5,8 @@ import dataclasses
 import logging
 from unittest.mock import Mock, patch
 
+import probatio
 import pytest
-import voluptuous as vol
 
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import Event, HomeAssistant, callback
@@ -89,24 +89,28 @@ async def test_configure_two_steps(manager: MockFlowManager) -> None:
         async def async_step_first(self, user_input=None):
             if user_input is not None:
                 return await self.async_step_second()
-            return self.async_show_form(step_id="first", data_schema=vol.Schema([str]))
+            return self.async_show_form(
+                step_id="first", data_schema=probatio.Schema([str])
+            )
 
         async def async_step_second(self, user_input=None):
             if user_input is not None:
                 return self.async_create_entry(
                     title="Test Entry", data=self.init_data + user_input
                 )
-            return self.async_show_form(step_id="second", data_schema=vol.Schema([str]))
+            return self.async_show_form(
+                step_id="second", data_schema=probatio.Schema([str])
+            )
 
     form = await manager.async_init(
         "test", context={"init_step": "first"}, data=["INIT-DATA"]
     )
 
-    with pytest.raises(vol.Invalid):
+    with pytest.raises(probatio.Invalid):
         form = await manager.async_configure(form["flow_id"], "INCORRECT-DATA")
 
     form = await manager.async_configure(form["flow_id"], ["SECOND-DATA"])
-    assert form["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert form["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert len(manager.async_progress()) == 0
     assert len(manager.mock_created_entries) == 1
     result = manager.mock_created_entries[0]
@@ -116,7 +120,9 @@ async def test_configure_two_steps(manager: MockFlowManager) -> None:
 
 async def test_show_form(manager: MockFlowManager) -> None:
     """Test that we can show a form."""
-    schema = vol.Schema({vol.Required("username"): str, vol.Required("password"): str})
+    schema = probatio.Schema(
+        {probatio.Required("username"): str, probatio.Required("password"): str}
+    )
 
     @manager.mock_reg_handler("test")
     class TestFlow(data_entry_flow.FlowHandler):
@@ -128,9 +134,110 @@ async def test_show_form(manager: MockFlowManager) -> None:
             )
 
     form = await manager.async_init("test")
-    assert form["type"] == data_entry_flow.FlowResultType.FORM
+    assert form["type"] is data_entry_flow.FlowResultType.FORM
     assert form["data_schema"] is schema
     assert form["errors"] == {"username": "Should be unique."}
+
+
+async def test_form_shows_with_added_suggested_values(manager: MockFlowManager) -> None:
+    """Test that we can show a form with suggested values."""
+
+    def compare_schemas(
+        schema: probatio.Schema, expected_schema: probatio.Schema
+    ) -> None:
+        """Compare two schemas."""
+        assert schema.schema is not expected_schema.schema
+
+        assert list(schema.schema) == list(expected_schema.schema)
+
+        for key, validator in schema.schema.items():
+            if isinstance(validator, data_entry_flow.section):
+                assert validator.schema == expected_schema.schema[key].schema
+                continue
+            assert validator == expected_schema.schema[key]
+
+    schema = probatio.Schema(
+        {
+            probatio.Required("username"): str,
+            probatio.Required("password"): str,
+            probatio.Required("section_1"): data_entry_flow.section(
+                probatio.Schema(
+                    {
+                        probatio.Optional("full_name"): str,
+                    }
+                ),
+                {"collapsed": False},
+            ),
+        }
+    )
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            data_schema = self.add_suggested_values_to_schema(
+                schema,
+                user_input,
+            )
+            return self.async_show_form(
+                step_id="init",
+                data_schema=data_schema,
+            )
+
+    form = await manager.async_init(
+        "test",
+        data={
+            "username": "doej",
+            "password": "verySecret1",
+            "section_1": {"full_name": "John Doe"},
+        },
+    )
+    assert form["type"] is data_entry_flow.FlowResultType.FORM
+    assert form["data_schema"].schema is not schema.schema
+    assert form["data_schema"].schema != schema.schema
+    compare_schemas(form["data_schema"], schema)
+    markers = list(form["data_schema"].schema)
+    assert len(markers) == 3
+    assert markers[0] == "username"
+    assert markers[0].description == {"suggested_value": "doej"}
+    assert markers[1] == "password"
+    assert markers[1].description == {"suggested_value": "verySecret1"}
+    assert markers[2] == "section_1"
+    section_validator = form["data_schema"].schema["section_1"]
+    assert isinstance(section_validator, data_entry_flow.section)
+    # The section instance was copied
+    assert section_validator is not schema.schema["section_1"]
+    # The section schema instance was copied
+    assert section_validator.schema is not schema.schema["section_1"].schema
+    assert section_validator.schema == schema.schema["section_1"].schema
+    section_markers = list(section_validator.schema.schema)
+    assert len(section_markers) == 1
+    assert section_markers[0] == "full_name"
+    assert section_markers[0].description == {"suggested_value": "John Doe"}
+
+    # Test again without suggested values to make sure we're not mutating the schema
+    form = await manager.async_init(
+        "test",
+    )
+    assert form["type"] is data_entry_flow.FlowResultType.FORM
+    assert form["data_schema"].schema is not schema.schema
+    assert form["data_schema"].schema == schema.schema
+    markers = list(form["data_schema"].schema)
+    assert len(markers) == 3
+    assert markers[0] == "username"
+    assert markers[0].description is None
+    assert markers[1] == "password"
+    assert markers[1].description is None
+    assert markers[2] == "section_1"
+    section_validator = form["data_schema"].schema["section_1"]
+    assert isinstance(section_validator, data_entry_flow.section)
+    # The section class is not replaced if there is no suggested value for the section
+    assert section_validator is schema.schema["section_1"]
+    # The section schema is not replaced if there is no suggested value for the section
+    assert section_validator.schema is schema.schema["section_1"].schema
+    section_markers = list(section_validator.schema.schema)
+    assert len(section_markers) == 1
+    assert section_markers[0] == "full_name"
+    assert section_markers[0].description is None
 
 
 async def test_abort_removes_instance(manager: MockFlowManager) -> None:
@@ -155,6 +262,45 @@ async def test_abort_removes_instance(manager: MockFlowManager) -> None:
     assert len(manager.mock_created_entries) == 0
 
 
+@pytest.mark.parametrize(
+    "translation_domain",
+    [None, "homeassistant"],
+    ids=["own_domain", "shared_domain"],
+)
+async def test_abort_translation_domain(
+    manager: MockFlowManager, translation_domain: str | None
+) -> None:
+    """Test the abort reason can be translated by another integration."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            return self.async_abort(
+                reason="some_reason", translation_domain=translation_domain
+            )
+
+    result = await manager.async_init("test")
+
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "some_reason"
+    assert result.get("translation_domain") == translation_domain
+
+
+async def test_abort_aborted_flow(manager: MockFlowManager) -> None:
+    """Test return abort from aborted flow."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            manager.async_abort(self.flow_id)
+            return self.async_abort(reason="blah")
+
+    form = await manager.async_init("test")
+    assert form["reason"] == "blah"
+    assert len(manager.async_progress()) == 0
+    assert len(manager.mock_created_entries) == 0
+
+
 async def test_abort_calls_async_remove(manager: MockFlowManager) -> None:
     """Test abort calling the async_remove FlowHandler method."""
 
@@ -168,6 +314,23 @@ async def test_abort_calls_async_remove(manager: MockFlowManager) -> None:
     await manager.async_init("test")
 
     TestFlow.async_remove.assert_called_once()
+
+    assert len(manager.async_progress()) == 0
+    assert len(manager.mock_created_entries) == 0
+
+
+async def test_abort_calls_async_flow_removed(manager: MockFlowManager) -> None:
+    """Test abort calling the async_flow_removed FlowManager method."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            return self.async_abort(reason="reason")
+
+    manager.async_flow_removed = Mock()
+    await manager.async_init("test")
+
+    manager.async_flow_removed.assert_called_once()
 
     assert len(manager.async_progress()) == 0
     assert len(manager.mock_created_entries) == 0
@@ -217,6 +380,42 @@ async def test_create_saves_data(manager: MockFlowManager) -> None:
     assert entry["source"] is None
 
 
+async def test_create_aborted_flow(manager: MockFlowManager) -> None:
+    """Test return create_entry from aborted flow."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        VERSION = 5
+
+        async def async_step_init(self, user_input=None):
+            manager.async_abort(self.flow_id)
+            return self.async_create_entry(title="Test Title", data="Test Data")
+
+    with pytest.raises(data_entry_flow.UnknownFlow):
+        await manager.async_init("test")
+    assert len(manager.async_progress()) == 0
+
+    # No entry should be created if the flow is aborted
+    assert len(manager.mock_created_entries) == 0
+
+
+async def test_create_calls_async_flow_removed(manager: MockFlowManager) -> None:
+    """Test create calling the async_flow_removed FlowManager method."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            return self.async_create_entry(title="Test Title", data="Test Data")
+
+    manager.async_flow_removed = Mock()
+    await manager.async_init("test")
+
+    manager.async_flow_removed.assert_called_once()
+
+    assert len(manager.async_progress()) == 0
+    assert len(manager.mock_created_entries) == 1
+
+
 async def test_discovery_init_flow(manager: MockFlowManager) -> None:
     """Test a flow initialized by discovery."""
 
@@ -253,7 +452,7 @@ async def test_finish_callback_change_result_type(hass: HomeAssistant) -> None:
             if input is not None:
                 return self.async_create_entry(title="init", data=input)
             return self.async_show_form(
-                step_id="init", data_schema=vol.Schema({"count": int})
+                step_id="init", data_schema=probatio.Schema({"count": int})
             )
 
     class FlowManager(data_entry_flow.FlowManager):
@@ -266,7 +465,7 @@ async def test_finish_callback_change_result_type(hass: HomeAssistant) -> None:
             if result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY:
                 if result["data"] is None or result["data"].get("count", 0) <= 1:
                     return flow.async_show_form(
-                        step_id="init", data_schema=vol.Schema({"count": int})
+                        step_id="init", data_schema=probatio.Schema({"count": int})
                     )
                 result["result"] = result["data"]["count"]
             return result
@@ -274,16 +473,16 @@ async def test_finish_callback_change_result_type(hass: HomeAssistant) -> None:
     manager = FlowManager(hass)
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "init"
 
     result = await manager.async_configure(result["flow_id"], {"count": 0})
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "init"
     assert "result" not in result
 
     result = await manager.async_configure(result["flow_id"], {"count": 2})
-    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["result"] == 2
 
 
@@ -313,7 +512,7 @@ async def test_external_step(hass: HomeAssistant, manager: MockFlowManager) -> N
     )
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.EXTERNAL_STEP
+    assert result["type"] is data_entry_flow.FlowResultType.EXTERNAL_STEP
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
     assert manager.async_get(result["flow_id"])["handler"] == "test"
@@ -321,7 +520,7 @@ async def test_external_step(hass: HomeAssistant, manager: MockFlowManager) -> N
     # Mimic external step
     # Called by integrations: `hass.config_entries.flow.async_configure(…)`
     result = await manager.async_configure(result["flow_id"], {"title": "Hello"})
-    assert result["type"] == data_entry_flow.FlowResultType.EXTERNAL_STEP_DONE
+    assert result["type"] is data_entry_flow.FlowResultType.EXTERNAL_STEP_DONE
 
     await hass.async_block_till_done()
     assert len(events) == 1
@@ -333,7 +532,7 @@ async def test_external_step(hass: HomeAssistant, manager: MockFlowManager) -> N
 
     # Frontend refreshes the flow
     result = await manager.async_configure(result["flow_id"])
-    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "Hello"
 
 
@@ -341,6 +540,9 @@ async def test_show_progress(hass: HomeAssistant, manager: MockFlowManager) -> N
     """Test show progress logic."""
     manager.hass = hass
     events = []
+    progress_update_events = async_capture_events(
+        hass, data_entry_flow.EVENT_DATA_ENTRY_FLOW_PROGRESS_UPDATE
+    )
     task_one_evt = asyncio.Event()
     task_two_evt = asyncio.Event()
     event_received_evt = asyncio.Event()
@@ -363,7 +565,9 @@ async def test_show_progress(hass: HomeAssistant, manager: MockFlowManager) -> N
                 await task_one_evt.wait()
 
             async def long_running_job_two() -> None:
+                self.async_update_progress(0.25)
                 await task_two_evt.wait()
+                self.async_update_progress(0.75)
                 self.data = {"title": "Hello"}
 
             uncompleted_task: asyncio.Task[None] | None = None
@@ -401,7 +605,7 @@ async def test_show_progress(hass: HomeAssistant, manager: MockFlowManager) -> N
     )
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task_one"
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
@@ -420,8 +624,14 @@ async def test_show_progress(hass: HomeAssistant, manager: MockFlowManager) -> N
 
     # Frontend refreshes the flow
     result = await manager.async_configure(result["flow_id"])
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task_two"
+    assert len(progress_update_events) == 1
+    assert progress_update_events[0].data == {
+        "handler": "test",
+        "flow_id": result["flow_id"],
+        "progress": 0.25,
+    }
 
     # Set task two done and wait for event
     task_two_evt.set()
@@ -433,10 +643,16 @@ async def test_show_progress(hass: HomeAssistant, manager: MockFlowManager) -> N
         "flow_id": result["flow_id"],
         "refresh": True,
     }
+    assert len(progress_update_events) == 2
+    assert progress_update_events[1].data == {
+        "handler": "test",
+        "flow_id": result["flow_id"],
+        "progress": 0.75,
+    }
 
     # Frontend refreshes the flow
     result = await manager.async_configure(result["flow_id"])
-    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "Hello"
 
 
@@ -483,7 +699,7 @@ async def test_show_progress_error(
     )
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task"
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
@@ -501,7 +717,7 @@ async def test_show_progress_error(
 
     # Frontend refreshes the flow
     result = await manager.async_configure(result["flow_id"])
-    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "error"
 
 
@@ -542,7 +758,7 @@ async def test_show_progress_hidden_from_frontend(
             return self.async_create_entry(title=None, data=self.data)
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task"
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
@@ -553,7 +769,7 @@ async def test_show_progress_hidden_from_frontend(
 
     # Frontend refreshes the flow
     result = await manager.async_configure(result["flow_id"])
-    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert async_show_progress_done_called
 
 
@@ -602,7 +818,7 @@ async def test_show_progress_legacy(
     )
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task_one"
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
@@ -611,7 +827,7 @@ async def test_show_progress_legacy(
     # Mimic task one done and moving to task two
     # Called by integrations: `hass.config_entries.flow.async_configure(…)`
     result = await manager.async_configure(result["flow_id"], {"task_finished": 1})
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task_two"
 
     await hass.async_block_till_done()
@@ -624,7 +840,7 @@ async def test_show_progress_legacy(
 
     # Frontend refreshes the flow
     result = await manager.async_configure(result["flow_id"])
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task_two"
 
     # Mimic task two done and continuing step
@@ -634,13 +850,13 @@ async def test_show_progress_legacy(
     )
     # Note: The SHOW_PROGRESS_DONE is not hidden from frontend when flows manage
     # the progress tasks themselves
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS_DONE
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS_DONE
 
     # Frontend refreshes the flow
     result = await manager.async_configure(
         result["flow_id"], {"task_finished": 2, "title": "Hello"}
     )
-    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "Hello"
 
     await hass.async_block_till_done()
@@ -706,7 +922,7 @@ async def test_show_progress_fires_only_when_changed(
                 },
             },
         )
-        assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+        assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
         assert result["progress_action"] == progress_action
         assert (
             result["description_placeholders"]["progress"]
@@ -723,7 +939,7 @@ async def test_show_progress_fires_only_when_changed(
             }
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
     assert result["progress_action"] == "task_one"
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
@@ -746,8 +962,8 @@ async def test_show_progress_fires_only_when_changed(
     )  # change (description placeholder)
 
 
-async def test_abort_flow_exception(manager: MockFlowManager) -> None:
-    """Test that the AbortFlow exception works."""
+async def test_abort_flow_exception_step(manager: MockFlowManager) -> None:
+    """Test that the AbortFlow exception works in a step."""
 
     @manager.mock_reg_handler("test")
     class TestFlow(data_entry_flow.FlowHandler):
@@ -755,9 +971,89 @@ async def test_abort_flow_exception(manager: MockFlowManager) -> None:
             raise data_entry_flow.AbortFlow("mock-reason", {"placeholder": "yo"})
 
     form = await manager.async_init("test")
-    assert form["type"] == data_entry_flow.FlowResultType.ABORT
+    assert form["type"] is data_entry_flow.FlowResultType.ABORT
     assert form["reason"] == "mock-reason"
     assert form["description_placeholders"] == {"placeholder": "yo"}
+
+
+async def test_abort_flow_exception_finish_flow(hass: HomeAssistant) -> None:
+    """Test that the AbortFlow exception works when finishing a flow."""
+
+    class TestFlow(data_entry_flow.FlowHandler):
+        VERSION = 1
+
+        async def async_step_init(self, input):
+            """Return init form with one input field 'count'."""
+            return self.async_create_entry(title="init", data=input)
+
+    class FlowManager(data_entry_flow.FlowManager):
+        async def async_create_flow(self, handler_key, *, context, data):
+            """Create a test flow."""
+            return TestFlow()
+
+        async def async_finish_flow(self, flow, result):
+            """Raise AbortFlow."""
+            raise data_entry_flow.AbortFlow("mock-reason", {"placeholder": "yo"})
+
+    manager = FlowManager(hass)
+
+    form = await manager.async_init("test")
+    assert form["type"] is data_entry_flow.FlowResultType.ABORT
+    assert form["reason"] == "mock-reason"
+    assert form["description_placeholders"] == {"placeholder": "yo"}
+
+
+@pytest.mark.parametrize(
+    "translation_domain",
+    [None, "homeassistant"],
+    ids=["own_domain", "shared_domain"],
+)
+async def test_abort_flow_exception_step_translation_domain(
+    manager: MockFlowManager, translation_domain: str | None
+) -> None:
+    """Test AbortFlow can be translated by another integration from a step."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            raise data_entry_flow.AbortFlow(
+                "mock-reason", translation_domain=translation_domain
+            )
+
+    form = await manager.async_init("test")
+
+    assert form["type"] is data_entry_flow.FlowResultType.ABORT
+    assert form["reason"] == "mock-reason"
+    assert form.get("translation_domain") == translation_domain
+
+
+async def test_abort_flow_exception_finish_flow_translation_domain(
+    hass: HomeAssistant,
+) -> None:
+    """Test AbortFlow can be translated by another integration when finishing."""
+
+    class TestFlow(data_entry_flow.FlowHandler):
+        VERSION = 1
+
+        async def async_step_init(self, input):
+            return self.async_create_entry(title="init", data=input)
+
+    class FlowManager(data_entry_flow.FlowManager):
+        async def async_create_flow(self, handler_key, *, context, data):
+            return TestFlow()
+
+        async def async_finish_flow(self, flow, result):
+            raise data_entry_flow.AbortFlow(
+                "mock-reason", translation_domain="homeassistant"
+            )
+
+    manager = FlowManager(hass)
+
+    form = await manager.async_init("test")
+
+    assert form["type"] is data_entry_flow.FlowResultType.ABORT
+    assert form["reason"] == "mock-reason"
+    assert form["translation_domain"] == "homeassistant"
 
 
 async def test_init_unknown_flow(manager: MockFlowManager) -> None:
@@ -771,7 +1067,7 @@ async def test_init_unknown_flow(manager: MockFlowManager) -> None:
 
 
 async def test_async_get_unknown_flow(manager: MockFlowManager) -> None:
-    """Test that UnknownFlow is raised when async_get is called with a flow_id that does not exist."""
+    """Test UnknownFlow raised when async_get gets unknown flow_id."""
 
     with pytest.raises(data_entry_flow.UnknownFlow):
         await manager.async_get("does_not_exist")
@@ -780,7 +1076,7 @@ async def test_async_get_unknown_flow(manager: MockFlowManager) -> None:
 async def test_move_to_unknown_step_raises_and_removes_from_in_progress(
     manager: MockFlowManager,
 ) -> None:
-    """Test that moving to an unknown step raises and removes the flow from in progress."""
+    """Test unknown step raises and removes flow from in progress."""
 
     @manager.mock_reg_handler("test")
     class TestFlow(data_entry_flow.FlowHandler):
@@ -806,7 +1102,7 @@ async def test_move_to_unknown_step_raises_and_removes_from_in_progress(
 async def test_next_step_unknown_step_raises_and_removes_from_in_progress(
     manager: MockFlowManager, result_type: str, params: dict[str, str]
 ) -> None:
-    """Test that moving to an unknown step raises and removes the flow from in progress."""
+    """Test unknown step raises and removes flow from in progress."""
 
     @manager.mock_reg_handler("test")
     class TestFlow(data_entry_flow.FlowHandler):
@@ -829,22 +1125,50 @@ async def test_configure_raises_unknown_flow_if_not_in_progress(
         await manager.async_configure("wrong_flow_id")
 
 
-async def test_abort_raises_unknown_flow_if_not_in_progress(
+async def test_manager_abort_raises_unknown_flow_if_not_in_progress(
     manager: MockFlowManager,
 ) -> None:
     """Test abort raises UnknownFlow if the flow is not in progress."""
     with pytest.raises(data_entry_flow.UnknownFlow):
-        await manager.async_abort("wrong_flow_id")
+        manager.async_abort("wrong_flow_id")
+
+
+async def test_manager_abort_calls_async_flow_removed(manager: MockFlowManager) -> None:
+    """Test abort calling the async_flow_removed FlowManager method."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        async def async_step_init(self, user_input=None):
+            return self.async_show_form(step_id="init")
+
+    manager.async_flow_removed = Mock()
+    result = await manager.async_init("test")
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    manager.async_flow_removed.assert_not_called()
+
+    manager.async_abort(result["flow_id"])
+    manager.async_flow_removed.assert_called_once()
+
+    assert len(manager.async_progress()) == 0
+    assert len(manager.mock_created_entries) == 0
 
 
 @pytest.mark.parametrize(
-    "menu_options",
-    [["target1", "target2"], {"target1": "Target 1", "target2": "Target 2"}],
+    ("menu_options", "sort", "expect_sort"),
+    [
+        (["target1", "target2"], None, None),
+        ({"target1": "Target 1", "target2": "Target 2"}, False, None),
+        (["target2", "target1"], True, True),
+    ],
 )
 async def test_show_menu(
     hass: HomeAssistant,
     manager: MockFlowManager,
     menu_options: list[str] | dict[str, str],
+    sort: bool | None,
+    expect_sort: bool | None,
 ) -> None:
     """Test show menu."""
     manager.hass = hass
@@ -860,6 +1184,7 @@ async def test_show_menu(
                 step_id="init",
                 menu_options=menu_options,
                 description_placeholders={"name": "Paulus"},
+                sort=sort,
             )
 
         async def async_step_target1(self, user_input=None):
@@ -869,9 +1194,10 @@ async def test_show_menu(
             return self.async_show_form(step_id="target2")
 
     result = await manager.async_init("test")
-    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["type"] is data_entry_flow.FlowResultType.MENU
     assert result["menu_options"] == menu_options
     assert result["description_placeholders"] == {"name": "Paulus"}
+    assert result.get("sort") == expect_sort
     assert len(manager.async_progress()) == 1
     assert len(manager.async_progress_by_handler("test")) == 1
     assert manager.async_get(result["flow_id"])["handler"] == "test"
@@ -880,7 +1206,7 @@ async def test_show_menu(
     result = await manager.async_configure(
         result["flow_id"], {"next_step_id": "target1"}
     )
-    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "target1"
 
 
@@ -906,7 +1232,9 @@ async def test_find_flows_by_init_data_type(manager: MockFlowManager) -> None:
         async def async_step_first(self, user_input=None):
             if user_input is not None:
                 return await self.async_step_second()
-            return self.async_show_form(step_id="first", data_schema=vol.Schema([str]))
+            return self.async_show_form(
+                step_id="first", data_schema=probatio.Schema([str])
+            )
 
         async def async_step_second(self, user_input=None):
             if user_input is not None:
@@ -914,7 +1242,9 @@ async def test_find_flows_by_init_data_type(manager: MockFlowManager) -> None:
                     title="Test Entry",
                     data={"init": self.init_data, "user": user_input},
                 )
-            return self.async_show_form(step_id="second", data_schema=vol.Schema([str]))
+            return self.async_show_form(
+                step_id="second", data_schema=probatio.Schema([str])
+            )
 
     bluetooth_data = BluetoothDiscoveryData("aa:bb:cc:dd:ee:ff")
     wifi_data = WiFiDiscoveryData("host")
@@ -955,7 +1285,7 @@ async def test_find_flows_by_init_data_type(manager: MockFlowManager) -> None:
     bluetooth_result = await manager.async_configure(
         bluetooth_form["flow_id"], ["SECOND-DATA"]
     )
-    assert bluetooth_result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert bluetooth_result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert len(manager.async_progress()) == 1
     assert len(manager.mock_created_entries) == 1
     result = manager.mock_created_entries[0]
@@ -985,10 +1315,10 @@ def test_section_in_serializer() -> None:
     """Test section with custom_serializer."""
     assert cv.custom_serializer(
         data_entry_flow.section(
-            vol.Schema(
+            probatio.Schema(
                 {
-                    vol.Optional("option_1", default=False): bool,
-                    vol.Required("option_2"): int,
+                    probatio.Optional("option_1", default=False): bool,
+                    probatio.Required("option_2"): int,
                 }
             ),
             {"collapsed": False},
@@ -996,7 +1326,13 @@ def test_section_in_serializer() -> None:
     ) == {
         "expanded": True,
         "schema": [
-            {"default": False, "name": "option_1", "optional": True, "type": "boolean"},
+            {
+                "default": False,
+                "name": "option_1",
+                "optional": True,
+                "required": False,
+                "type": "boolean",
+            },
             {"name": "option_2", "required": True, "type": "integer"},
         ],
         "type": "expandable",
@@ -1010,13 +1346,13 @@ def test_nested_section_in_serializer() -> None:
     ):
         cv.custom_serializer(
             data_entry_flow.section(
-                vol.Schema(
+                probatio.Schema(
                     {
-                        vol.Required("section_1"): data_entry_flow.section(
-                            vol.Schema(
+                        probatio.Required("section_1"): data_entry_flow.section(
+                            probatio.Schema(
                                 {
-                                    vol.Optional("option_1", default=False): bool,
-                                    vol.Required("option_2"): int,
+                                    probatio.Optional("option_1", default=False): bool,
+                                    probatio.Required("option_2"): int,
                                 }
                             )
                         )
@@ -1025,3 +1361,32 @@ def test_nested_section_in_serializer() -> None:
                 {"collapsed": False},
             )
         )
+
+
+async def test_show_advanced_options(
+    manager: MockFlowManager,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test FlowHandler show_advanced_options property is deprecated and always True."""
+
+    @manager.mock_reg_handler("test")
+    class TestFlow(data_entry_flow.FlowHandler):
+        VERSION = 5
+
+        async def async_step_init(self, info):
+            assert self.show_advanced_options is True
+            return self.async_create_entry(title="hello", data={})
+
+    await manager.async_init("test", context={}, data={})
+    assert len(manager.async_progress()) == 0
+    assert len(manager.mock_created_entries) == 1
+
+    entry = manager.mock_created_entries[0]
+    assert entry["handler"] == "test"
+    assert entry["title"] == "hello"
+
+    assert (
+        "The deprecated function show_advanced_options was called. It will be "
+        "removed in HA Core 2027.6. Use a user friendly way to present additional "
+        "options in the UI, for example a section instead"
+    ) in caplog.text

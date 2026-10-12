@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from homeassistant import config_entries
-from homeassistant.components.gdacs import CONF_CATEGORIES, DOMAIN
+from homeassistant.components.gdacs.const import CONF_CATEGORIES, DOMAIN
 from homeassistant.const import (
     CONF_LATITUDE,
     CONF_LONGITUDE,
@@ -25,12 +25,17 @@ def gdacs_setup_fixture():
 
 async def test_duplicate_error(hass: HomeAssistant, config_entry) -> None:
     """Test that errors are shown when duplicates are added."""
-    conf = {CONF_LATITUDE: -41.2, CONF_LONGITUDE: 174.7, CONF_RADIUS: 25}
+    hass.config.latitude = -41.2
+    hass.config.longitude = 174.7
+    conf = {CONF_RADIUS: 25}
     config_entry.add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}, data=conf
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    assert result["type"] is FlowResultType.FORM
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], conf)
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
@@ -51,8 +56,11 @@ async def test_step_user(hass: HomeAssistant) -> None:
     conf = {CONF_RADIUS: 25}
 
     result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}, data=conf
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    assert result["type"] is FlowResultType.FORM
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], conf)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "-41.2, 174.7"
     assert result["data"] == {
@@ -62,3 +70,4 @@ async def test_step_user(hass: HomeAssistant) -> None:
         CONF_SCAN_INTERVAL: 300.0,
         CONF_CATEGORIES: [],
     }
+    assert result["result"].unique_id == "-41.2, 174.7"

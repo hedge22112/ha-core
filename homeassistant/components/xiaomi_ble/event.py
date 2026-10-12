@@ -1,10 +1,10 @@
 """Support for Xiaomi event entities."""
 
-from __future__ import annotations
-
 from dataclasses import replace
+from typing import override
 
 from homeassistant.components.event import (
+    DOMAIN as EVENT_DOMAIN,
     EventDeviceClass,
     EventEntity,
     EventEntityDescription,
@@ -12,7 +12,7 @@ from homeassistant.components.event import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import format_discovered_event_class, format_event_dispatcher_name
 from .const import (
@@ -163,6 +163,7 @@ class XiaomiEventEntity(EventEntity):
         if event:
             self._trigger_event(event[EVENT_TYPE], event[EVENT_PROPERTIES])
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Entity added to hass."""
         await super().async_added_to_hass()
@@ -183,7 +184,7 @@ class XiaomiEventEntity(EventEntity):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: XiaomiBLEConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Xiaomi event."""
     coordinator = entry.runtime_data
@@ -193,7 +194,7 @@ async def async_setup_entry(
         # Matches logic in PassiveBluetoothProcessorEntity
         XiaomiEventEntity(address_event_class[0], address_event_class[2], None)
         for ent_reg_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
-        if ent_reg_entry.domain == "event"
+        if ent_reg_entry.domain == EVENT_DOMAIN
         and (address_event_class := ent_reg_entry.unique_id.partition("-"))
     )
 

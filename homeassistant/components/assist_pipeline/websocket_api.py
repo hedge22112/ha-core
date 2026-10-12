@@ -8,14 +8,17 @@ import logging
 import math
 from typing import Any, Final
 
-# Suppressing disable=deprecated-module is needed for Python 3.11
 import audioop  # pylint: disable=deprecated-module
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import conversation, stt, tts, websocket_api
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_SECONDS, MATCH_ALL
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import (
+    chat_session,
+    config_validation as cv,
+    entity_registry as er,
+)
 from homeassistant.util import language as language_util
 
 from .const import (
@@ -26,20 +29,16 @@ from .const import (
     SAMPLE_RATE,
     SAMPLE_WIDTH,
 )
-from .error import PipelineNotFound
-from .pipeline import (
-    KEY_ASSIST_PIPELINE,
+from .error import PipelineError, PipelineNotFound
+from .models import (
     AudioSettings,
-    DeviceAudioQueue,
-    PipelineError,
     PipelineEvent,
     PipelineEventType,
-    PipelineInput,
-    PipelineRun,
     PipelineStage,
     WakeWordSettings,
-    async_get_pipeline,
 )
+from .pipeline import PipelineInput, PipelineRun, async_get_pipeline
+from .runtime import KEY_ASSIST_PIPELINE, DeviceAudioQueue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,58 +60,58 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
 
 
 @websocket_api.websocket_command(
-    vol.All(
+    probatio.All(
         websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
             {
-                vol.Required("type"): "assist_pipeline/run",
+                probatio.Required("type"): "assist_pipeline/run",
                 # pylint: disable-next=unnecessary-lambda
-                vol.Required("start_stage"): lambda val: PipelineStage(val),
+                probatio.Required("start_stage"): lambda val: PipelineStage(val),
                 # pylint: disable-next=unnecessary-lambda
-                vol.Required("end_stage"): lambda val: PipelineStage(val),
-                vol.Optional("input"): dict,
-                vol.Optional("pipeline"): str,
-                vol.Optional("conversation_id"): vol.Any(str, None),
-                vol.Optional("device_id"): vol.Any(str, None),
-                vol.Optional("timeout"): vol.Any(float, int),
+                probatio.Required("end_stage"): lambda val: PipelineStage(val),
+                probatio.Optional("input"): dict,
+                probatio.Optional("pipeline"): str,
+                probatio.Optional("conversation_id"): probatio.Any(str, None),
+                probatio.Optional("device_id"): probatio.Any(str, None),
+                probatio.Optional("timeout"): probatio.Any(int, float),
             },
         ),
         cv.key_value_schemas(
             "start_stage",
             {
-                PipelineStage.WAKE_WORD: vol.Schema(
+                PipelineStage.WAKE_WORD: probatio.Schema(
                     {
-                        vol.Required("input"): {
-                            vol.Required("sample_rate"): int,
-                            vol.Optional("timeout"): vol.Any(float, int),
-                            vol.Optional("audio_seconds_to_buffer"): vol.Any(
-                                float, int
+                        probatio.Required("input"): {
+                            probatio.Required("sample_rate"): int,
+                            probatio.Optional("timeout"): probatio.Any(int, float),
+                            probatio.Optional("audio_seconds_to_buffer"): probatio.Any(
+                                int, float
                             ),
                             # Audio enhancement
-                            vol.Optional("noise_suppression_level"): int,
-                            vol.Optional("auto_gain_dbfs"): int,
-                            vol.Optional("volume_multiplier"): float,
+                            probatio.Optional("noise_suppression_level"): int,
+                            probatio.Optional("auto_gain_dbfs"): int,
+                            probatio.Optional("volume_multiplier"): float,
                             # Advanced use cases/testing
-                            vol.Optional("no_vad"): bool,
+                            probatio.Optional("no_vad"): bool,
                         }
                     },
-                    extra=vol.ALLOW_EXTRA,
+                    extra=probatio.ALLOW_EXTRA,
                 ),
-                PipelineStage.STT: vol.Schema(
+                PipelineStage.STT: probatio.Schema(
                     {
-                        vol.Required("input"): {
-                            vol.Required("sample_rate"): int,
-                            vol.Optional("wake_word_phrase"): str,
+                        probatio.Required("input"): {
+                            probatio.Required("sample_rate"): int,
+                            probatio.Optional("wake_word_phrase"): str,
                         }
                     },
-                    extra=vol.ALLOW_EXTRA,
+                    extra=probatio.ALLOW_EXTRA,
                 ),
-                PipelineStage.INTENT: vol.Schema(
-                    {vol.Required("input"): {"text": str}},
-                    extra=vol.ALLOW_EXTRA,
+                PipelineStage.INTENT: probatio.Schema(
+                    {probatio.Required("input"): {"text": str}},
+                    extra=probatio.ALLOW_EXTRA,
                 ),
-                PipelineStage.TTS: vol.Schema(
-                    {vol.Required("input"): {"text": str}},
-                    extra=vol.ALLOW_EXTRA,
+                PipelineStage.TTS: probatio.Schema(
+                    {probatio.Required("input"): {"text": str}},
+                    extra=probatio.ALLOW_EXTRA,
                 ),
             },
         ),
@@ -146,7 +145,6 @@ async def websocket_run(
 
     # Arguments to PipelineInput
     input_args: dict[str, Any] = {
-        "conversation_id": msg.get("conversation_id"),
         "device_id": msg.get("device_id"),
     }
 
@@ -234,46 +232,50 @@ async def websocket_run(
         audio_settings=audio_settings or AudioSettings(),
     )
 
-    pipeline_input = PipelineInput(**input_args)
+    with chat_session.async_get_chat_session(
+        hass, msg.get("conversation_id")
+    ) as session:
+        input_args["session"] = session
+        pipeline_input = PipelineInput(**input_args)
 
-    try:
-        await pipeline_input.validate()
-    except PipelineError as error:
-        # Report more specific error when possible
-        connection.send_error(msg["id"], error.code, error.message)
-        return
+        try:
+            await pipeline_input.validate()
+        except PipelineError as error:
+            # Report more specific error when possible
+            connection.send_error(msg["id"], error.code, error.message)
+            return
 
-    # Confirm subscription
-    connection.send_result(msg["id"])
+        # Confirm subscription
+        connection.send_result(msg["id"])
 
-    run_task = hass.async_create_task(pipeline_input.execute())
+        run_task = hass.async_create_task(pipeline_input.execute())
 
-    # Cancel pipeline if user unsubscribes
-    connection.subscriptions[msg["id"]] = run_task.cancel
+        # Cancel pipeline if user unsubscribes
+        connection.subscriptions[msg["id"]] = run_task.cancel
 
-    try:
-        # Task contains a timeout
-        async with asyncio.timeout(timeout):
-            await run_task
-    except TimeoutError:
-        pipeline_input.run.process_event(
-            PipelineEvent(
-                PipelineEventType.ERROR,
-                {"code": "timeout", "message": "Timeout running pipeline"},
+        try:
+            # Task contains a timeout
+            async with asyncio.timeout(timeout):
+                await run_task
+        except TimeoutError:
+            pipeline_input.run.process_event(
+                PipelineEvent(
+                    PipelineEventType.ERROR,
+                    {"code": "timeout", "message": "Timeout running pipeline"},
+                )
             )
-        )
-    finally:
-        if unregister_handler is not None:
-            # Unregister binary handler
-            unregister_handler()
+        finally:
+            if unregister_handler is not None:
+                # Unregister binary handler
+                unregister_handler()
 
 
 @callback
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_pipeline/pipeline_debug/list",
-        vol.Required("pipeline_id"): str,
+        probatio.Required("type"): "assist_pipeline/pipeline_debug/list",
+        probatio.Required("pipeline_id"): str,
     }
 )
 def websocket_list_runs(
@@ -309,7 +311,7 @@ def websocket_list_runs(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_pipeline/device/list",
+        probatio.Required("type"): "assist_pipeline/device/list",
     }
 )
 def websocket_list_devices(
@@ -338,9 +340,9 @@ def websocket_list_devices(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_pipeline/pipeline_debug/get",
-        vol.Required("pipeline_id"): str,
-        vol.Required("pipeline_run_id"): str,
+        probatio.Required("type"): "assist_pipeline/pipeline_debug/get",
+        probatio.Required("pipeline_id"): str,
+        probatio.Required("pipeline_run_id"): str,
     }
 )
 def websocket_get_run(
@@ -379,7 +381,7 @@ def websocket_get_run(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_pipeline/language/list",
+        probatio.Required("type"): "assist_pipeline/language/list",
     }
 )
 @callback
@@ -438,12 +440,12 @@ def websocket_list_languages(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "assist_pipeline/device/capture",
-        vol.Required("device_id"): str,
-        vol.Required("timeout"): vol.All(
+        probatio.Required("type"): "assist_pipeline/device/capture",
+        probatio.Required("device_id"): str,
+        probatio.Required("timeout"): probatio.All(
             # 0 < timeout <= MAX_CAPTURE_TIMEOUT
-            vol.Coerce(float),
-            vol.Range(min=0, min_included=False, max=MAX_CAPTURE_TIMEOUT),
+            probatio.Coerce(float),
+            probatio.Range(min=0, min_included=False, max=MAX_CAPTURE_TIMEOUT),
         ),
     }
 )
@@ -464,7 +466,7 @@ async def websocket_device_capture(
     # single sample (16 bits) per queue item.
     max_queue_items = (
         # +1 for None to signal end
-        int(math.ceil(timeout_seconds * CAPTURE_RATE)) + 1
+        math.ceil(timeout_seconds * CAPTURE_RATE) + 1
     )
 
     audio_queue = DeviceAudioQueue(queue=asyncio.Queue(maxsize=max_queue_items))

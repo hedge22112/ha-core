@@ -1,34 +1,22 @@
 """Support for RSS/Atom feeds."""
 
-from __future__ import annotations
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_URL, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.util.hass_dict import HassKey
 
-from .const import CONF_MAX_ENTRIES, DOMAIN
-from .coordinator import FeedReaderCoordinator, StoredData
+from .const import DOMAIN
+from .coordinator import FeedReaderConfigEntry, FeedReaderCoordinator, StoredData
 
-type FeedReaderConfigEntry = ConfigEntry[FeedReaderCoordinator]
-
-CONF_URLS = "urls"
-
-MY_KEY: HassKey[StoredData] = HassKey(DOMAIN)
+FEEDREADER_KEY: HassKey[StoredData] = HassKey(DOMAIN)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FeedReaderConfigEntry) -> bool:
     """Set up Feedreader from a config entry."""
-    storage = hass.data.setdefault(MY_KEY, StoredData(hass))
+    storage = hass.data.setdefault(FEEDREADER_KEY, StoredData(hass))
     if not storage.is_initialized:
         await storage.async_setup()
 
-    coordinator = FeedReaderCoordinator(
-        hass,
-        entry.data[CONF_URL],
-        entry.options[CONF_MAX_ENTRIES],
-        storage,
-    )
+    coordinator = FeedReaderCoordinator(hass, entry, storage)
 
     await coordinator.async_setup()
 
@@ -40,8 +28,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: FeedReaderConfigEntry) -
 
     await coordinator.async_config_entry_first_refresh()
 
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-
     return True
 
 
@@ -52,12 +38,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: FeedReaderConfigEntry) 
     )
     # if this is the last entry, remove the storage
     if len(entries) == 1:
-        hass.data.pop(MY_KEY)
-    return await hass.config_entries.async_unload_platforms(entry, Platform.EVENT)
-
-
-async def _async_update_listener(
-    hass: HomeAssistant, entry: FeedReaderConfigEntry
-) -> None:
-    """Handle reconfiguration."""
-    await hass.config_entries.async_reload(entry.entry_id)
+        hass.data.pop(FEEDREADER_KEY)
+    return await hass.config_entries.async_unload_platforms(entry, [Platform.EVENT])

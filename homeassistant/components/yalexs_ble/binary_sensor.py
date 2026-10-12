@@ -1,6 +1,6 @@
 """Support for yalexs ble binary sensors."""
 
-from __future__ import annotations
+from typing import override
 
 from yalexs_ble import ConnectionInfo, DoorStatus, LockInfo, LockState
 
@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import YALEXSBLEConfigEntry
 from .entity import YALEXSBLEEntity
@@ -18,7 +18,7 @@ from .entity import YALEXSBLEEntity
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: YALEXSBLEConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up YALE XS binary sensors."""
     data = entry.runtime_data
@@ -33,9 +33,10 @@ class YaleXSBLEDoorSensor(YALEXSBLEEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.DOOR
 
     @callback
+    @override
     def _async_update_state(
         self, new_state: LockState, lock_info: LockInfo, connection_info: ConnectionInfo
     ) -> None:
         """Update the state."""
-        self._attr_is_on = new_state.door == DoorStatus.OPENED
+        self._attr_is_on = new_state.door is DoorStatus.OPENED
         super()._async_update_state(new_state, lock_info, connection_info)

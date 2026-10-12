@@ -1,7 +1,5 @@
 """Common libraries for test setup."""
 
-from __future__ import annotations
-
 from collections.abc import Generator
 import copy
 import shutil
@@ -18,6 +16,7 @@ import pytest
 from yarl import URL
 
 from homeassistant.components.application_credentials import (
+    DOMAIN as APPLICATION_CREDENTIALS_DOMAIN,
     async_import_client_credential,
 )
 from homeassistant.components.nest import DOMAIN
@@ -74,20 +73,25 @@ class FakeAuth:
         self.json = None
         self.headers = None
         self.captured_requests = []
+        self._project_id = project_id
+        self._aioclient_mock = aioclient_mock
+        self.register_mock_requests()
 
+    def register_mock_requests(self) -> None:
+        """Register the mocks."""
         # API makes a call to request structures to initiate pubsub feed, but the
         # integration does not use this.
-        aioclient_mock.get(
-            f"{API_URL}/enterprises/{project_id}/structures",
+        self._aioclient_mock.get(
+            f"{API_URL}/enterprises/{self._project_id}/structures",
             side_effect=self.request_structures,
         )
-        aioclient_mock.get(
-            f"{API_URL}/enterprises/{project_id}/devices",
+        self._aioclient_mock.get(
+            f"{API_URL}/enterprises/{self._project_id}/devices",
             side_effect=self.request_devices,
         )
-        aioclient_mock.post(DEVICE_URL_MATCH, side_effect=self.request)
-        aioclient_mock.get(TEST_IMAGE_URL, side_effect=self.request)
-        aioclient_mock.get(TEST_CLIP_URL, side_effect=self.request)
+        self._aioclient_mock.post(DEVICE_URL_MATCH, side_effect=self.request)
+        self._aioclient_mock.get(TEST_IMAGE_URL, side_effect=self.request)
+        self._aioclient_mock.get(TEST_CLIP_URL, side_effect=self.request)
 
     async def request_structures(
         self, method: str, url: str, data: dict[str, Any]
@@ -139,13 +143,28 @@ async def auth(
     return FakeAuth(aioclient_mock, create_device, device_access_project_id)
 
 
-@pytest.fixture(autouse=True)
-def cleanup_media_storage(hass: HomeAssistant) -> Generator[None]:
+@pytest.fixture(autouse=True, name="media_path")
+def cleanup_media_storage(hass: HomeAssistant) -> Generator[str]:
     """Test cleanup, remove any media storage persisted during the test."""
     tmp_path = str(uuid.uuid4())
-    with patch("homeassistant.components.nest.media_source.MEDIA_PATH", new=tmp_path):
-        yield
-        shutil.rmtree(hass.config.path(tmp_path), ignore_errors=True)
+    with patch(
+        "homeassistant.components.nest.media_source.MEDIA_CACHE_PATH", new=tmp_path
+    ):
+        full_path = hass.config.cache_path(DOMAIN, tmp_path)
+        yield full_path
+        shutil.rmtree(full_path, ignore_errors=True)
+
+
+@pytest.fixture(name="legacy_media_path")
+def cleanup_legacy_media_storage(hass: HomeAssistant) -> Generator[str]:
+    """Test cleanup, remove any media storage persisted during the test."""
+    tmp_path = str(uuid.uuid4())
+    with patch(
+        "homeassistant.components.nest.media_source.LEGACY_MEDIA_PATH", new=tmp_path
+    ):
+        full_path = hass.config.path(tmp_path)
+        yield full_path
+        shutil.rmtree(full_path, ignore_errors=True)
 
 
 @pytest.fixture
@@ -180,6 +199,16 @@ def mock_subscriber() -> YieldFixture[AsyncMock]:
         return_value=mock_subscriber,
     ):
         yield mock_subscriber
+
+
+@pytest.fixture
+def mock_subscriber_refresh() -> YieldFixture[None]:
+    """Fixture for mocking subscriber refresh."""
+    with patch(
+        "homeassistant.components.nest.api.GoogleNestSubscriber._async_run_refresh",
+        new=AsyncMock(),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -226,7 +255,7 @@ def platforms() -> list[str]:
 
 @pytest.fixture
 def subscriber_id() -> str:
-    """Fixture to let tests override subscriber id regardless of configuration type used."""
+    """Fixture to override subscriber id regardless of config type."""
     return SUBSCRIBER_ID
 
 
@@ -285,7 +314,7 @@ async def credential(hass: HomeAssistant, nest_test_config: NestTestConfig) -> N
     """Fixture that provides the ClientCredential for the test if any."""
     if not nest_test_config.credential:
         return
-    assert await async_setup_component(hass, "application_credentials", {})
+    assert await async_setup_component(hass, APPLICATION_CREDENTIALS_DOMAIN, {})
     await async_import_client_credential(
         hass, DOMAIN, nest_test_config.credential, "imported-cred"
     )
@@ -307,7 +336,7 @@ async def setup_base_platform(
             await hass.async_block_till_done()
 
         yield _setup_func
-        if config_entry.state == ConfigEntryState.LOADED:
+        if config_entry.state is ConfigEntryState.LOADED:
             await hass.config_entries.async_unload(config_entry.entry_id)
 
 
@@ -325,3 +354,13 @@ def reset_diagnostics() -> Generator[None]:
     """Fixture to reset client library diagnostic counters."""
     yield
     diagnostics.reset()
+
+
+@pytest.fixture(autouse=True)
+def disable_rate_limiter_delays() -> Generator[None]:
+    """Disable SDM command rate limiter delays in tests."""
+    with patch(
+        "google_nest_sdm.rate_limiter.RateLimiter._get_wait_time",
+        return_value=0.0,
+    ):
+        yield

@@ -1,10 +1,8 @@
 """SMA Solar Webconnect interface."""
 
-from __future__ import annotations
+from typing import override
 
-from typing import TYPE_CHECKING
-
-import pysma
+from pysma.sensor import Sensor
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,8 +10,9 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    CONF_HOST,
+    CONF_SSL,
     PERCENTAGE,
     EntityCategory,
     UnitOfApparentPower,
@@ -27,14 +26,13 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-)
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, PYSMA_COORDINATOR, PYSMA_DEVICE_INFO, PYSMA_SENSORS
+from . import SMAConfigEntry
+from .const import DOMAIN
+from .coordinator import SMADataUpdateCoordinator
 
 SENSOR_ENTITIES: dict[str, SensorEntityDescription] = {
     "status": SensorEntityDescription(
@@ -837,54 +835,61 @@ SENSOR_ENTITIES: dict[str, SensorEntityDescription] = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: SMAConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up SMA sensors."""
-    sma_data = hass.data[DOMAIN][config_entry.entry_id]
-
-    coordinator = sma_data[PYSMA_COORDINATOR]
-    used_sensors = sma_data[PYSMA_SENSORS]
-    device_info = sma_data[PYSMA_DEVICE_INFO]
-
-    if TYPE_CHECKING:
-        assert config_entry.unique_id
+    """Setup SMA sensors."""
+    coordinator = entry.runtime_data
 
     async_add_entities(
         SMAsensor(
             coordinator,
-            config_entry.unique_id,
             SENSOR_ENTITIES.get(sensor.name),
-            device_info,
             sensor,
+            entry,
         )
-        for sensor in used_sensors
+        for sensor in coordinator.data.sensors
     )
 
 
-class SMAsensor(CoordinatorEntity, SensorEntity):
+class SMAsensor(CoordinatorEntity[SMADataUpdateCoordinator], SensorEntity):
     """Representation of a SMA sensor."""
 
     def __init__(
         self,
-        coordinator: DataUpdateCoordinator,
-        config_entry_unique_id: str,
+        coordinator: SMADataUpdateCoordinator,
         description: SensorEntityDescription | None,
-        device_info: DeviceInfo,
-        pysma_sensor: pysma.sensor.Sensor,
+        pysma_sensor: Sensor,
+        entry: SMAConfigEntry,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         if description is not None:
             self.entity_description = description
+            sensor_name = description.name
         else:
-            self._attr_name = pysma_sensor.name
+            sensor_name = pysma_sensor.name
+        device_name = coordinator.data.sma_device_info.name
+        self._attr_name = f"{device_name or 'SMA'} {sensor_name}"
+
+        protocol = "https" if entry.data[CONF_SSL] else "http"
+        url = f"{protocol}://{entry.data[CONF_HOST]}"
 
         self._sensor = pysma_sensor
+        self._serial = coordinator.data.sma_device_info.serial
+        assert entry.unique_id
 
-        self._attr_device_info = device_info
+        self._attr_device_info = DeviceInfo(
+            configuration_url=url,
+            identifiers={(DOMAIN, entry.unique_id)},
+            manufacturer=coordinator.data.sma_device_info.manufacturer,
+            model=coordinator.data.sma_device_info.type,
+            name=device_name,
+            sw_version=coordinator.data.sma_device_info.sw_version,
+            serial_number=coordinator.data.sma_device_info.serial,
+        )
         self._attr_unique_id = (
-            f"{config_entry_unique_id}-{pysma_sensor.key}_{pysma_sensor.key_idx}"
+            f"{entry.unique_id}-{pysma_sensor.key}_{pysma_sensor.key_idx}"
         )
 
         # Set sensor enabled to False.
@@ -892,25 +897,27 @@ class SMAsensor(CoordinatorEntity, SensorEntity):
         self._sensor.enabled = False
 
     @property
-    def name(self) -> str:
-        """Return the name of the sensor prefixed with the device name."""
-        if self._attr_device_info is None or not (
-            name_prefix := self._attr_device_info.get("name")
-        ):
-            name_prefix = "SMA"
-
-        return f"{name_prefix} {super().name}"
+    @override
+    def available(self) -> bool:
+        """Return if the device is available."""
+        return (
+            super().available
+            and self._serial == self.coordinator.data.sma_device_info.serial
+        )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         return self._sensor.value
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
         self._sensor.enabled = True
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
         await super().async_will_remove_from_hass()

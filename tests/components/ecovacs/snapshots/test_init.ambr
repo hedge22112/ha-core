@@ -2,7 +2,8 @@
 # name: test_devices_in_dr[E1234567890000000001]
   DeviceRegistryEntrySnapshot({
     'area_id': None,
-    'config_entries': <ANY>,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'configuration_url': None,
     'connections': set({
     }),
@@ -16,7 +17,6 @@
         'E1234567890000000001',
       ),
     }),
-    'is_new': False,
     'labels': set({
     }),
     'manufacturer': 'Ecovacs',
@@ -24,9 +24,7 @@
     'model_id': 'yna5xi',
     'name': 'Ozmo 950',
     'name_by_user': None,
-    'primary_config_entry': <ANY>,
     'serial_number': 'E1234567890000000001',
-    'suggested_area': None,
     'sw_version': None,
     'via_device_id': None,
   })

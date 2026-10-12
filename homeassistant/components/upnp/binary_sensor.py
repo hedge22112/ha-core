@@ -1,8 +1,7 @@
 """Support for UPnP/IGD Binary Sensors."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -11,10 +10,10 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import UpnpConfigEntry, UpnpDataUpdateCoordinator
 from .const import LOGGER, WAN_STATUS
+from .coordinator import UpnpConfigEntry, UpnpDataUpdateCoordinator
 from .entity import UpnpEntity, UpnpEntityDescription
 
 
@@ -38,7 +37,7 @@ SENSOR_DESCRIPTIONS: tuple[UpnpBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UpnpConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the UPnP/IGD sensors."""
     coordinator = config_entry.runtime_data
@@ -69,10 +68,12 @@ class UpnpStatusBinarySensor(UpnpEntity, BinarySensorEntity):
         super().__init__(coordinator=coordinator, entity_description=entity_description)
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return self.coordinator.data[self.entity_description.key] == "Connected"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Subscribe to updates."""
         await super().async_added_to_hass()

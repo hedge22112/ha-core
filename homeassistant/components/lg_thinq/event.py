@@ -1,15 +1,14 @@
 """Support for event entity."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from thinqconnect import DeviceType
 from thinqconnect.integration import ActiveMode, ThinQPropertyEx
 
 from homeassistant.components.event import EventEntity, EventEntityDescription
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ThinqConfigEntry
 from .coordinator import DeviceDataUpdateCoordinator
@@ -57,7 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ThinqConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up an entry for event platform."""
     entities: list[ThinQEventEntity] = []
@@ -94,6 +93,7 @@ class ThinQEventEntity(ThinQEntity, EventEntity):
         # For event types.
         self._attr_event_types = self.data.options
 
+    @override
     def _update_status(self) -> None:
         """Update status itself."""
         super()._update_status()

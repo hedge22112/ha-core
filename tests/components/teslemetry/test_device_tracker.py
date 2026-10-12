@@ -6,12 +6,12 @@ import pytest
 from syrupy.assertion import SnapshotAssertion
 from teslemetry_stream.const import Signal
 
-from homeassistant.const import Platform
+from homeassistant.const import ATTR_LATITUDE, STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from . import assert_entities, assert_entities_alt, setup_platform
-from .const import VEHICLE_DATA_ALT
+from .const import METADATA_NOSCOPE, VEHICLE_DATA_ALT
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
@@ -43,9 +43,24 @@ async def test_device_tracker_alt(
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
-async def test_device_tracker_streaming(
+async def test_device_tracker_noscope(
     hass: HomeAssistant,
     snapshot: SnapshotAssertion,
+    entity_registry: er.EntityRegistry,
+    mock_metadata: AsyncMock,
+    mock_vehicle_data: AsyncMock,
+) -> None:
+    """Tests that the device tracker entities are correct."""
+
+    mock_metadata.return_value = METADATA_NOSCOPE
+    entry = await setup_platform(hass, [Platform.DEVICE_TRACKER])
+    entity_entries = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    assert len(entity_entries) == 0
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_device_tracker_streaming(
+    hass: HomeAssistant,
     mock_vehicle_data: AsyncMock,
     mock_add_listener: AsyncMock,
 ) -> None:
@@ -66,7 +81,7 @@ async def test_device_tracker_streaming(
                     "latitude": 3.0,
                     "longitude": 4.0,
                 },
-                Signal.DESTINATION_NAME: "Home",
+                Signal.MINUTES_TO_ARRIVAL: 12.5,
                 Signal.ORIGIN_LOCATION: None,
             },
             "createdAt": "2024-10-04T10:45:17.537Z",
@@ -74,24 +89,66 @@ async def test_device_tracker_streaming(
     )
     await hass.async_block_till_done()
 
-    # Assert the entities restored their values
-    for entity_id in (
-        "device_tracker.test_location",
-        "device_tracker.test_route",
-        "device_tracker.test_origin",
-    ):
-        state = hass.states.get(entity_id)
-        assert state.state == snapshot(name=f"{entity_id}-state")
+    # Assert the entities have correct state values
+    assert hass.states.get("device_tracker.test_location").state == "not_home"
+    assert hass.states.get("device_tracker.test_route").state == "not_home"
+    assert hass.states.get("device_tracker.test_origin").state == "unknown"
 
     # Reload the entry
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
 
     # Assert the entities restored their values
-    for entity_id in (
-        "device_tracker.test_location",
-        "device_tracker.test_route",
-        "device_tracker.test_origin",
-    ):
-        state = hass.states.get(entity_id)
-        assert state.state == snapshot(name=f"{entity_id}-restore")
+    assert hass.states.get("device_tracker.test_location").state == "not_home"
+    assert hass.states.get("device_tracker.test_route").state == "not_home"
+    assert hass.states.get("device_tracker.test_origin").state == "unknown"
+
+
+async def test_device_tracker_streaming_route_ends(
+    hass: HomeAssistant,
+    mock_add_listener: AsyncMock,
+) -> None:
+    """Test the streaming route tracker clears when navigation ends."""
+    await setup_platform(hass, [Platform.DEVICE_TRACKER])
+    vin = VEHICLE_DATA_ALT["response"]["vin"]
+
+    mock_add_listener.send(
+        {
+            "vin": vin,
+            "data": {
+                Signal.DESTINATION_LOCATION: {
+                    "latitude": -27.824252,
+                    "longitude": 153.328079,
+                },
+                Signal.DESTINATION_NAME: "Home",
+                Signal.MINUTES_TO_ARRIVAL: 12.5,
+                Signal.MILES_TO_ARRIVAL: 6.2,
+            },
+            "createdAt": "2026-09-28T08:40:00.000Z",
+        }
+    )
+    await hass.async_block_till_done()
+    assert (state := hass.states.get("device_tracker.test_route"))
+    assert state.attributes[ATTR_LATITUDE] == -27.824252
+
+    # The car keeps reporting the last destination after arriving, but the
+    # route fields go null.
+    mock_add_listener.send(
+        {
+            "vin": vin,
+            "data": {
+                Signal.DESTINATION_LOCATION: {
+                    "latitude": -27.824252,
+                    "longitude": 153.328079,
+                },
+                Signal.DESTINATION_NAME: None,
+                Signal.MINUTES_TO_ARRIVAL: None,
+                Signal.MILES_TO_ARRIVAL: None,
+            },
+            "createdAt": "2026-09-28T08:59:11.879Z",
+        }
+    )
+    await hass.async_block_till_done()
+    assert (state := hass.states.get("device_tracker.test_route"))
+    assert state.state == STATE_UNKNOWN
+    assert ATTR_LATITUDE not in state.attributes

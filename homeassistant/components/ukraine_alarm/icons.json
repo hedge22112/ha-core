@@ -4,8 +4,11 @@
       "air": {
         "default": "mdi:cloud"
       },
-      "urban_fights": {
-        "default": "mdi:pistol"
+      "air_red": {
+        "default": "mdi:cloud-alert"
+      },
+      "air_yellow": {
+        "default": "mdi:cloud-alert-outline"
       },
       "artillery": {
         "default": "mdi:tank"
@@ -15,6 +18,9 @@
       },
       "nuclear": {
         "default": "mdi:nuke"
+      },
+      "urban_fights": {
+        "default": "mdi:pistol"
       }
     }
   }

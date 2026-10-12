@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import timedelta
+from typing import override
 
 from sensoterra.customerapi import (
     CustomerApi,
@@ -10,27 +11,36 @@ from sensoterra.customerapi import (
 )
 from sensoterra.probe import Probe, Sensor
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import LOGGER, SCAN_INTERVAL_MINUTES
 
+type SensoterraConfigEntry = ConfigEntry[SensoterraCoordinator]
+
 
 class SensoterraCoordinator(DataUpdateCoordinator[list[Probe]]):
     """Sensoterra coordinator."""
 
-    def __init__(self, hass: HomeAssistant, api: CustomerApi) -> None:
+    config_entry: SensoterraConfigEntry
+
+    def __init__(
+        self, hass: HomeAssistant, config_entry: SensoterraConfigEntry, api: CustomerApi
+    ) -> None:
         """Initialize Sensoterra coordinator."""
         super().__init__(
             hass,
             LOGGER,
+            config_entry=config_entry,
             name="Sensoterra probe",
             update_interval=timedelta(minutes=SCAN_INTERVAL_MINUTES),
         )
         self.api = api
         self.add_devices_callback: Callable[[list[Probe]], None] | None = None
 
+    @override
     async def _async_update_data(self) -> list[Probe]:
         """Fetch data from Sensoterra Customer API endpoint."""
         try:

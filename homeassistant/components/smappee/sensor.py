@@ -1,8 +1,7 @@
 """Support for monitoring a Smappee energy sensor."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
+from typing import override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -13,7 +12,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import UnitOfElectricPotential, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import SmappeeConfigEntry
 from .const import DOMAIN
@@ -189,7 +188,7 @@ VOLTAGE_SENSORS: tuple[SmappeeVoltageSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SmappeeConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smappee sensor."""
     smappee_base = config_entry.runtime_data
@@ -346,6 +345,7 @@ class SmappeeSensor(SensorEntity):
         )
 
     @property
+    @override
     def name(self):
         """Return the name for this sensor."""
         sensor_key = self.entity_description.key
@@ -359,6 +359,7 @@ class SmappeeSensor(SensorEntity):
         return f"{self._service_location.service_location_name} - {sensor_name}"
 
     @property
+    @override
     def unique_id(self):
         """Return the unique ID for this sensor."""
         sensor_key = self.entity_description.key

@@ -1,38 +1,48 @@
 """Component providing number entities for UniFi Protect."""
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+import logging
+from typing import cast, override
 
-from uiprotect.data import (
-    Camera,
-    Doorlock,
-    Light,
-    ModelType,
-    ProtectAdoptableDeviceModel,
+from uiprotect import ChimeRingtoneNotSetError
+from uiprotect.data import Camera, Chime, Light, ModelType, ProtectAdoptableDeviceModel
+from uiprotect.data.public_devices import (
+    PublicChime,
+    PublicDeviceModel,
+    PublicLight,
+    SensorFeatureCapability,
 )
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, Platform, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import DOMAIN
 from .data import ProtectData, ProtectDeviceType, UFPConfigEntry
 from .entity import (
     PermRequired,
     ProtectDeviceEntity,
     ProtectEntityDescription,
-    ProtectSetableKeysMixin,
+    ProtectSettableKeysMixin,
     T,
     async_all_device_entities,
+    async_remove_unsupported_sense_entities,
 )
+from .utils import async_ufp_instance_command
+
+_LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
 class ProtectNumberEntityDescription(
-    ProtectSetableKeysMixin[T], NumberEntityDescription
+    ProtectSettableKeysMixin[T], NumberEntityDescription
 ):
     """Describes UniFi Protect Number entity."""
 
@@ -41,31 +51,26 @@ class ProtectNumberEntityDescription(
     ufp_step: int | float
 
 
-def _get_pir_duration(obj: Light) -> int:
-    return int(obj.light_device_settings.pir_duration.total_seconds())
-
-
-async def _set_pir_duration(obj: Light, value: float) -> None:
+async def _set_pir_duration(obj: PublicLight, value: float) -> None:
     await obj.set_duration(timedelta(seconds=value))
-
-
-def _get_auto_close(obj: Doorlock) -> int:
-    return int(obj.auto_close_time.total_seconds())
-
-
-async def _set_auto_close(obj: Doorlock, value: float) -> None:
-    await obj.set_auto_close_time(timedelta(seconds=value))
 
 
 def _get_chime_duration(obj: Camera) -> int:
     return int(obj.chime_duration_seconds)
 
 
+async def _set_chime_volume(obj: Chime, value: float) -> None:
+    """Set chime volume per paired camera via the public API."""
+    level = int(value)
+    ring_settings = [setting.to_api_dict(volume=level) for setting in obj.ring_settings]
+    if ring_settings:
+        await obj.set_ring_settings_public(ring_settings)
+
+
 CAMERA_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
     ProtectNumberEntityDescription(
         key="wdr_value",
-        name="Wide dynamic range",
-        icon="mdi:state-machine",
+        translation_key="wide_dynamic_range",
         entity_category=EntityCategory.CONFIG,
         ufp_min=0,
         ufp_max=3,
@@ -77,23 +82,50 @@ CAMERA_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
     ),
     ProtectNumberEntityDescription(
         key="mic_level",
-        name="Microphone level",
-        icon="mdi:microphone",
+        translation_key="microphone_level",
+        entity_category=EntityCategory.CONFIG,
+        native_unit_of_measurement=PERCENTAGE,
+        ufp_min=1,
+        ufp_max=100,
+        ufp_step=1,
+        # The public setter refuses a camera whose only microphone is a
+        # hot-plugged module, so the gate is the built-in flag in both modes.
+        ufp_required_field="feature_flags.has_mic",
+        ufp_public_value="mic_volume",
+        ufp_set_method="set_mic_volume",
+        ufp_perm=PermRequired.WRITE,
+    ),
+    ProtectNumberEntityDescription(
+        key="system_sounds_volume",
+        translation_key="system_sounds_volume",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         ufp_min=0,
         ufp_max=100,
         ufp_step=1,
-        ufp_required_field="has_mic",
-        ufp_value="mic_volume",
-        ufp_enabled="feature_flags.has_mic",
-        ufp_set_method="set_mic_volume",
+        ufp_required_field="feature_flags.has_speaker",
+        ufp_value="speaker_settings.volume",
+        ufp_enabled="feature_flags.has_speaker",
+        ufp_set_method="set_volume",
+        ufp_perm=PermRequired.WRITE,
+    ),
+    ProtectNumberEntityDescription(
+        key="doorbell_ring_volume",
+        translation_key="doorbell_ring_volume",
+        entity_category=EntityCategory.CONFIG,
+        native_unit_of_measurement=PERCENTAGE,
+        ufp_min=0,
+        ufp_max=100,
+        ufp_step=1,
+        ufp_required_field="feature_flags.is_doorbell",
+        ufp_value="speaker_settings.ring_volume",
+        ufp_enabled="feature_flags.is_doorbell",
+        ufp_set_method="set_ring_volume",
         ufp_perm=PermRequired.WRITE,
     ),
     ProtectNumberEntityDescription(
         key="zoom_position",
-        name="Zoom level",
-        icon="mdi:magnify-plus-outline",
+        translation_key="zoom_level",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         ufp_min=0,
@@ -106,8 +138,7 @@ CAMERA_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
     ),
     ProtectNumberEntityDescription(
         key="chime_duration",
-        name="Chime duration",
-        icon="mdi:bell",
+        translation_key="chime_duration",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         ufp_min=1,
@@ -121,8 +152,7 @@ CAMERA_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
     ),
     ProtectNumberEntityDescription(
         key="icr_lux",
-        name="Infrared custom lux trigger",
-        icon="mdi:white-balance-sunny",
+        translation_key="infrared_custom_lux_trigger",
         entity_category=EntityCategory.CONFIG,
         ufp_min=0,
         ufp_max=30,
@@ -138,80 +168,54 @@ CAMERA_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
 LIGHT_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
     ProtectNumberEntityDescription(
         key="sensitivity",
-        name="Motion sensitivity",
-        icon="mdi:walk",
+        translation_key="motion_sensitivity",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         ufp_min=0,
         ufp_max=100,
         ufp_step=1,
-        ufp_required_field=None,
-        ufp_value="light_device_settings.pir_sensitivity",
+        ufp_public_value="light_device_settings.pir_sensitivity",
         ufp_set_method="set_sensitivity",
-        ufp_perm=PermRequired.WRITE,
     ),
     ProtectNumberEntityDescription[Light](
         key="duration",
-        name="Auto-shutoff duration",
-        icon="mdi:camera-timer",
+        translation_key="auto_shutoff_duration",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         ufp_min=15,
         ufp_max=900,
         ufp_step=15,
-        ufp_required_field=None,
-        ufp_value_fn=_get_pir_duration,
+        ufp_public_value="light_device_settings.pir_duration_seconds",
         ufp_set_method_fn=_set_pir_duration,
-        ufp_perm=PermRequired.WRITE,
     ),
 )
 
 SENSE_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
     ProtectNumberEntityDescription(
         key="sensitivity",
-        name="Motion sensitivity",
-        icon="mdi:walk",
+        translation_key="motion_sensitivity",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         ufp_min=0,
         ufp_max=100,
         ufp_step=1,
-        ufp_required_field=None,
-        ufp_value="motion_settings.sensitivity",
+        ufp_public_value="motion_settings.sensitivity",
         ufp_set_method="set_motion_sensitivity",
-        ufp_perm=PermRequired.WRITE,
-    ),
-)
-
-DOORLOCK_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
-    ProtectNumberEntityDescription[Doorlock](
-        key="auto_lock_time",
-        name="Auto-lock timeout",
-        icon="mdi:walk",
-        entity_category=EntityCategory.CONFIG,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        ufp_min=0,
-        ufp_max=3600,
-        ufp_step=15,
-        ufp_required_field=None,
-        ufp_value_fn=_get_auto_close,
-        ufp_set_method_fn=_set_auto_close,
-        ufp_perm=PermRequired.WRITE,
+        ufp_capability=SensorFeatureCapability.MOTION,
     ),
 )
 
 CHIME_NUMBERS: tuple[ProtectNumberEntityDescription, ...] = (
-    ProtectNumberEntityDescription(
+    ProtectNumberEntityDescription[Chime](
         key="volume",
-        name="Volume",
-        icon="mdi:speaker",
+        translation_key="volume",
         entity_category=EntityCategory.CONFIG,
         native_unit_of_measurement=PERCENTAGE,
         ufp_min=0,
         ufp_max=100,
         ufp_step=1,
         ufp_value="volume",
-        ufp_set_method="set_volume",
+        ufp_set_method_fn=_set_chime_volume,
         ufp_perm=PermRequired.WRITE,
     ),
 )
@@ -219,51 +223,113 @@ _MODEL_DESCRIPTIONS: dict[ModelType, Sequence[ProtectEntityDescription]] = {
     ModelType.CAMERA: CAMERA_NUMBERS,
     ModelType.LIGHT: LIGHT_NUMBERS,
     ModelType.SENSOR: SENSE_NUMBERS,
-    ModelType.DOORLOCK: DOORLOCK_NUMBERS,
     ModelType.CHIME: CHIME_NUMBERS,
 }
+
+
+def _async_chime_ring_volume_entities(
+    data: ProtectData,
+    chime: Chime,
+) -> list[ChimeRingVolumeNumber]:
+    """Generate ring volume entities for each paired camera on a chime."""
+    entities: list[ChimeRingVolumeNumber] = []
+
+    if not chime.is_adopted_by_us:
+        return entities
+
+    auth_user = data.api.bootstrap.auth_user
+    if not chime.can_write(auth_user):
+        return entities
+
+    for ring_setting in chime.ring_settings:
+        camera = data.api.bootstrap.cameras.get(ring_setting.camera_id)
+        if camera is None:
+            _LOGGER.debug(
+                "Camera %s not found for chime %s ring volume",
+                ring_setting.camera_id,
+                chime.display_name,
+            )
+            continue
+        entities.append(ChimeRingVolumeNumber(data, chime, camera))
+
+    return entities
+
+
+def _async_all_chime_ring_volume_entities(
+    data: ProtectData,
+    chime: Chime | None = None,
+) -> list[ChimeRingVolumeNumber]:
+    """Generate all ring volume entities for chimes."""
+    entities: list[ChimeRingVolumeNumber] = []
+
+    if chime is not None:
+        return _async_chime_ring_volume_entities(data, chime)
+
+    for device in data.get_by_types({ModelType.CHIME}):
+        if isinstance(device, Chime):
+            entities.extend(_async_chime_ring_volume_entities(data, device))
+
+    return entities
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: UFPConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up number entities for UniFi Protect integration."""
     data = entry.runtime_data
+    async_remove_unsupported_sense_entities(hass, Platform.NUMBER, data, SENSE_NUMBERS)
 
     @callback
     def _add_new_device(device: ProtectAdoptableDeviceModel) -> None:
+        entities = async_all_device_entities(
+            data,
+            ProtectNumbers,
+            model_descriptions=_MODEL_DESCRIPTIONS,
+            ufp_device=device,
+        )
+        # Add ring volume entities for chimes
+        if isinstance(device, Chime):
+            entities += _async_all_chime_ring_volume_entities(data, device)
+        async_add_entities(entities)
+
+    @callback
+    def _add_new_public_device(device: PublicDeviceModel) -> None:
         async_add_entities(
             async_all_device_entities(
                 data,
                 ProtectNumbers,
                 model_descriptions=_MODEL_DESCRIPTIONS,
-                ufp_device=device,
+                public_device=device,
             )
         )
 
     data.async_subscribe_adopt(_add_new_device)
-    async_add_entities(
-        async_all_device_entities(
-            data,
-            ProtectNumbers,
-            model_descriptions=_MODEL_DESCRIPTIONS,
-        )
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, data.public_add_signal, _add_new_public_device)
     )
+    entities = async_all_device_entities(
+        data,
+        ProtectNumbers,
+        model_descriptions=_MODEL_DESCRIPTIONS,
+    )
+    if not data.api.is_public_only:
+        # The ring volume numbers are enumerated from the private chime.
+        entities += _async_all_chime_ring_volume_entities(data)
+    async_add_entities(entities)
 
 
 class ProtectNumbers(ProtectDeviceEntity, NumberEntity):
     """A UniFi Protect Number Entity."""
 
-    device: Camera | Light
     entity_description: ProtectNumberEntityDescription
     _state_attrs = ("_attr_available", "_attr_native_value")
 
     def __init__(
         self,
         data: ProtectData,
-        device: Camera | Light,
+        device: ProtectDeviceType,
         description: ProtectNumberEntityDescription,
     ) -> None:
         """Initialize the Number Entities."""
@@ -273,10 +339,87 @@ class ProtectNumbers(ProtectDeviceEntity, NumberEntity):
         self._attr_native_step = self.entity_description.ufp_step
 
     @callback
+    @override
     def _async_update_device_from_protect(self, device: ProtectDeviceType) -> None:
         super()._async_update_device_from_protect(device)
-        self._attr_native_value = self.entity_description.get_ufp_value(self.device)
+        self._attr_native_value = self.entity_description.get_value(
+            self.device, self._ufp_public_obj
+        )
 
+    @async_ufp_instance_command
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""
-        await self.entity_description.ufp_set(self.device, value)
+        await self.entity_description.ufp_set(self._ufp_set_target(), value)
+
+
+class ChimeRingVolumeNumber(ProtectDeviceEntity, NumberEntity):
+    """A UniFi Protect Number Entity for ring volume per camera on a chime."""
+
+    device: Chime
+    # The ring settings are read from and written to the public chime.
+    _ufp_uses_public = True
+    _state_attrs = ("_attr_available", "_attr_native_value")
+    _attr_native_max_value: float = 100
+    _attr_native_min_value: float = 0
+    _attr_native_step: float = 1
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        data: ProtectData,
+        chime: Chime,
+        camera: Camera,
+    ) -> None:
+        """Initialize the ring volume number entity."""
+        self._camera_id = camera.id
+        # Use chime MAC and camera ID for unique ID
+        super().__init__(data, chime)
+        self._attr_unique_id = f"{chime.mac}_ring_volume_{camera.id}"
+        self._attr_translation_key = "chime_ring_volume"
+        self._attr_translation_placeholders = {"camera_name": camera.display_name}
+        # BaseProtectEntity sets _attr_name = None when no description is passed,
+        # which prevents translation_key from being used. Delete to enable translations.
+        del self._attr_name
+
+    @callback
+    @override
+    def _async_update_device_from_protect(self, device: ProtectDeviceType) -> None:
+        """Update entity from protect device."""
+        super()._async_update_device_from_protect(device)
+        self._attr_native_value = self._get_ring_volume()
+
+    def _get_ring_volume(self) -> int | None:
+        """Get the ring volume for this camera from the chime's ring settings."""
+        if (public := cast("PublicChime | None", self._ufp_public_obj)) is None:
+            return None
+        for ring_setting in public.ring_settings:
+            if ring_setting.camera_id == self._camera_id:
+                return ring_setting.volume
+        return None
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Return if entity is available."""
+        # Entity is unavailable if the camera is no longer paired with the chime
+        return super().available and self._get_ring_volume() is not None
+
+    @async_ufp_instance_command
+    @override
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new ring volume value."""
+        public = cast("PublicChime", self._ufp_set_target())
+        try:
+            await public.set_volume_for_camera(self._camera_id, int(value))
+        except ChimeRingtoneNotSetError as err:
+            # The library checks every paired camera, so name the one it reports.
+            camera = self.data.api.public_bootstrap.cameras.get(err.camera_id)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="chime_ringtone_not_set",
+                translation_placeholders={
+                    "camera_name": camera.display_name if camera else err.camera_id
+                },
+            ) from err

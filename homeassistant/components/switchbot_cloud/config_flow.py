@@ -1,10 +1,14 @@
 """Config flow for SwitchBot via API integration."""
 
 from logging import getLogger
-from typing import Any
+from typing import Any, override
 
-from switchbot_api import CannotConnect, InvalidAuth, SwitchBotAPI
-import voluptuous as vol
+import probatio
+from switchbot_api import (
+    SwitchBotAPI,
+    SwitchBotAuthenticationError,
+    SwitchBotConnectionError,
+)
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_API_KEY, CONF_API_TOKEN
@@ -13,10 +17,10 @@ from .const import DOMAIN, ENTRY_TITLE
 
 _LOGGER = getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
+STEP_USER_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_API_TOKEN): str,
-        vol.Required(CONF_API_KEY): str,
+        probatio.Required(probatio.Secret(CONF_API_TOKEN)): str,
+        probatio.Required(probatio.Secret(CONF_API_KEY)): str,
     }
 )
 
@@ -26,6 +30,7 @@ class SwitchBotCloudConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -36,9 +41,9 @@ class SwitchBotCloudConfigFlow(ConfigFlow, domain=DOMAIN):
                 await SwitchBotAPI(
                     token=user_input[CONF_API_TOKEN], secret=user_input[CONF_API_KEY]
                 ).list_devices()
-            except CannotConnect:
+            except SwitchBotConnectionError:
                 errors["base"] = "cannot_connect"
-            except InvalidAuth:
+            except SwitchBotAuthenticationError:
                 errors["base"] = "invalid_auth"
             except Exception:
                 _LOGGER.exception("Unexpected exception")

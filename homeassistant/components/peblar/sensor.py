@@ -1,10 +1,9 @@
 """Support for Peblar sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import override
 
 from peblar import PeblarUserConfiguration
 
@@ -22,7 +21,7 @@ from homeassistant.const import (
     UnitOfPower,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.dt import utcnow
 
 from .const import (
@@ -48,7 +47,11 @@ DESCRIPTIONS: tuple[PeblarSensorDescription, ...] = (
         key="cp_state",
         translation_key="cp_state",
         device_class=SensorDeviceClass.ENUM,
-        options=list(PEBLAR_CP_STATE_TO_HOME_ASSISTANT.values()),
+        options=[
+            state
+            for state in PEBLAR_CP_STATE_TO_HOME_ASSISTANT.values()
+            if state is not None
+        ],
         value_fn=lambda x: PEBLAR_CP_STATE_TO_HOME_ASSISTANT[x.ev.cp_state],
     ),
     PeblarSensorDescription(
@@ -231,7 +234,7 @@ DESCRIPTIONS: tuple[PeblarSensorDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PeblarConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Peblar sensors based on a config entry."""
     async_add_entities(
@@ -251,6 +254,7 @@ class PeblarSensorEntity(PeblarEntity[PeblarDataUpdateCoordinator], SensorEntity
     entity_description: PeblarSensorDescription
 
     @property
+    @override
     def native_value(self) -> datetime | int | str | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

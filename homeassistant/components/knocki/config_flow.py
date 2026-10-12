@@ -1,23 +1,23 @@
 """Config flow for Knocki integration."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from knocki import KnockiClient, KnockiConnectionError, KnockiInvalidAuthError
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .const import DOMAIN, LOGGER
 
-DATA_SCHEMA = vol.Schema(
+DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(probatio.Secret(CONF_PASSWORD)): str,
     }
 )
 
@@ -25,6 +25,7 @@ DATA_SCHEMA = vol.Schema(
 class KnockiConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Knocki."""
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -62,3 +63,20 @@ class KnockiConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             data_schema=DATA_SCHEMA,
         )
+
+    @override
+    async def async_step_dhcp(
+        self, discovery_info: DhcpServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle a DHCP discovery."""
+        device_registry = dr.async_get(self.hass)
+        for device in device_registry.async_get_devices(
+            identifiers={(DOMAIN, discovery_info.hostname)}
+        ):
+            device_registry.async_update_device(
+                device.id,
+                new_connections={
+                    (dr.CONNECTION_NETWORK_MAC, discovery_info.macaddress)
+                },
+            )
+        return await super().async_step_dhcp(discovery_info)

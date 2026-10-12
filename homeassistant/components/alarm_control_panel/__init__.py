@@ -1,17 +1,13 @@
 """Component to interface with an alarm control panel."""
 
-from __future__ import annotations
-
-import asyncio
 from datetime import timedelta
 import logging
-from typing import TYPE_CHECKING, Any, Final, final
+from typing import Any, Final, final, override
 
-from propcache import cached_property
-import voluptuous as vol
+from propcache.api import cached_property
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
+from homeassistant.const import (  # noqa: F401
     ATTR_CODE,
     ATTR_CODE_FORMAT,
     SERVICE_ALARM_ARM_AWAY,
@@ -24,27 +20,25 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.config_validation import make_entity_service_schema
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity import Entity, EntityDescription
 from homeassistant.helpers.entity_component import EntityComponent
-from homeassistant.helpers.entity_platform import EntityPlatform
-from homeassistant.helpers.frame import ReportBehavior, report_usage
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.util.hass_dict import HassKey
 
-from .const import (
+from .const import (  # noqa: F401
     ATTR_CHANGED_BY,
     ATTR_CODE_ARM_REQUIRED,
+    DATA_COMPONENT,
     DOMAIN,
     AlarmControlPanelEntityFeature,
+    AlarmControlPanelEntityStateAttribute,
     AlarmControlPanelState,
     CodeFormat,
 )
+from .services import async_setup_services
 
 _LOGGER: Final = logging.getLogger(__name__)
 
-DATA_COMPONENT: HassKey[EntityComponent[AlarmControlPanelEntity]] = HassKey(DOMAIN)
 ENTITY_ID_FORMAT: Final = DOMAIN + ".{}"
 PLATFORM_SCHEMA: Final = cv.PLATFORM_SCHEMA
 PLATFORM_SCHEMA_BASE: Final = cv.PLATFORM_SCHEMA_BASE
@@ -52,63 +46,18 @@ SCAN_INTERVAL: Final = timedelta(seconds=30)
 
 CONF_DEFAULT_CODE = "default_code"
 
-ALARM_SERVICE_SCHEMA: Final = make_entity_service_schema(
-    {vol.Optional(ATTR_CODE): cv.string}
-)
-
-
 # mypy: disallow-any-generics
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Track states and offer events for sensors."""
+    """Set up the alarm control panel component."""
     component = hass.data[DATA_COMPONENT] = EntityComponent[AlarmControlPanelEntity](
         _LOGGER, DOMAIN, hass, SCAN_INTERVAL
     )
 
     await component.async_setup(config)
 
-    component.async_register_entity_service(
-        SERVICE_ALARM_DISARM,
-        ALARM_SERVICE_SCHEMA,
-        "async_handle_alarm_disarm",
-    )
-    component.async_register_entity_service(
-        SERVICE_ALARM_ARM_HOME,
-        ALARM_SERVICE_SCHEMA,
-        "async_handle_alarm_arm_home",
-        [AlarmControlPanelEntityFeature.ARM_HOME],
-    )
-    component.async_register_entity_service(
-        SERVICE_ALARM_ARM_AWAY,
-        ALARM_SERVICE_SCHEMA,
-        "async_handle_alarm_arm_away",
-        [AlarmControlPanelEntityFeature.ARM_AWAY],
-    )
-    component.async_register_entity_service(
-        SERVICE_ALARM_ARM_NIGHT,
-        ALARM_SERVICE_SCHEMA,
-        "async_handle_alarm_arm_night",
-        [AlarmControlPanelEntityFeature.ARM_NIGHT],
-    )
-    component.async_register_entity_service(
-        SERVICE_ALARM_ARM_VACATION,
-        ALARM_SERVICE_SCHEMA,
-        "async_handle_alarm_arm_vacation",
-        [AlarmControlPanelEntityFeature.ARM_VACATION],
-    )
-    component.async_register_entity_service(
-        SERVICE_ALARM_ARM_CUSTOM_BYPASS,
-        ALARM_SERVICE_SCHEMA,
-        "async_handle_alarm_arm_custom_bypass",
-        [AlarmControlPanelEntityFeature.ARM_CUSTOM_BYPASS],
-    )
-    component.async_register_entity_service(
-        SERVICE_ALARM_TRIGGER,
-        ALARM_SERVICE_SCHEMA,
-        "async_alarm_trigger",
-        [AlarmControlPanelEntityFeature.TRIGGER],
-    )
+    async_setup_services(hass)
 
     return True
 
@@ -149,68 +98,12 @@ class AlarmControlPanelEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_A
     )
     _alarm_control_panel_option_default_code: str | None = None
 
-    __alarm_legacy_state: bool = False
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Post initialisation processing."""
-        super().__init_subclass__(**kwargs)
-        if any(method in cls.__dict__ for method in ("_attr_state", "state")):
-            # Integrations should use the 'alarm_state' property instead of
-            # setting the state directly.
-            cls.__alarm_legacy_state = True
-
-    def __setattr__(self, name: str, value: Any, /) -> None:
-        """Set attribute.
-
-        Deprecation warning if setting '_attr_state' directly
-        unless already reported.
-        """
-        if name == "_attr_state":
-            self._report_deprecated_alarm_state_handling()
-        return super().__setattr__(name, value)
-
-    @callback
-    def add_to_platform_start(
-        self,
-        hass: HomeAssistant,
-        platform: EntityPlatform,
-        parallel_updates: asyncio.Semaphore | None,
-    ) -> None:
-        """Start adding an entity to a platform."""
-        super().add_to_platform_start(hass, platform, parallel_updates)
-        if self.__alarm_legacy_state:
-            self._report_deprecated_alarm_state_handling()
-
-    @callback
-    def _report_deprecated_alarm_state_handling(self) -> None:
-        """Report on deprecated handling of alarm state.
-
-        Integrations should implement alarm_state instead of using state directly.
-        """
-        report_usage(
-            "is setting state directly."
-            f" Entity {self.entity_id} ({type(self)}) should implement the 'alarm_state'"
-            " property and return its state using the AlarmControlPanelState enum",
-            core_integration_behavior=ReportBehavior.ERROR,
-            custom_integration_behavior=ReportBehavior.LOG,
-            breaks_in_ha_version="2025.11",
-            integration_domain=self.platform.platform_name if self.platform else None,
-            exclude_integrations={DOMAIN},
-        )
-
     @final
     @property
+    @override
     def state(self) -> str | None:
         """Return the current state."""
-        if (alarm_state := self.alarm_state) is not None:
-            return alarm_state
-        if self._attr_state is not None:
-            # Backwards compatibility for integrations that set state directly
-            # Should be removed in 2025.11
-            if TYPE_CHECKING:
-                assert isinstance(self._attr_state, str)
-            return self._attr_state
-        return None
+        return self.alarm_state
 
     @cached_property
     def alarm_state(self) -> AlarmControlPanelState | None:
@@ -353,20 +246,25 @@ class AlarmControlPanelEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_A
         await self.hass.async_add_executor_job(self.alarm_arm_custom_bypass, code)
 
     @cached_property
+    @override
     def supported_features(self) -> AlarmControlPanelEntityFeature:
         """Return the list of supported features."""
         return self._attr_supported_features
 
     @final
     @property
+    @override
     def state_attributes(self) -> dict[str, Any] | None:
         """Return the state attributes."""
         return {
-            ATTR_CODE_FORMAT: self.code_format,
-            ATTR_CHANGED_BY: self.changed_by,
-            ATTR_CODE_ARM_REQUIRED: self.code_arm_required,
+            AlarmControlPanelEntityStateAttribute.CODE_FORMAT: self.code_format,
+            AlarmControlPanelEntityStateAttribute.CHANGED_BY: self.changed_by,
+            AlarmControlPanelEntityStateAttribute.CODE_ARM_REQUIRED: (
+                self.code_arm_required
+            ),
         }
 
+    @override
     async def async_internal_added_to_hass(self) -> None:
         """Call when the alarm control panel entity is added to hass."""
         await super().async_internal_added_to_hass()
@@ -375,6 +273,7 @@ class AlarmControlPanelEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_A
         self._async_read_entity_options()
 
     @callback
+    @override
     def async_registry_entry_updated(self) -> None:
         """Run when the entity registry entry has been updated."""
         self._async_read_entity_options()

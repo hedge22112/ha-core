@@ -1,6 +1,6 @@
 """Binary sensors for Yale Alarm."""
 
-from __future__ import annotations
+from typing import override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import YaleConfigEntry
 from .coordinator import YaleDataUpdateCoordinator
@@ -44,7 +44,9 @@ SENSOR_TYPES = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: YaleConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: YaleConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Yale binary sensor entry."""
 
@@ -69,6 +71,7 @@ class YaleDoorSensor(YaleEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.DOOR
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return bool(self.coordinator.data["sensor_map"][self._attr_unique_id] == "open")
@@ -89,6 +92,7 @@ class YaleDoorBatterySensor(YaleEntity, BinarySensorEntity):
         self._attr_unique_id = f"{data['address']}-battery"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the battery is low."""
         state: bool = self.coordinator.data["sensor_battery_map"][self._attr_unique_id]
@@ -113,6 +117,7 @@ class YaleProblemSensor(YaleAlarmEntity, BinarySensorEntity):
         )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return true if the binary sensor is on."""
         return bool(

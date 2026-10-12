@@ -1,7 +1,5 @@
 """Constants for the KNX integration."""
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Final, TypedDict
@@ -12,19 +10,28 @@ from xknx.telegram import Telegram
 from homeassistant.components.climate import FAN_AUTO, FAN_OFF, HVACAction, HVACMode
 from homeassistant.const import Platform
 from homeassistant.util.hass_dict import HassKey
+from homeassistant.util.signal_type import SignalType
 
 if TYPE_CHECKING:
-    from . import KNXModule
+    from .knx_module import KNXModule
+    from .telegrams import TelegramDict
 
 DOMAIN: Final = "knx"
 KNX_MODULE_KEY: HassKey[KNXModule] = HassKey(DOMAIN)
 
-# Address is used for configuration and services by the same functions so the key has to match
+# Prefix of device identifiers created via the `knx/create_device` websocket
+# command (see websocket.py). A YAML `device.id` matching this prefix is
+# assumed to reference such a device verbatim and is not slugified.
+UI_DEVICE_ID_PREFIX: Final = "knx_vdev_"
+
+# Address is used for configuration and services by the
+# same functions so the key has to match
 KNX_ADDRESS: Final = "address"
 
 CONF_INVERT: Final = "invert"
 CONF_KNX_EXPOSE: Final = "expose"
 CONF_KNX_INDIVIDUAL_ADDRESS: Final = "individual_address"
+CONF_VALUE: Final = "value"
 
 ##
 # Connection constants
@@ -51,9 +58,30 @@ CONF_KNX_DEFAULT_RATE_LIMIT: Final = 0
 
 DEFAULT_ROUTING_IA: Final = "0.0.240"
 
-CONF_KNX_TELEGRAM_LOG_SIZE: Final = "telegram_log_size"
-TELEGRAM_LOG_DEFAULT: Final = 1000
-TELEGRAM_LOG_MAX: Final = 25000  # ~10 MB or ~25 hours of reasonable bus load
+CONF_KNX_TELEGRAM_DB_BACKEND: Final = "telegram_db_backend"
+CONF_KNX_TELEGRAM_DB_RETENTION_DAYS: Final = "telegram_db_retention_days"
+CONF_KNX_TELEGRAM_DB_LOAD_HOURS: Final = "telegram_db_load_hours"
+CONF_KNX_TELEGRAM_DB_POSTGRES_DSN: Final = "telegram_db_postgres_dsn"
+
+CONF_KNX_TELEGRAM_DB_HOST: Final = "host"
+CONF_KNX_TELEGRAM_DB_PORT: Final = "port"
+CONF_KNX_TELEGRAM_DB_USER: Final = "user"
+CONF_KNX_TELEGRAM_DB_PASSWORD: Final = "password"
+CONF_KNX_TELEGRAM_DB_DATABASE: Final = "database"
+CONF_KNX_TELEGRAM_DB_TLS: Final = "tls"
+
+KNX_TELEGRAM_BACKEND_SQLITE: Final = "sqlite"
+KNX_TELEGRAM_BACKEND_POSTGRES: Final = "postgres"
+
+KNX_TELEGRAM_DB_RETENTION_DEFAULT: Final = 10  # days
+KNX_TELEGRAM_LOAD_HOURS_DEFAULT: Final = 24  # 1 day
+KNX_TELEGRAM_DB_PATH_SQLITE: Final = "knx/telegrams.db"  # relative to STORAGE_DIR
+
+# dispatcher signal for KNX interface device triggers
+SIGNAL_KNX_TELEGRAM: SignalType[Telegram, TelegramDict] = SignalType("knx_telegram")
+SIGNAL_KNX_DATA_SECURE_ISSUE_TELEGRAM: SignalType[Telegram, TelegramDict] = SignalType(
+    "knx_data_secure_issue_telegram"
+)
 
 ##
 # Secure constants
@@ -67,6 +95,9 @@ CONF_KNX_SECURE_USER_PASSWORD: Final = "user_password"
 CONF_KNX_SECURE_DEVICE_AUTHENTICATION: Final = "device_authentication"
 
 
+CONF_DEFAULT_ENTITY_ID: Final = "default_entity_id"
+CONF_CONTEXT_TIMEOUT: Final = "context_timeout"
+CONF_IGNORE_INTERNAL_STATE: Final = "ignore_internal_state"
 CONF_PAYLOAD_LENGTH: Final = "payload_length"
 CONF_RESET_AFTER: Final = "reset_after"
 CONF_RESPOND_TO_READ: Final = "respond_to_read"
@@ -92,9 +123,15 @@ SERVICE_KNX_EVENT_REGISTER: Final = "event_register"
 SERVICE_KNX_EXPOSURE_REGISTER: Final = "exposure_register"
 SERVICE_KNX_READ: Final = "read"
 
+REPAIR_ISSUE_DATA_SECURE_GROUP_KEY: Final = "data_secure_group_key_issue"
+REPAIR_ISSUE_ENTITY_VALIDATION_ERROR: Final = "entity_validation_error"
+REPAIR_ISSUE_EXPOSE_VALIDATION_ERROR: Final = "expose_validation_error"
+REPAIR_ISSUE_TIME_SERVER_VALIDATION_ERROR: Final = "time_server_validation_error"
+REPAIR_ISSUE_TELEGRAM_BACKEND_ERROR: Final = "telegram_backend_error"
+
 
 class KNXConfigEntryData(TypedDict, total=False):
-    """Config entry for the KNX integration."""
+    """Config entry data for the KNX integration."""
 
     connection_type: str
     individual_address: str
@@ -102,9 +139,9 @@ class KNXConfigEntryData(TypedDict, total=False):
     multicast_group: str
     multicast_port: int
     route_back: bool  # not required
-    host: str  # only required for tunnelling
-    port: int  # only required for tunnelling
-    tunnel_endpoint_ia: str | None  # tunnelling only - not required (use get())
+    host: str  # only required for tunneling
+    port: int  # only required for tunneling
+    tunnel_endpoint_ia: str | None  # tunneling only - not required (use get())
     # KNX secure
     user_id: int | None  # not required
     user_password: str | None  # not required
@@ -113,17 +150,24 @@ class KNXConfigEntryData(TypedDict, total=False):
     knxkeys_password: str  # not required
     backbone_key: str | None  # not required
     sync_latency_tolerance: int | None  # not required
-    # OptionsFlow only
+
+
+class KNXConfigEntryOptions(TypedDict, total=False):
+    """Config entry options for the KNX integration."""
+
     state_updater: bool  # default state updater: True -> expire 60; False -> init
     rate_limit: int
     #   Integration only (not forwarded to xknx)
-    telegram_log_size: int  # not required
+    telegram_db_retention_days: int
+    telegram_db_load_hours: int
+    telegram_db_backend: str  # sqlite | postgres
+    telegram_db_postgres_dsn: str
 
 
 class ColorTempModes(Enum):
     """Color temperature modes for config validation."""
 
-    # YAML uses Enum.name (with vol.Upper), UI uses Enum.value for lookup
+    # YAML uses Enum.name (with probatio.Upper), UI uses Enum.value for lookup
     ABSOLUTE = "7.600"
     ABSOLUTE_FLOAT = "9"
     RELATIVE = "5.001"
@@ -156,7 +200,30 @@ SUPPORTED_PLATFORMS_YAML: Final = {
     Platform.WEATHER,
 }
 
-SUPPORTED_PLATFORMS_UI: Final = {Platform.SWITCH, Platform.LIGHT}
+# read-only platforms raising when added with `EntityCategory.CONFIG`
+PLATFORMS_WITHOUT_CONFIG_CATEGORY: Final = frozenset(
+    {Platform.BINARY_SENSOR, Platform.SENSOR}
+)
+
+SUPPORTED_PLATFORMS_UI: Final = {
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.CLIMATE,
+    Platform.COVER,
+    Platform.DATE,
+    Platform.FAN,
+    Platform.DATETIME,
+    Platform.LIGHT,
+    Platform.NOTIFY,
+    Platform.NUMBER,
+    Platform.SCENE,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.TEXT,
+    Platform.TIME,
+    Platform.WEATHER,
+}
 
 # Map KNX controller modes to HA modes. This list might not be complete.
 CONTROLLER_MODES: Final = {
@@ -176,3 +243,66 @@ CURRENT_HVAC_ACTIONS: Final = {
     HVACMode.FAN_ONLY: HVACAction.FAN,
     HVACMode.DRY: HVACAction.DRYING,
 }
+
+
+class CoverConf:
+    """Common config keys for cover."""
+
+    TRAVELLING_TIME_DOWN: Final = "travelling_time_down"
+    TRAVELLING_TIME_UP: Final = "travelling_time_up"
+    INVERT_UPDOWN: Final = "invert_updown"
+    INVERT_POSITION: Final = "invert_position"
+    INVERT_ANGLE: Final = "invert_angle"
+
+
+class ClimateConf:
+    """Common config keys for climate."""
+
+    MIN_TEMP: Final = "min_temp"
+    MAX_TEMP: Final = "max_temp"
+    TEMPERATURE_STEP: Final = "temperature_step"
+    SETPOINT_SHIFT_MAX: Final = "setpoint_shift_max"
+    SETPOINT_SHIFT_MIN: Final = "setpoint_shift_min"
+
+    ON_OFF_INVERT: Final = "on_off_invert"
+
+    OPERATION_MODES: Final = "operation_modes"
+    CONTROLLER_MODES: Final = "controller_modes"
+    DEFAULT_CONTROLLER_MODE: Final = "default_controller_mode"
+
+    FAN_MAX_STEP: Final = "fan_max_step"
+    FAN_SPEED_MODE: Final = "fan_speed_mode"
+    FAN_ZERO_MODE: Final = "fan_zero_mode"
+
+
+class FanConf:
+    """Common config keys for fan."""
+
+    MAX_STEP: Final = "max_step"
+
+
+class NumberConf:
+    """Common config keys for number."""
+
+    MAX: Final = "max"
+    MIN: Final = "min"
+    STEP: Final = "step"
+
+
+class SceneConf:
+    """Common config keys for scene."""
+
+    SCENE_NUMBER: Final = "scene_number"
+
+
+class SelectConf:
+    """Config keys for select."""
+
+    # shared between YAML and UI
+    OPTIONS: Final = "options"
+    OPTION: Final = "option"
+    # UI only
+    OPTIONS_SOURCE: Final = "options_source"
+    GA_ENUM: Final = "ga_enum"
+    GA_CUSTOM: Final = "ga_custom"
+    CUSTOM_OPTIONS: Final = "custom_options"

@@ -1,35 +1,73 @@
 {
   "config": {
-    "step": {
-      "user": {
-        "data": {
-          "api_key": "[%key:common::config_flow::data::api_key%]"
-        }
-      },
-      "profiles": {
-        "data": {
-          "profile": "Profile"
-        }
-      },
-      "reauth_confirm": {
-        "data": {
-          "api_key": "[%key:common::config_flow::data::api_key%]"
-        }
-      }
+    "abort": {
+      "all_profiles_configured": "All NextDNS profiles are already configured.",
+      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
+      "profile_not_available": "The configured NextDNS profile is no longer available in your account. Remove the configuration and configure the integration again."
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_api_key": "[%key:common::config_flow::error::invalid_api_key%]",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
-    "abort": {
-      "already_configured": "This NextDNS profile is already configured.",
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    "step": {
+      "profiles": {
+        "data": {
+          "profile_id": "Profile"
+        },
+        "data_description": {
+          "profile_id": "The NextDNS configuration profile you want to integrate"
+        }
+      },
+      "reauth_confirm": {
+        "data": {
+          "api_key": "[%key:common::config_flow::data::api_key%]"
+        },
+        "data_description": {
+          "api_key": "[%key:component::nextdns::config::step::user::data_description::api_key%]"
+        }
+      },
+      "reconfigure": {
+        "data": {
+          "api_key": "[%key:common::config_flow::data::api_key%]"
+        },
+        "data_description": {
+          "api_key": "[%key:component::nextdns::config::step::user::data_description::api_key%]"
+        }
+      },
+      "user": {
+        "data": {
+          "api_key": "[%key:common::config_flow::data::api_key%]"
+        },
+        "data_description": {
+          "api_key": "The API key for your NextDNS account"
+        }
+      }
     }
   },
-  "system_health": {
-    "info": {
-      "can_reach_server": "Reach server"
+  "config_subentries": {
+    "profile": {
+      "abort": {
+        "all_profiles_configured": "[%key:component::nextdns::config::abort::all_profiles_configured%]",
+        "already_configured": "This NextDNS profile is already configured.",
+        "entry_not_loaded": "The NextDNS configuration entry is not loaded. Please ensure it is set up correctly before adding a profile."
+      },
+      "entry_type": "NextDNS profile",
+      "initiate_flow": {
+        "user": "Add profile"
+      },
+      "step": {
+        "user": {
+          "data": {
+            "profile_id": "[%key:component::nextdns::config::step::profiles::data::profile_id%]"
+          },
+          "data_description": {
+            "profile_id": "[%key:component::nextdns::config::step::profiles::data_description::profile_id%]"
+          },
+          "description": "Select the NextDNS profile you want to add.",
+          "title": "Add NextDNS profile"
+        }
+      }
     }
   },
   "entity": {
@@ -172,11 +210,17 @@
       "block_dailymotion": {
         "name": "Block Dailymotion"
       },
+      "block_data_drop_services": {
+        "name": "Block data-drop services"
+      },
       "block_dating": {
         "name": "Block dating"
       },
       "block_ddns": {
         "name": "Block dynamic DNS hostnames"
+      },
+      "block_decentralized_web_gateways": {
+        "name": "Block decentralized web gateways"
       },
       "block_discord": {
         "name": "Block Discord"
@@ -195,6 +239,9 @@
       },
       "block_fortnite": {
         "name": "Block Fortnite"
+      },
+      "block_free_hosting_domains": {
+        "name": "Block free hosting domains"
       },
       "block_gambling": {
         "name": "Block gambling"
@@ -259,6 +306,9 @@
       "block_reddit": {
         "name": "Block Reddit"
       },
+      "block_residential_hosting": {
+        "name": "Block residential hosting"
+      },
       "block_roblox": {
         "name": "Block Roblox"
       },
@@ -292,6 +342,9 @@
       "block_tumblr": {
         "name": "Block Tumblr"
       },
+      "block_tunneling_endpoints": {
+        "name": "Block tunneling endpoints"
+      },
       "block_twitch": {
         "name": "Block Twitch"
       },
@@ -311,13 +364,16 @@
         "name": "Block WhatsApp"
       },
       "block_xboxlive": {
-        "name": "Block Xbox Live"
+        "name": "Block Xbox Network"
       },
       "block_youtube": {
         "name": "Block YouTube"
       },
       "block_zoom": {
         "name": "Block Zoom"
+      },
+      "bypass_age_verification": {
+        "name": "Bypass age verification"
       },
       "cache_boost": {
         "name": "Cache boost"
@@ -358,6 +414,28 @@
       "youtube_restricted_mode": {
         "name": "Force YouTube restricted mode"
       }
+    }
+  },
+  "exceptions": {
+    "auth_error": {
+      "message": "Authentication failed for {entry}, please update your API key"
+    },
+    "cannot_connect": {
+      "message": "An error occurred while connecting to the NextDNS API for {entry}: {error}"
+    },
+    "method_error": {
+      "message": "An error occurred while calling the NextDNS API method for {entity}: {error}"
+    },
+    "set_setting_error": {
+      "message": "An error occurred while changing the setting for {entity}"
+    },
+    "update_error": {
+      "message": "An error occurred while retrieving data from the NextDNS API for {entry}: {error}"
+    }
+  },
+  "system_health": {
+    "info": {
+      "can_reach_server": "Reach server"
     }
   }
 }

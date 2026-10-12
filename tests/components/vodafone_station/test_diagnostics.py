@@ -1,10 +1,8 @@
 """Tests for Vodafone Station diagnostics platform."""
 
-from __future__ import annotations
-
 from unittest.mock import AsyncMock
 
-from syrupy import SnapshotAssertion
+from syrupy.assertion import SnapshotAssertion
 from syrupy.filters import props
 
 from homeassistant.core import HomeAssistant

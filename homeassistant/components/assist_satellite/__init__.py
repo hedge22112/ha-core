@@ -1,9 +1,9 @@
 """Base class for assist satellite entities."""
 
 import logging
+from pathlib import Path
 
-import voluptuous as vol
-
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
@@ -15,21 +15,26 @@ from .const import (
     CONNECTION_TEST_DATA,
     DATA_COMPONENT,
     DOMAIN,
+    PREANNOUNCE_FILENAME,
+    PREANNOUNCE_URL,
     AssistSatelliteEntityFeature,
 )
 from .entity import (
     AssistSatelliteAnnouncement,
+    AssistSatelliteAnswer,
     AssistSatelliteConfiguration,
     AssistSatelliteEntity,
     AssistSatelliteEntityDescription,
     AssistSatelliteWakeWord,
 )
 from .errors import SatelliteBusyError
+from .services import async_setup_services
 from .websocket_api import async_register_websocket_api
 
 __all__ = [
     "DOMAIN",
     "AssistSatelliteAnnouncement",
+    "AssistSatelliteAnswer",
     "AssistSatelliteConfiguration",
     "AssistSatelliteEntity",
     "AssistSatelliteEntityDescription",
@@ -49,23 +54,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     await component.async_setup(config)
 
-    component.async_register_entity_service(
-        "announce",
-        vol.All(
-            cv.make_entity_service_schema(
-                {
-                    vol.Optional("message"): str,
-                    vol.Optional("media_id"): str,
-                }
-            ),
-            cv.has_at_least_one_key("message", "media_id"),
-        ),
-        "async_internal_announce",
-        [AssistSatelliteEntityFeature.ANNOUNCE],
-    )
+    async_setup_services(hass)
+
     hass.data[CONNECTION_TEST_DATA] = {}
     async_register_websocket_api(hass)
     hass.http.register_view(ConnectionTestView())
+
+    # Default preannounce sound
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                PREANNOUNCE_URL, str(Path(__file__).parent / PREANNOUNCE_FILENAME)
+            )
+        ]
+    )
 
     return True
 

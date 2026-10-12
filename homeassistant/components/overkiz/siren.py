@@ -1,6 +1,6 @@
 """Support for Overkiz sirens."""
 
-from typing import Any
+from typing import Any, override
 
 from pyoverkiz.enums import OverkizState
 from pyoverkiz.enums.command import OverkizCommand, OverkizCommandParam
@@ -12,16 +12,18 @@ from homeassistant.components.siren import (
 )
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OverkizDataConfigEntry
 from .entity import OverkizEntity
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: OverkizDataConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Overkiz sirens from a config entry."""
     data = entry.runtime_data
@@ -42,13 +44,15 @@ class OverkizSiren(OverkizEntity, SirenEntity):
     )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Get whether the siren is in on state."""
         return (
-            self.executor.select_state(OverkizState.CORE_ON_OFF)
+            self.device.states.get_value(OverkizState.CORE_ON_OFF)
             == OverkizCommandParam.ON
         )
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Send the on command."""
         if kwargs.get(ATTR_DURATION):
@@ -67,6 +71,7 @@ class OverkizSiren(OverkizEntity, SirenEntity):
             OverkizCommandParam.MEMORIZED_VOLUME,
         )
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Send the off command."""
         await self.executor.async_execute_command(OverkizCommand.OFF)

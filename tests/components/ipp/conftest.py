@@ -1,7 +1,6 @@
 """Fixtures for IPP integration tests."""
 
 from collections.abc import Generator
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pyipp import Printer
@@ -17,7 +16,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 
-from tests.common import MockConfigEntry, load_fixture
+from tests.common import MockConfigEntry, async_load_json_object_fixture
 
 
 @pytest.fixture
@@ -49,6 +48,7 @@ def mock_setup_entry() -> Generator[AsyncMock]:
 
 @pytest.fixture
 async def mock_printer(
+    hass: HomeAssistant,
     request: pytest.FixtureRequest,
 ) -> Printer:
     """Return the mocked printer."""
@@ -56,7 +56,7 @@ async def mock_printer(
     if hasattr(request, "param") and request.param:
         fixture = request.param
 
-    return Printer.from_dict(json.loads(load_fixture(fixture)))
+    return Printer.from_dict(await async_load_json_object_fixture(hass, fixture))
 
 
 @pytest.fixture

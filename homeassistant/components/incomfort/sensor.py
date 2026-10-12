@@ -1,9 +1,7 @@
 """Support for an Intergas heater via an InComfort/InTouch Lan2RF gateway."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from incomfortclient import Heater as InComfortHeater
 
@@ -15,11 +13,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfPressure, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import InComfortConfigEntry
-from .coordinator import InComfortDataCoordinator
+from .coordinator import InComfortConfigEntry, InComfortDataCoordinator
 from .entity import IncomfortBoilerEntity
 
 PARALLEL_UPDATES = 0
@@ -62,13 +59,23 @@ SENSOR_TYPES: tuple[IncomfortSensorEntityDescription, ...] = (
         value_key="tap_temp",
         entity_registry_enabled_default=False,
     ),
+    # A lower RSSI value is better
+    # A typical RSSI value is 28 for connection just in range
+    IncomfortSensorEntityDescription(
+        key="rf_message_rssi",
+        translation_key="rf_message_rssi",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="rf_message_rssi",
+        extra_key="rfstatus_cntr",
+        entity_registry_enabled_default=False,
+    ),
 )
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: InComfortConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up InComfort/InTouch sensor entities."""
     incomfort_coordinator = entry.runtime_data
@@ -97,11 +104,13 @@ class IncomfortSensor(IncomfortBoilerEntity, SensorEntity):
         self._attr_unique_id = f"{heater.serial_no}_{description.key}"
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        return self._heater.status[self.entity_description.value_key]
+        return self._heater.status[self.entity_description.value_key]  # type: ignore [no-any-return]
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return the device state attributes."""
         if (extra_key := self.entity_description.extra_key) is None:

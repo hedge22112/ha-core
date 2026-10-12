@@ -1,14 +1,12 @@
 """Diagnostics support for Jellyfin."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 
-from . import JellyfinConfigEntry
+from .coordinator import JellyfinConfigEntry
 
 TO_REDACT = {CONF_PASSWORD}
 

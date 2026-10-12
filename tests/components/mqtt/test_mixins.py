@@ -1,18 +1,33 @@
 """The tests for shared code of the MQTT platform."""
 
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import call, patch
 
 import pytest
 
 from homeassistant.components import mqtt, sensor
+from homeassistant.components.mqtt.const import DOMAIN
 from homeassistant.components.mqtt.sensor import DEFAULT_NAME as DEFAULT_SENSOR_NAME
+from homeassistant.config_entries import ConfigSubentryData
 from homeassistant.const import (
     ATTR_FRIENDLY_NAME,
     EVENT_HOMEASSISTANT_STARTED,
     EVENT_STATE_CHANGED,
 )
 from homeassistant.core import CoreState, HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+    json,
+)
+from homeassistant.util import slugify
+
+from .common import (
+    MOCK_NOTIFY_SUBENTRY_DATA,
+    MOCK_SUBENTRY_DATA_BAD_COMPONENT_SCHEMA,
+    MOCK_SUBENTRY_DATA_SET_MIX,
+)
 
 from tests.common import MockConfigEntry, async_capture_events, async_fire_mqtt_message
 from tests.typing import MqttMockHAClientGenerator
@@ -22,7 +37,7 @@ from tests.typing import MqttMockHAClientGenerator
     "hass_config",
     [
         {
-            mqtt.DOMAIN: {
+            DOMAIN: {
                 sensor.DOMAIN: {
                     "name": "test",
                     "state_topic": "test-topic",
@@ -90,7 +105,7 @@ async def test_availability_with_shared_state_topic(
     [
         (  # default_entity_name_without_device_name
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "state_topic": "test-topic",
                         "unique_id": "veryunique",
@@ -98,14 +113,14 @@ async def test_availability_with_shared_state_topic(
                     }
                 }
             },
-            "sensor.none_mqtt_sensor",
-            DEFAULT_SENSOR_NAME,
-            None,
+            "sensor.mock_title_mqtt_sensor",
+            f"Mock Title {DEFAULT_SENSOR_NAME}",
+            "Mock Title",
             True,
         ),
         (  # default_entity_name_with_device_name
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "state_topic": "test-topic",
                         "unique_id": "veryunique",
@@ -120,7 +135,7 @@ async def test_availability_with_shared_state_topic(
         ),
         (  # name_follows_device_class
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "state_topic": "test-topic",
                         "unique_id": "veryunique",
@@ -136,7 +151,7 @@ async def test_availability_with_shared_state_topic(
         ),
         (  # name_follows_device_class_without_device_name
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "state_topic": "test-topic",
                         "unique_id": "veryunique",
@@ -145,14 +160,14 @@ async def test_availability_with_shared_state_topic(
                     }
                 }
             },
-            "sensor.none_humidity",
-            "Humidity",
-            None,
+            "sensor.mock_title_humidity",
+            "Mock Title Humidity",
+            "Mock Title",
             True,
         ),
         (  # name_overrides_device_class
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": "MySensor",
                         "state_topic": "test-topic",
@@ -169,7 +184,7 @@ async def test_availability_with_shared_state_topic(
         ),
         (  # name_set_no_device_name_set
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": "MySensor",
                         "state_topic": "test-topic",
@@ -179,14 +194,14 @@ async def test_availability_with_shared_state_topic(
                     }
                 }
             },
-            "sensor.none_mysensor",
-            "MySensor",
-            None,
+            "sensor.mock_title_mysensor",
+            "Mock Title MySensor",
+            "Mock Title",
             True,
         ),
         (  # none_entity_name_with_device_name
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": None,
                         "state_topic": "test-topic",
@@ -203,7 +218,7 @@ async def test_availability_with_shared_state_topic(
         ),
         (  # none_entity_name_without_device_name
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": None,
                         "state_topic": "test-topic",
@@ -213,14 +228,14 @@ async def test_availability_with_shared_state_topic(
                     }
                 }
             },
-            "sensor.mqtt_veryunique",
-            "mqtt veryunique",
-            None,
+            "sensor.mock_title",
+            "Mock Title",
+            "Mock Title",
             True,
         ),
         (  # entity_name_and_device_name_the_same
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": "Hello world",
                         "state_topic": "test-topic",
@@ -240,7 +255,7 @@ async def test_availability_with_shared_state_topic(
         ),
         (  # entity_name_startswith_device_name1
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": "World automation",
                         "state_topic": "test-topic",
@@ -260,7 +275,7 @@ async def test_availability_with_shared_state_topic(
         ),
         (  # entity_name_startswith_device_name2
             {
-                mqtt.DOMAIN: {
+                DOMAIN: {
                     sensor.DOMAIN: {
                         "name": "world automation",
                         "state_topic": "test-topic",
@@ -314,8 +329,8 @@ async def test_default_entity_and_device_name(
     await hass.async_block_till_done()
 
     entry = MockConfigEntry(
-        domain=mqtt.DOMAIN,
-        data={mqtt.CONF_BROKER: "mock-broker"},
+        domain=DOMAIN,
+        data={mqtt.CONF_BROKER: "mock-broker", mqtt.CONF_PROTOCOL: "5"},
         version=mqtt.CONFIG_ENTRY_VERSION,
         minor_version=mqtt.CONFIG_ENTRY_MINOR_VERSION,
     )
@@ -324,7 +339,9 @@ async def test_default_entity_and_device_name(
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
     await hass.async_block_till_done()
 
-    device = device_registry.async_get_device({("mqtt", "helloworld")})
+    device = device_registry.async_get_device_by_identifier(
+        ("mqtt", "helloworld"), entry.entry_id
+    )
     assert device is not None
     assert device.name == device_name
 
@@ -355,7 +372,7 @@ async def test_name_attribute_is_set_or_not(
         hass,
         "homeassistant/binary_sensor/bla/config",
         '{ "name": "Gate", "state_topic": "test-topic", "device_class": "door", '
-        '"object_id": "gate",'
+        '"default_entity_id": "binary_sensor.gate",'
         '"device": {"identifiers": "very_unique", "name": "xyz_door_sensor"}'
         "}",
     )
@@ -371,7 +388,7 @@ async def test_name_attribute_is_set_or_not(
         hass,
         "homeassistant/binary_sensor/bla/config",
         '{ "state_topic": "test-topic", "device_class": "door", '
-        '"object_id": "gate",'
+        '"default_entity_id": "binary_sensor.gate",'
         '"device": {"identifiers": "very_unique", "name": "xyz_door_sensor"}'
         "}",
     )
@@ -387,7 +404,7 @@ async def test_name_attribute_is_set_or_not(
         hass,
         "homeassistant/binary_sensor/bla/config",
         '{ "name": null, "state_topic": "test-topic", "device_class": "door", '
-        '"object_id": "gate",'
+        '"default_entity_id": "binary_sensor.gate",'
         '"device": {"identifiers": "very_unique", "name": "xyz_door_sensor"}'
         "}",
     )
@@ -403,7 +420,7 @@ async def test_name_attribute_is_set_or_not(
     "hass_config",
     [
         {
-            mqtt.DOMAIN: {
+            DOMAIN: {
                 sensor.DOMAIN: {
                     "name": "test",
                     "state_topic": "state-topic",
@@ -413,7 +430,7 @@ async def test_name_attribute_is_set_or_not(
             }
         },
         {
-            mqtt.DOMAIN: {
+            DOMAIN: {
                 sensor.DOMAIN: {
                     "name": "test",
                     "state_topic": "state-topic",
@@ -425,7 +442,7 @@ async def test_name_attribute_is_set_or_not(
             }
         },
         {
-            mqtt.DOMAIN: {
+            DOMAIN: {
                 sensor.DOMAIN: {
                     "name": "test",
                     "state_topic": "state-topic",
@@ -450,6 +467,484 @@ async def test_value_template_fails(
     await mqtt_mock_entry()
     async_fire_mqtt_message(hass, "test-topic", '{"some_var": null }')
     assert (
-        "TypeError: unsupported operand type(s) for *: 'NoneType' and 'int' rendering template"
+        "TypeError: unsupported operand type(s) for *:"
+        " 'NoneType' and 'int' rendering template" in caplog.text
+    )
+
+
+@pytest.mark.parametrize(
+    "hass_config",
+    [
+        {
+            DOMAIN: {
+                sensor.DOMAIN: {
+                    "name": "test",
+                    "state_topic": "state-topic",
+                    "enabled_by_default": True,
+                    "unique_id": "very_unique",
+                }
+            }
+        },
+    ],
+)
+async def test_registry_enabled_by_default(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test an entity that is enabled by default or not."""
+    await mqtt_mock_entry()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert not entry.disabled
+
+
+@pytest.mark.parametrize(
+    "hass_config",
+    [
+        {
+            DOMAIN: {
+                sensor.DOMAIN: {
+                    "name": "test",
+                    "state_topic": "state-topic",
+                    "enabled_by_default": False,
+                    "unique_id": "very_unique",
+                }
+            }
+        },
+    ],
+)
+async def test_registry_not_enabled_by_default(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test an entity that is not enabled by default or not."""
+    await mqtt_mock_entry()
+    state = hass.states.get("sensor.test")
+    assert state is None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert entry.disabled
+
+
+async def test_registry_enable_not_enabled_or_visible_by_default_entity(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    entity_registry: er.EntityRegistry,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Test enabling an entity that was not enabled or not visible by default."""
+    await mqtt_mock_entry()
+
+    discovery_topic = "homeassistant/sensor/bla/config"
+    config_disabled = json.json_dumps(
+        {
+            "name": None,
+            "state_topic": "state-topic",
+            "enabled_by_default": False,
+            "visible_by_default": True,
+            "unique_id": "very_unique",
+            "default_entity_id": "sensor.test",
+            "device": {"identifiers": "very_unique_device", "name": "test"},
+        }
+    )
+    config_enabled = json.json_dumps(
+        {
+            "name": None,
+            "state_topic": "state-topic",
+            "enabled_by_default": True,
+            "visible_by_default": False,
+            "unique_id": "very_unique",
+            "default_entity_id": "sensor.test",
+            "device": {"identifiers": "very_unique_device", "name": "test"},
+        }
+    )
+    config_enabled_new_entity_name = json.json_dumps(
+        {
+            "name": None,
+            "state_topic": "state-topic",
+            "enabled_by_default": True,
+            "visible_by_default": True,
+            "unique_id": "very_unique",
+            "default_entity_id": "sensor.test_new",
+            "device": {"identifiers": "very_unique_device", "name": "test"},
+        }
+    )
+
+    async_fire_mqtt_message(hass, discovery_topic, config_disabled)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test")
+    assert state is None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert entry.disabled
+    assert entry.hidden is False
+    assert (device_id := entry.device_id)
+    assert device_registry.async_get(device_id) is not None
+
+    # Remove the entity and device
+    # At this stage no entry existed during the initialization
+    async_fire_mqtt_message(hass, discovery_topic, "")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is None
+    # Assert device is cleaned up
+    assert device_registry.async_get(device_id) is None
+
+    # Rediscover the previous deleted entity and allow it to be enabled
+    # but not visible by default
+    async_fire_mqtt_message(hass, discovery_topic, config_enabled)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert not entry.disabled
+    assert entry.hidden is True
+    assert device_registry.async_get(device_id) is not None
+
+    # Update entity to not be enabled by default
+    # The entity should stay available as it was enabled before
+    # Also it should remain hidden
+    async_fire_mqtt_message(hass, discovery_topic, config_disabled)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert not entry.disabled
+    assert entry.hidden is True
+    assert device_registry.async_get(device_id) is not None
+
+    # Delete the entity again
+    async_fire_mqtt_message(hass, discovery_topic, "")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is None
+    # Assert device is cleaned up
+    assert device_registry.async_get(device_id) is None
+
+    # Repeat the re-discovery, with a new entity name
+    # The entity should be enabled and visible by default now
+    async_fire_mqtt_message(hass, discovery_topic, config_enabled_new_entity_name)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test_new")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test_new")
+    assert entry is not None
+    assert entry.hidden is False
+    assert not entry.disabled
+    assert device_registry.async_get(device_id) is not None
+
+    # Mock the entry is disabled by the user
+    entity_registry.async_update_entity(
+        "sensor.test_new", disabled_by=er.RegistryEntryDisabler.USER
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    state = hass.states.get("sensor.test_new")
+    assert state is None
+    # Remove the disabled entry
+    entity_registry.async_remove("sensor.test_new")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    entry = entity_registry.async_get("sensor.test_new")
+    assert entry is None
+
+    # Repeat the re-discovery, and assert the entity remains disabled
+    async_fire_mqtt_message(hass, discovery_topic, config_enabled_new_entity_name)
+    await hass.async_block_till_done()
+    entry = entity_registry.async_get("sensor.test_new")
+    assert entry is not None
+    assert entry.disabled
+    assert entry.hidden is False
+    assert device_registry.async_get(device_id) is not None
+
+
+async def test_visible_by_default_with_user_override(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    entity_registry: er.EntityRegistry,
+    device_registry: dr.DeviceRegistry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test visible_by_default is respected but user hidden_by override is preserved."""
+    await mqtt_mock_entry()
+
+    discovery_topic = "homeassistant/sensor/bla/config"
+    config_visible = json.json_dumps(
+        {
+            "name": None,
+            "state_topic": "state-topic",
+            "visible_by_default": True,
+            "unique_id": "very_unique",
+            "default_entity_id": "sensor.test",
+            "device": {"identifiers": "very_unique_device", "name": "test"},
+        }
+    )
+    config_hidden = json.json_dumps(
+        {
+            "name": None,
+            "state_topic": "state-topic",
+            "visible_by_default": False,
+            "unique_id": "very_unique",
+            "default_entity_id": "sensor.test",
+            "device": {"identifiers": "very_unique_device", "name": "test"},
+        }
+    )
+
+    async_fire_mqtt_message(hass, discovery_topic, config_hidden)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert not entry.disabled
+    assert entry.hidden
+    assert entry.hidden_by is er.RegistryEntryHider.INTEGRATION
+    assert (device_id := entry.device_id)
+    assert device_registry.async_get(device_id) is not None
+
+    # Remove the entity and device
+    # At this stage no entry existed during the initialization
+    async_fire_mqtt_message(hass, discovery_topic, "")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is None
+    # Assert device is cleaned up
+    assert device_registry.async_get(device_id) is None
+
+    # Rediscover the previous deleted entity, now visible by default
+    async_fire_mqtt_message(hass, discovery_topic, config_visible)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert not entry.hidden
+    assert entry.hidden_by is None
+    assert device_registry.async_get(device_id) is not None
+
+    # Mock the user hides the entity
+    entity_registry.async_update_entity(
+        "sensor.test", hidden_by=er.RegistryEntryHider.USER
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    # Remove the entity and device,
+    # the hidden by user flag should be preserved in the deleted entities registry
+    async_fire_mqtt_message(hass, discovery_topic, "")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is None
+    # Assert device is cleaned up
+    assert device_registry.async_get(device_id) is None
+
+    # Rediscover again and assert the entity remains hidden
+    # because it was hidden by the user, even though visible_by_default is True
+    async_fire_mqtt_message(hass, discovery_topic, config_visible)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry is not None
+    assert entry.hidden
+    assert entry.hidden_by is er.RegistryEntryHider.USER
+    assert device_registry.async_get(device_id) is not None
+    assert (
+        "Restored entity sensor.test was configured as visible by default, "
+        "but was hidden by the user before, and will remain hidden" in caplog.text
+    )
+
+
+@pytest.mark.parametrize(
+    "hass_config",
+    [
+        {
+            mqtt.DOMAIN: {
+                sensor.DOMAIN: {
+                    "name": "test",
+                    "state_topic": "state-topic",
+                    "unique_id": "very_unique",
+                }
+            }
+        },
+        {
+            mqtt.DOMAIN: {
+                sensor.DOMAIN: {
+                    "name": "test",
+                    "state_topic": "state-topic",
+                    "visible_by_default": True,
+                    "unique_id": "very_unique",
+                }
+            }
+        },
+    ],
+)
+async def test_registry_visible_by_default(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test an entity is visible with visible_by_default set or without."""
+    await mqtt_mock_entry()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert not entry.disabled
+    assert entry.hidden is False
+    assert entry.hidden_by is None
+
+
+@pytest.mark.parametrize(
+    "hass_config",
+    [
+        {
+            mqtt.DOMAIN: {
+                sensor.DOMAIN: {
+                    "name": "test",
+                    "state_topic": "state-topic",
+                    "visible_by_default": False,
+                    "unique_id": "very_unique",
+                }
+            }
+        },
+    ],
+)
+async def test_registry_not_visible_by_default(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test an entity that is not visible by default."""
+    await mqtt_mock_entry()
+    state = hass.states.get("sensor.test")
+    assert state is not None
+    entry = entity_registry.async_get("sensor.test")
+    assert entry.hidden is True
+    assert entry.hidden_by is er.RegistryEntryHider.INTEGRATION
+
+
+@pytest.mark.parametrize(
+    "mqtt_config_subentries_data",
+    [
+        (
+            ConfigSubentryData(
+                data=MOCK_SUBENTRY_DATA_SET_MIX,
+                subentry_type="device",
+                title="Mock subentry",
+            ),
+        )
+    ],
+)
+async def test_loading_subentries(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    mqtt_config_subentries_data: tuple[dict[str, Any]],
+    device_registry: dr.DeviceRegistry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """Test loading subentries."""
+    await mqtt_mock_entry()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    subentry_id = next(iter(entry.subentries))
+    # Each subentry has one device
+    device = device_registry.async_get_device_by_identifier(
+        ("mqtt", subentry_id), entry.entry_id
+    )
+    assert device is not None
+    for object_id, component in mqtt_config_subentries_data[0]["data"][
+        "components"
+    ].items():
+        platform = component["platform"]
+        entity_id = f"{platform}.{slugify(device.name)}_{slugify(component['name'])}"
+        entity_entry_entity_id = entity_registry.async_get_entity_id(
+            platform, DOMAIN, f"{subentry_id}_{object_id}"
+        )
+        assert entity_entry_entity_id == entity_id
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert (
+            state.attributes.get("entity_picture") == f"https://example.com/{object_id}"
+        )
+        # Availability was configured, so entities are unavailable
+        assert state.state == "unavailable"
+
+    # Make entities available
+    async_fire_mqtt_message(hass, "test/availability", '{"availability": "online"}')
+    for component in mqtt_config_subentries_data[0]["data"]["components"].values():
+        platform = component["platform"]
+        entity_id = f"{platform}.{slugify(device.name)}_{slugify(component['name'])}"
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state in ("off", "unknown")
+
+
+@pytest.mark.parametrize(
+    "mqtt_config_subentries_data",
+    [
+        (
+            ConfigSubentryData(
+                data=MOCK_SUBENTRY_DATA_BAD_COMPONENT_SCHEMA,
+                subentry_type="device",
+                title="Mock subentry",
+            ),
+        )
+    ],
+)
+async def test_loading_subentry_with_bad_component_schema(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    device_registry: dr.DeviceRegistry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test loading subentries."""
+    await mqtt_mock_entry()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    subentry_id = next(iter(entry.subentries))
+    # Each subentry has one device
+    device = device_registry.async_get_device_by_identifier(
+        ("mqtt", subentry_id), entry.entry_id
+    )
+    assert device is None
+    assert (
+        "Schema violation occurred when trying to set up entity from subentry"
         in caplog.text
     )
+
+
+@pytest.mark.parametrize(
+    "mqtt_config_subentries_data",
+    [
+        (
+            ConfigSubentryData(
+                data=MOCK_NOTIFY_SUBENTRY_DATA,
+                subentry_type="device",
+                title="Mock subentry",
+            ),
+        )
+    ],
+)
+async def test_qos_on_mqtt_device_from_subentry(
+    hass: HomeAssistant,
+    mqtt_mock_entry: MqttMockHAClientGenerator,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Test QoS is set correctly on entities from MQTT device."""
+    mqtt_mock = await mqtt_mock_entry()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    subentry_id = next(iter(entry.subentries))
+    # Each subentry has one device
+    device = device_registry.async_get_device_by_identifier(
+        ("mqtt", subentry_id), entry.entry_id
+    )
+    assert device is not None
+    assert hass.states.get("notify.milk_notifier_milkman_alert") is not None
+    await hass.services.async_call(
+        "notify",
+        "send_message",
+        {"entity_id": "notify.milk_notifier_milkman_alert", "message": "Test message"},
+    )
+    await hass.async_block_till_done()
+    assert len(mqtt_mock.async_publish.mock_calls) == 1
+    mqtt_mock.async_publish.mock_calls[0] = call("test-topic", "Test message", 1, False)

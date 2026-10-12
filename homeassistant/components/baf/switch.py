@@ -1,17 +1,15 @@
 """Support for Big Ass Fans switch."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, override
 
 from aiobafi6 import Device
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BAFConfigEntry
 from .entity import BAFDescriptionEntity
@@ -103,7 +101,7 @@ LIGHT_SWITCHES = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: BAFConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up BAF fan switches."""
     device = entry.runtime_data
@@ -124,14 +122,17 @@ class BAFSwitch(BAFDescriptionEntity, SwitchEntity):
     entity_description: BAFSwitchDescription
 
     @callback
+    @override
     def _async_update_attrs(self) -> None:
         """Update attrs from device."""
         self._attr_is_on = self.entity_description.value_fn(self._device)
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
         setattr(self._device, self.entity_description.key, True)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
         setattr(self._device, self.entity_description.key, False)

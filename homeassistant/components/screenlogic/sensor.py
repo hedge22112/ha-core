@@ -4,6 +4,7 @@ from collections.abc import Callable
 from copy import copy
 import dataclasses
 import logging
+from typing import override
 
 from screenlogicpy.const.data import ATTR, DEVICE, GROUP, VALUE
 from screenlogicpy.const.msg import CODE
@@ -20,7 +21,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import ScreenlogicDataUpdateCoordinator
 from .entity import (
@@ -272,7 +273,7 @@ SUPPORTED_SCG_SENSORS = [
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ScreenLogicConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
     coordinator = config_entry.runtime_data
@@ -356,6 +357,7 @@ class ScreenLogicSensor(ScreenLogicEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> str | int | float | None:
         """State of the sensor."""
         val = self.entity_data[ATTR.VALUE]

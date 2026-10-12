@@ -1,12 +1,11 @@
 """Config flow for Hong Kong Observatory integration."""
 
-from __future__ import annotations
-
 from asyncio import timeout
-from typing import Any
+import logging
+from typing import Any, override
 
 from hko import HKO, LOCATIONS, HKOError
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_LOCATION
@@ -15,15 +14,17 @@ from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
 
 from .const import API_RHRREAD, DEFAULT_LOCATION, DOMAIN, KEY_LOCATION
 
+_LOGGER = logging.getLogger(__name__)
+
 
 def get_loc_name(item):
     """Return an array of supported locations."""
     return item[KEY_LOCATION]
 
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
+STEP_USER_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_LOCATION, default=DEFAULT_LOCATION): SelectSelector(
+        probatio.Required(CONF_LOCATION, default=DEFAULT_LOCATION): SelectSelector(
             SelectSelectorConfig(options=list(map(get_loc_name, LOCATIONS)), sort=True)
         )
     }
@@ -35,6 +36,7 @@ class HKOConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -54,7 +56,8 @@ class HKOConfigFlow(ConfigFlow, domain=DOMAIN):
 
         except HKOError:
             errors["base"] = "cannot_connect"
-        except Exception:  # noqa: BLE001
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
             await self.async_set_unique_id(

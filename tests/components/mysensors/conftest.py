@@ -1,7 +1,5 @@
 """Provide common mysensors fixtures."""
 
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator, Callable, Generator
 from copy import deepcopy
 import json
@@ -53,7 +51,7 @@ def gateway_nodes_fixture() -> dict[int, Sensor]:
 async def serial_transport_fixture(
     gateway_nodes: dict[int, Sensor],
     is_serial_port: MagicMock,
-) -> AsyncGenerator[dict[int, Sensor]]:
+) -> AsyncGenerator[MagicMock]:
     """Mock a serial transport."""
     with (
         patch(
@@ -128,8 +126,15 @@ async def serial_entry_fixture(hass: HomeAssistant) -> MockConfigEntry:
 
 
 @pytest.fixture(name="config_entry")
-def config_entry_fixture(serial_entry: MockConfigEntry) -> MockConfigEntry:
+def config_entry_fixture(
+    serial_entry: MockConfigEntry, request: pytest.FixtureRequest
+) -> MockConfigEntry:
     """Provide the config entry used for integration set up."""
+    if hasattr(request, "param"):
+        return MockConfigEntry(
+            domain=DOMAIN,
+            data={**serial_entry.data, CONF_VERSION: request.param},
+        )
     return serial_entry
 
 
@@ -193,9 +198,8 @@ def gateway_fixture(
 
 def load_nodes_state(fixture_path: str) -> dict:
     """Load mysensors nodes fixture."""
-    return json.loads(
-        load_fixture(fixture_path, integration=DOMAIN), cls=MySensorsJSONDecoder
-    )
+    fixture = load_fixture(fixture_path, integration=DOMAIN)
+    return json.loads(fixture, cls=MySensorsJSONDecoder)
 
 
 def update_gateway_nodes(
@@ -227,12 +231,27 @@ def cover_node_percentage_state_fixture() -> dict:
     return load_nodes_state("cover_node_percentage_state.json")
 
 
+@pytest.fixture(name="cover_node_tilt_state", scope="package")
+def cover_node_tilt_state_fixture() -> dict:
+    """Load the cover tilt node state."""
+    return load_nodes_state("cover_node_tilt_state.json")
+
+
 @pytest.fixture
 def cover_node_percentage(
     gateway_nodes: dict[int, Sensor], cover_node_percentage_state: dict
 ) -> Sensor:
     """Load the cover child node."""
     nodes = update_gateway_nodes(gateway_nodes, deepcopy(cover_node_percentage_state))
+    return nodes[1]
+
+
+@pytest.fixture
+def cover_node_tilt(
+    gateway_nodes: dict[int, Sensor], cover_node_tilt_state: dict
+) -> Sensor:
+    """Load the cover tilt child node."""
+    nodes = update_gateway_nodes(gateway_nodes, deepcopy(cover_node_tilt_state))
     return nodes[1]
 
 
@@ -317,6 +336,21 @@ def hvac_node_heat(
 ) -> Sensor:
     """Load the hvac heat child node."""
     nodes = update_gateway_nodes(gateway_nodes, deepcopy(hvac_node_heat_state))
+    return nodes[1]
+
+
+@pytest.fixture(name="hvac_node_only_hvac_state", scope="package")
+def hvac_node_only_hvac_state_fixture() -> dict:
+    """Load the hvac node only hvac state."""
+    return load_nodes_state("hvac_node_only_hvac_state.json")
+
+
+@pytest.fixture
+def hvac_node_only_hvac(
+    gateway_nodes: dict[int, Sensor], hvac_node_only_hvac_state: dict
+) -> Sensor:
+    """Load the hvac only hvac child node."""
+    nodes = update_gateway_nodes(gateway_nodes, deepcopy(hvac_node_only_hvac_state))
     return nodes[1]
 
 

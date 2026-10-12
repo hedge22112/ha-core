@@ -1,9 +1,7 @@
 """The Aprilaire sensor component."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, override
 
 from pyaprilaire.const import Attribute
 
@@ -15,7 +13,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .coordinator import AprilaireConfigEntry, AprilaireCoordinator
@@ -75,7 +73,7 @@ def get_entities(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: AprilaireConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Aprilaire sensor devices."""
 
@@ -242,6 +240,7 @@ class BaseAprilaireSensor(BaseAprilaireEntity, SensorEntity):
         )
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if the sensor is available."""
 
@@ -260,6 +259,7 @@ class BaseAprilaireSensor(BaseAprilaireEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the value reported by the sensor."""
 
@@ -283,6 +283,7 @@ class AprilaireTemperatureSensor(BaseAprilaireSensor):
     status_sensor_exists_values = [0, 1, 2]
 
     @property
+    @override
     def suggested_display_precision(self) -> int | None:
         """Return the suggested number of decimal digits for display."""
         if self.unit_of_measurement == UnitOfTemperature.CELSIUS:
@@ -298,6 +299,7 @@ class AprilaireStatusSensor(BaseAprilaireSensor):
     entity_description: AprilaireStatusSensorDescription
 
     @property
+    @override
     def native_value(self) -> StateType:
         """Return the value reported by the sensor mapped to the status option."""
 

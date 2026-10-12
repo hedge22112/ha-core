@@ -1,15 +1,13 @@
 """Support for Fibaro scenes."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from pyfibaro.fibaro_scene import SceneModel
 
 from homeassistant.components.scene import Scene
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import slugify
 
 from . import FibaroConfigEntry, FibaroController
@@ -19,7 +17,7 @@ from .const import DOMAIN
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FibaroConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Perform the setup for Fibaro scenes."""
     controller = entry.runtime_data
@@ -41,8 +39,9 @@ class FibaroScene(Scene):
             room_name = "Unknown"
 
         self._attr_name = f"{room_name} {fibaro_scene.name}"
+        # Legacy format, kept as migrating existing unique IDs is not worth the risk
         self._attr_unique_id = (
-            f"{slugify(controller.hub_serial)}.scene.{fibaro_scene.fibaro_id}"
+            f"{slugify(controller.hub_serial)}.scene.{fibaro_scene.fibaro_id}"  # pylint: disable=home-assistant-entity-unique-id-redundant-platform
         )
         self._attr_extra_state_attributes = {"fibaro_id": fibaro_scene.fibaro_id}
         # propagate hidden attribute set in fibaro home center to HA
@@ -52,6 +51,7 @@ class FibaroScene(Scene):
             identifiers={(DOMAIN, controller.hub_serial)}
         )
 
+    @override
     def activate(self, **kwargs: Any) -> None:
         """Activate the scene."""
         self._fibaro_scene.start()

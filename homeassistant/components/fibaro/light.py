@@ -1,9 +1,7 @@
 """Support for Fibaro lights."""
 
-from __future__ import annotations
-
 from contextlib import suppress
-from typing import Any
+from typing import Any, override
 
 from pyfibaro.fibaro_device import DeviceModel
 
@@ -19,7 +17,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import FibaroConfigEntry
 from .entity import FibaroEntity
@@ -51,7 +49,7 @@ def scaleto99(value: int | None) -> int:
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FibaroConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Perform the setup for Fibaro controller devices."""
     controller = entry.runtime_data
@@ -81,8 +79,11 @@ class FibaroLight(FibaroEntity, LightEntity):
             or "RGBW" in fibaro_device.type
             or "rgbw" in fibaro_device.type
         )
-        supports_dimming = (
-            fibaro_device.has_interface("levelChange")
+        supports_dimming = fibaro_device.has_interface("levelChange") or (
+            (
+                fibaro_device.base_type == "com.fibaro.multilevelSwitch"
+                or fibaro_device.type == "com.fibaro.multilevelSwitch"
+            )
             and "setValue" in fibaro_device.actions
         )
 
@@ -102,6 +103,7 @@ class FibaroLight(FibaroEntity, LightEntity):
         super().__init__(fibaro_device)
         self.entity_id = ENTITY_ID_FORMAT.format(self.ha_id)
 
+    @override
     def turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
         if ATTR_BRIGHTNESS in kwargs:
@@ -126,10 +128,12 @@ class FibaroLight(FibaroEntity, LightEntity):
         # The simplest case is left for last. No dimming, just switch on
         self.call_turn_on()
 
+    @override
     def turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         self.call_turn_off()
 
+    @override
     def update(self) -> None:
         """Update the state."""
         super().update()

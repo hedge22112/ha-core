@@ -1,9 +1,8 @@
 """The Aseko Pool Live integration."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
+from typing import override
 
 from aioaseko import Aseko, Unit
 
@@ -21,17 +20,23 @@ type AsekoConfigEntry = ConfigEntry[AsekoDataUpdateCoordinator]
 class AsekoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Unit]]):
     """Class to manage fetching Aseko unit data from single endpoint."""
 
-    def __init__(self, hass: HomeAssistant, aseko: Aseko) -> None:
+    config_entry: AsekoConfigEntry
+
+    def __init__(
+        self, hass: HomeAssistant, config_entry: AsekoConfigEntry, aseko: Aseko
+    ) -> None:
         """Initialize global Aseko unit data updater."""
         self._aseko = aseko
 
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=timedelta(minutes=2),
         )
 
+    @override
     async def _async_update_data(self) -> dict[str, Unit]:
         """Fetch unit data."""
         units = await self._aseko.get_units()

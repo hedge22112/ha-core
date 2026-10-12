@@ -1,0 +1,18 @@
+{
+  "entity_component": {
+    "_": {
+      "default": "mdi:star-four-points"
+    }
+  },
+  "services": {
+    "clear_images": {
+      "service": "mdi:delete"
+    },
+    "generate_data": {
+      "service": "mdi:file-star-four-points-outline"
+    },
+    "generate_image": {
+      "service": "mdi:star-four-points-box-outline"
+    }
+  }
+}

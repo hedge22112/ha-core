@@ -1,12 +1,10 @@
 """Code to handle the Plenticore API."""
 
-from __future__ import annotations
-
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 import logging
-from typing import cast
+from typing import cast, override
 
 from aiohttp.client_exceptions import ClientError
 from pykoplenti import (
@@ -16,6 +14,7 @@ from pykoplenti import (
     ExtendedApiClient,
 )
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -24,10 +23,12 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
+from .const import CONF_SERVICE_CODE, DOMAIN
 from .helper import get_hostname_id
 
 _LOGGER = logging.getLogger(__name__)
+
+type PlenticoreConfigEntry = ConfigEntry[Plenticore]
 
 
 class Plenticore:
@@ -59,15 +60,21 @@ class Plenticore:
             async_get_clientsession(self.hass), host=self.host
         )
         try:
-            await self._client.login(self.config_entry.data[CONF_PASSWORD])
+            await self._client.login(
+                self.config_entry.data[CONF_PASSWORD],
+                service_code=self.config_entry.data.get(CONF_SERVICE_CODE),
+            )
         except AuthenticationException as err:
             _LOGGER.error(
                 "Authentication exception connecting to %s: %s", self.host, err
             )
             return False
         except (ClientError, TimeoutError) as err:
-            _LOGGER.error("Error connecting to %s", self.host)
-            raise ConfigEntryNotReady from err
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN,
+                translation_key="cannot_connect",
+                translation_placeholders={"host": self.host},
+            ) from err
         else:
             _LOGGER.debug("Log-in successfully to %s", self.host)
 
@@ -162,9 +169,12 @@ class DataUpdateCoordinatorMixin:
 class PlenticoreUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
     """Base implementation of DataUpdateCoordinator for Plenticore data."""
 
+    config_entry: PlenticoreConfigEntry
+
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: PlenticoreConfigEntry,
         logger: logging.Logger,
         name: str,
         update_inverval: timedelta,
@@ -174,6 +184,7 @@ class PlenticoreUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
         super().__init__(
             hass=hass,
             logger=logger,
+            config_entry=config_entry,
             name=name,
             update_interval=update_inverval,
         )
@@ -202,6 +213,7 @@ class ProcessDataUpdateCoordinator(
 ):
     """Implementation of PlenticoreUpdateCoordinator for process data."""
 
+    @override
     async def _async_update_data(self) -> dict[str, dict[str, str]]:
         client = self._plenticore.client
 
@@ -226,23 +238,36 @@ class SettingDataUpdateCoordinator(
 ):
     """Implementation of PlenticoreUpdateCoordinator for settings data."""
 
+    @override
     async def _async_update_data(self) -> Mapping[str, Mapping[str, str]]:
-        client = self._plenticore.client
-
-        if not self._fetch or client is None:
+        if (client := self._plenticore.client) is None:
             return {}
 
-        _LOGGER.debug("Fetching %s for %s", self.name, self._fetch)
+        fetch = defaultdict(set)
 
-        return await client.get_setting_values(self._fetch)
+        for module_id, data_ids in self._fetch.items():
+            fetch[module_id].update(data_ids)
+
+        for module_id, data_id in self.async_contexts():
+            fetch[module_id].add(data_id)
+
+        if not fetch:
+            return {}
+
+        _LOGGER.debug("Fetching %s for %s", self.name, fetch)
+
+        return await client.get_setting_values(fetch)
 
 
 class PlenticoreSelectUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
     """Base implementation of DataUpdateCoordinator for Plenticore data."""
 
+    config_entry: PlenticoreConfigEntry
+
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: PlenticoreConfigEntry,
         logger: logging.Logger,
         name: str,
         update_inverval: timedelta,
@@ -252,6 +277,7 @@ class PlenticoreSelectUpdateCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
         super().__init__(
             hass=hass,
             logger=logger,
+            config_entry=config_entry,
             name=name,
             update_interval=update_inverval,
         )
@@ -287,6 +313,7 @@ class SelectDataUpdateCoordinator(
 ):
     """Implementation of PlenticoreUpdateCoordinator for select data."""
 
+    @override
     async def _async_update_data(self) -> dict[str, dict[str, str]]:
         if self._plenticore.client is None:
             return {}

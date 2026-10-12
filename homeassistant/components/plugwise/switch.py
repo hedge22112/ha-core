@@ -1,9 +1,7 @@
 """Plugwise Switch component for HomeAssistant."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from plugwise.constants import SwitchType
 
@@ -14,10 +12,9 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import PlugwiseConfigEntry
-from .coordinator import PlugwiseDataUpdateCoordinator
+from .coordinator import PlugwiseConfigEntry, PlugwiseDataUpdateCoordinator
 from .entity import PlugwiseEntity
 from .util import plugwise_command
 
@@ -58,7 +55,7 @@ SWITCHES: tuple[PlugwiseSwitchEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: PlugwiseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Smile switches from a config entry."""
     coordinator = entry.runtime_data
@@ -72,7 +69,7 @@ async def async_setup_entry(
         async_add_entities(
             PlugwiseSwitchEntity(coordinator, device_id, description)
             for device_id in coordinator.new_devices
-            if (switches := coordinator.data.devices[device_id].get("switches"))
+            if (switches := coordinator.data[device_id].get("switches"))
             for description in SWITCHES
             if description.key in switches
         )
@@ -98,11 +95,13 @@ class PlugwiseSwitchEntity(PlugwiseEntity, SwitchEntity):
         self.entity_description = description
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return True if entity is on."""
         return self.device["switches"][self.entity_description.key]
 
     @plugwise_command
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the device on."""
         await self.coordinator.api.set_switch_state(
@@ -113,6 +112,7 @@ class PlugwiseSwitchEntity(PlugwiseEntity, SwitchEntity):
         )
 
     @plugwise_command
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the device off."""
         await self.coordinator.api.set_switch_state(

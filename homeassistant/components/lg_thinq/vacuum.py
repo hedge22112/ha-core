@@ -1,9 +1,8 @@
 """Support for vacuum entities."""
 
-from __future__ import annotations
-
 from enum import StrEnum
 import logging
+from typing import Any, override
 
 from thinqconnect import DeviceType
 from thinqconnect.integration import ExtendedProperty
@@ -15,7 +14,7 @@ from homeassistant.components.vacuum import (
     VacuumEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ThinqConfigEntry
 from .entity import ThinQEntity
@@ -56,16 +55,15 @@ ROBOT_STATUS_TO_HA = {
     "sleep": VacuumActivity.IDLE,
     "standby": VacuumActivity.IDLE,
     "working": VacuumActivity.CLEANING,
+    "station": VacuumActivity.CLEANING,
+    "station_dry": VacuumActivity.CLEANING,
+    "clean_learning": VacuumActivity.CLEANING,
+    "station_mop": VacuumActivity.CLEANING,
+    "water_removal": VacuumActivity.CLEANING,
+    "water_injection": VacuumActivity.CLEANING,
+    "clean_select": VacuumActivity.CLEANING,
+    "clean_select_gozone": VacuumActivity.CLEANING,
     "error": VacuumActivity.ERROR,
-}
-ROBOT_BATT_TO_HA = {
-    "moveless": 5,
-    "dock_level": 5,
-    "low": 30,
-    "mid": 50,
-    "high": 90,
-    "full": 100,
-    "over_charge": 100,
 }
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +71,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ThinqConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up an entry for vacuum platform."""
     entities: list[ThinQStateVacuumEntity] = []
@@ -99,34 +97,28 @@ class ThinQStateVacuumEntity(ThinQEntity, StateVacuumEntity):
     _attr_supported_features = (
         VacuumEntityFeature.SEND_COMMAND
         | VacuumEntityFeature.STATE
-        | VacuumEntityFeature.BATTERY
         | VacuumEntityFeature.START
         | VacuumEntityFeature.PAUSE
         | VacuumEntityFeature.RETURN_HOME
     )
 
+    @override
     def _update_status(self) -> None:
         """Update status itself."""
         super()._update_status()
 
         # Update state.
-        self._attr_activity = ROBOT_STATUS_TO_HA[self.data.current_state]
-
-        # Update battery.
-        if (level := self.data.battery) is not None:
-            self._attr_battery_level = (
-                level if isinstance(level, int) else ROBOT_BATT_TO_HA.get(level, 0)
-            )
+        self._attr_activity = ROBOT_STATUS_TO_HA.get(self.data.current_state)
 
         _LOGGER.debug(
-            "[%s:%s] update status: %s -> %s (battery_level=%s)",
+            "[%s:%s] update status: %s -> %s",
             self.coordinator.device_name,
             self.property_id,
             self.data.current_state,
             self.state,
-            self.battery_level,
         )
 
+    @override
     async def async_start(self, **kwargs) -> None:
         """Start the device."""
         if self.data.current_state == State.SLEEP:
@@ -143,6 +135,7 @@ class ThinQStateVacuumEntity(ThinQEntity, StateVacuumEntity):
             self.coordinator.api.async_set_clean_operation_mode(self.property_id, value)
         )
 
+    @override
     async def async_pause(self, **kwargs) -> None:
         """Pause the device."""
         _LOGGER.debug(
@@ -154,7 +147,8 @@ class ThinQStateVacuumEntity(ThinQEntity, StateVacuumEntity):
             )
         )
 
-    async def async_return_to_base(self, **kwargs) -> None:
+    @override
+    async def async_return_to_base(self, **kwargs: Any) -> None:
         """Return device to dock."""
         _LOGGER.debug(
             "[%s:%s] async_return_to_base",

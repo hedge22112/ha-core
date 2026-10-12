@@ -1,9 +1,8 @@
 """Binary Sensor platform for Garages Amsterdam."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from odp_amsterdam import Garage
 
@@ -13,10 +12,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import GaragesAmsterdamConfigEntry
-from .coordinator import GaragesAmsterdamDataUpdateCoordinator
+from .coordinator import (
+    GaragesAmsterdamConfigEntry,
+    GaragesAmsterdamDataUpdateCoordinator,
+)
 from .entity import GaragesAmsterdamEntity
 
 
@@ -40,7 +41,7 @@ BINARY_SENSORS: tuple[GaragesAmsterdamBinarySensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GaragesAmsterdamConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Defer sensor setup to the shared sensor module."""
     coordinator = entry.runtime_data
@@ -73,6 +74,7 @@ class GaragesAmsterdamBinarySensor(GaragesAmsterdamEntity, BinarySensorEntity):
         self._attr_unique_id = f"{garage_name}-{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """If the binary sensor is currently on or off."""
         return self.entity_description.is_on(self.coordinator.data[self._garage_name])

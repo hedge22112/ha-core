@@ -1,13 +1,14 @@
 """The tests for the image component."""
 
-from datetime import datetime
+import asyncio
+import errno
 from http import HTTPStatus
 import ssl
 from unittest.mock import MagicMock, mock_open, patch
 
 from aiohttp import hdrs
 from freezegun.api import FrozenDateTimeFactory
-import httpx
+import httpx2
 import pytest
 import respx
 
@@ -15,8 +16,9 @@ from homeassistant.components import image
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 
 from .conftest import (
     MockImageEntity,
@@ -174,10 +176,22 @@ async def test_fetch_image_authenticated(
     """Test fetching an image with an authenticated client."""
     client = await hass_client()
 
+    # Using HEAD
+    resp = await client.head("/api/image_proxy/image.test")
+    assert resp.status == HTTPStatus.OK
+    assert resp.content_type == "image/jpeg"
+    assert resp.content_length == 4
+
+    resp = await client.head("/api/image_proxy/image.unknown")
+    assert resp.status == HTTPStatus.NOT_FOUND
+
+    # Using GET
     resp = await client.get("/api/image_proxy/image.test")
     assert resp.status == HTTPStatus.OK
     body = await resp.read()
     assert body == b"Test"
+    assert resp.content_type == "image/jpeg"
+    assert resp.content_length == 4
 
     resp = await client.get("/api/image_proxy/image.unknown")
     assert resp.status == HTTPStatus.NOT_FOUND
@@ -239,7 +253,7 @@ async def test_fetch_image_unauthenticated(
     assert body == b"Test"
 
     resp = await client.get("/api/image_proxy/image.unknown")
-    assert resp.status == HTTPStatus.NOT_FOUND
+    assert resp.status == HTTPStatus.UNAUTHORIZED
 
 
 @respx.mock
@@ -260,18 +274,27 @@ async def test_fetch_image_url_success(
 
     client = await hass_client()
 
+    # Using HEAD
+    resp = await client.head("/api/image_proxy/image.test")
+    assert resp.status == HTTPStatus.OK
+    assert resp.content_type == "image/png"
+    assert resp.content_length == 4
+
+    # Using GET
     resp = await client.get("/api/image_proxy/image.test")
     assert resp.status == HTTPStatus.OK
     body = await resp.read()
     assert body == b"Test"
+    assert resp.content_type == "image/png"
+    assert resp.content_length == 4
 
 
 @respx.mock
 @pytest.mark.parametrize(
     "side_effect",
     [
-        httpx.RequestError("server offline", request=MagicMock()),
-        httpx.TimeoutException,
+        httpx2.RequestError("server offline", request=MagicMock()),
+        httpx2.TimeoutException,
         ssl.SSLError,
     ],
 )
@@ -327,6 +350,51 @@ async def test_fetch_image_url_wrong_content_type(
     assert resp.status == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
+@respx.mock
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        (b"\x89PNG", "image/png"),
+        (b"\xff\xd8\xff\xdb", "image/jpeg"),
+        (b"\xff\xd8\xff\xe0", "image/jpeg"),
+        (b"\xff\xd8\xff\xed", "image/jpeg"),
+        (b"\xff\xd8\xff\xee", "image/jpeg"),
+        (b"\xff\xd8\xff\xe1", "image/jpeg"),
+        (b"\xff\xd8\xff\xe2", "image/jpeg"),
+        (b"GIF89a", "image/gif"),
+        (b"GIF87a", "image/gif"),
+        (b"RIFF", "image/webp"),
+        (b"\x49\x49\x2a\x00", "image/tiff"),
+        (b"\x4d\x4d\x00\x2a", "image/tiff"),
+    ],
+)
+async def test_fetch_image_url_infer_content_type_from_magic_number(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    content: bytes,
+    content_type: str,
+) -> None:
+    """Test fetching an image and inferring content-type from magic number."""
+    respx.get("https://example.com/myimage.jpg").respond(
+        status_code=HTTPStatus.OK, content=content
+    )
+
+    mock_integration(hass, MockModule(domain="test"))
+    mock_platform(hass, "test.image", MockImagePlatform([MockURLImageEntity(hass)]))
+    assert await async_setup_component(
+        hass, image.DOMAIN, {"image": {"platform": "test"}}
+    )
+    await hass.async_block_till_done()
+
+    client = await hass_client()
+
+    resp = await client.get("/api/image_proxy/image.test")
+    assert resp.status == HTTPStatus.OK
+    body = await resp.read()
+    assert body == content
+    assert resp.content_type == content_type
+
+
 async def test_image_stream(
     hass: HomeAssistant,
     hass_client: ClientSessionGenerator,
@@ -361,7 +429,7 @@ async def test_image_stream(
             assert not resp.closed
             assert resp.status == HTTPStatus.OK
 
-            mock_image.image_last_updated = datetime.now()
+            mock_image.image_last_updated = dt_util.utcnow()
             mock_image.async_write_ha_state()
             # Two blocks to ensure the frame is written
             await hass.async_block_till_done()
@@ -386,6 +454,35 @@ async def test_image_stream(
     await close_future
 
 
+async def test_get_image_action(hass: HomeAssistant, mock_image_platform: None) -> None:
+    """Test get_image action."""
+    image_data = await image.async_get_image(hass, "image.test")
+    assert image_data == image.Image(content_type="image/jpeg", content=b"Test")
+
+    with pytest.raises(HomeAssistantError, match="not found"):
+        await image.async_get_image(hass, "image.unknown")
+
+
+async def test_get_image_cancelled(
+    hass: HomeAssistant, mock_image_platform: None
+) -> None:
+    """Test cancelling fetching an image propagates the cancellation."""
+    started = asyncio.Event()
+
+    async def _async_image() -> bytes:
+        started.set()
+        await asyncio.Event().wait()
+        return b"Test"
+
+    with patch.object(MockImageEntity, "async_image", side_effect=_async_image):
+        task = hass.async_create_task(image.async_get_image(hass, "image.test"))
+        await started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
 async def test_snapshot_service(hass: HomeAssistant) -> None:
     """Test snapshot service."""
     mopen = mock_open()
@@ -397,8 +494,8 @@ async def test_snapshot_service(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     with (
-        patch("homeassistant.components.image.open", mopen, create=True),
-        patch("homeassistant.components.image.os.makedirs"),
+        patch("homeassistant.components.image.services.open", mopen, create=True),
+        patch("homeassistant.components.image.services.os.makedirs"),
         patch.object(hass.config, "is_allowed_path", return_value=True),
     ):
         await hass.services.async_call(
@@ -428,9 +525,9 @@ async def test_snapshot_service_no_image(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     with (
-        patch("homeassistant.components.image.open", mopen, create=True),
+        patch("homeassistant.components.image.services.open", mopen, create=True),
         patch(
-            "homeassistant.components.image.os.makedirs",
+            "homeassistant.components.image.services.os.makedirs",
         ),
         patch.object(hass.config, "is_allowed_path", return_value=True),
     ):
@@ -458,7 +555,10 @@ async def test_snapshot_service_not_allowed_path(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
 
-    with pytest.raises(HomeAssistantError, match="/test/snapshot.jpg"):
+    with pytest.raises(
+        ServiceValidationError,
+        match="Cannot write to /test/snapshot.jpg because access to this path is not allowed",
+    ):
         await hass.services.async_call(
             image.DOMAIN,
             image.SERVICE_SNAPSHOT,
@@ -470,7 +570,38 @@ async def test_snapshot_service_not_allowed_path(hass: HomeAssistant) -> None:
         )
 
 
-async def test_snapshot_service_os_error(hass: HomeAssistant) -> None:
+@pytest.mark.parametrize(
+    ("side_effect", "message"),
+    [
+        (
+            OSError(errno.EACCES, "Permission denied"),
+            "Cannot write /test/snapshot.jpg: permission denied$",
+        ),
+        (
+            OSError(errno.EPERM, "Operation not permitted"),
+            "Cannot write /test/snapshot.jpg: permission denied$",
+        ),
+        (
+            OSError(errno.ENOSPC, "No space left on device"),
+            "Cannot write /test/snapshot.jpg: no space left on the device$",
+        ),
+        (
+            OSError(errno.EROFS, "Read-only file system"),
+            "Cannot write /test/snapshot.jpg: the file system is read-only$",
+        ),
+        (
+            FileNotFoundError(errno.ENOENT, "No such file or directory"),
+            "Cannot write /test/snapshot.jpg: the folder does not exist$",
+        ),
+        (
+            OSError(errno.EIO, "Input/output error"),
+            "Cannot write /test/snapshot.jpg$",
+        ),
+    ],
+)
+async def test_snapshot_service_os_error(
+    hass: HomeAssistant, side_effect: OSError, message: str
+) -> None:
     """Test snapshot service with os error."""
     mock_integration(hass, MockModule(domain="test"))
     mock_platform(hass, "test.image", MockImagePlatform([MockImageSyncEntity(hass)]))
@@ -481,8 +612,8 @@ async def test_snapshot_service_os_error(hass: HomeAssistant) -> None:
 
     with (
         patch.object(hass.config, "is_allowed_path", return_value=True),
-        patch("os.makedirs", side_effect=OSError),
-        pytest.raises(HomeAssistantError),
+        patch("os.makedirs", side_effect=side_effect),
+        pytest.raises(HomeAssistantError, match=message),
     ):
         await hass.services.async_call(
             image.DOMAIN,

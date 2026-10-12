@@ -14,17 +14,18 @@ from homeassistant.components.recorder.statistics import (
     statistics_during_period,
 )
 from homeassistant.components.recorder.util import session_scope
+from homeassistant.components.sensor import DOMAIN
 from homeassistant.core import CoreState
 from homeassistant.helpers import recorder as recorder_helper
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from tests.common import async_test_home_assistant
 from tests.components.recorder.common import (
     async_wait_recording_done,
     do_adhoc_statistics,
 )
-from tests.typing import RecorderInstanceGenerator
+from tests.typing import RecorderInstanceContextManager
 
 POWER_SENSOR_ATTRIBUTES = {
     "device_class": "energy",
@@ -47,7 +48,7 @@ def disable_db_issue_creation():
 @pytest.mark.parametrize("enable_missing_statistics", [True])
 @pytest.mark.usefixtures("hass_storage")  # Prevent test hass from writing to storage
 async def test_compile_missing_statistics(
-    async_test_recorder: RecorderInstanceGenerator, freezer: FrozenDateTimeFactory
+    async_test_recorder: RecorderInstanceContextManager, freezer: FrozenDateTimeFactory
 ) -> None:
     """Test compile missing statistics."""
     three_days_ago = datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt_util.UTC)
@@ -58,7 +59,7 @@ async def test_compile_missing_statistics(
         async_test_recorder(hass, wait_recorder=False),
     ):
         recorder_helper.async_initialize_recorder(hass)
-        await async_setup_component(hass, "sensor", {})
+        await async_setup_component(hass, DOMAIN, {})
         get_instance(hass).recorder_and_worker_thread_ids.add(threading.get_ident())
         await hass.async_start()
         await async_wait_recording_done(hass)
@@ -102,7 +103,7 @@ async def test_compile_missing_statistics(
         async_test_recorder(hass, wait_recorder=False),
     ):
         recorder_helper.async_initialize_recorder(hass)
-        await async_setup_component(hass, "sensor", {})
+        await async_setup_component(hass, DOMAIN, {})
         hass.states.async_set("sensor.test1", "0", POWER_SENSOR_ATTRIBUTES)
         get_instance(hass).recorder_and_worker_thread_ids.add(threading.get_ident())
         await hass.async_start()

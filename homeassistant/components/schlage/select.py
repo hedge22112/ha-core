@@ -1,14 +1,15 @@
 """Platform for Schlage select integration."""
 
-from __future__ import annotations
+from typing import override
+
+from pyschlage.lock import AUTO_LOCK_TIMES
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import SchlageConfigEntry
-from .coordinator import LockData, SchlageDataUpdateCoordinator
+from .coordinator import LockData, SchlageConfigEntry, SchlageDataUpdateCoordinator
 from .entity import SchlageEntity
 
 _DESCRIPTIONS = (
@@ -16,16 +17,7 @@ _DESCRIPTIONS = (
         key="auto_lock_time",
         translation_key="auto_lock_time",
         entity_category=EntityCategory.CONFIG,
-        # valid values are from Schlage UI and validated by pyschlage
-        options=[
-            "0",
-            "15",
-            "30",
-            "60",
-            "120",
-            "240",
-            "300",
-        ],
+        options=[str(n) for n in AUTO_LOCK_TIMES],
     ),
 )
 
@@ -33,7 +25,7 @@ _DESCRIPTIONS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SchlageConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up selects based on a config entry."""
     coordinator = config_entry.runtime_data
@@ -49,7 +41,7 @@ async def async_setup_entry(
             for description in _DESCRIPTIONS
         )
 
-    _add_new_locks(coordinator.data.locks)
+    _add_new_locks(coordinator.data)
     coordinator.new_locks_callbacks.append(_add_new_locks)
 
 
@@ -68,10 +60,12 @@ class SchlageSelect(SchlageEntity, SelectEntity):
         self._attr_unique_id = f"{device_id}_{self.entity_description.key}"
 
     @property
+    @override
     def current_option(self) -> str:
         """Return the current option."""
         return str(self._lock_data.lock.auto_lock_time)
 
+    @override
     def select_option(self, option: str) -> None:
         """Set the current option."""
         self._lock.set_auto_lock_time(int(option))

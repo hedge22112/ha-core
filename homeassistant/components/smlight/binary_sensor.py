@@ -1,9 +1,8 @@
 """Support for SLZB-06 binary sensors."""
 
-from __future__ import annotations
-
 from _collections_abc import Callable
 from dataclasses import dataclass
+from typing import override
 
 from pysmlight import Sensors
 from pysmlight.const import Events as SmEvents
@@ -14,15 +13,15 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import SCAN_INTERNET_INTERVAL
-from .coordinator import SmDataUpdateCoordinator
+from .coordinator import SmConfigEntry, SmDataUpdateCoordinator
 from .entity import SmEntity
 
+PARALLEL_UPDATES = 0
 SCAN_INTERVAL = SCAN_INTERNET_INTERVAL
 
 
@@ -56,8 +55,8 @@ SENSORS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: SmConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up SMLIGHT sensor based on a config entry."""
     coordinator = entry.runtime_data.data
@@ -92,6 +91,7 @@ class SmBinarySensorEntity(SmEntity, BinarySensorEntity):
         self._attr_unique_id = f"{coordinator.unique_id}_{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data.sensors)
@@ -112,6 +112,7 @@ class SmInternetSensorEntity(SmEntity, BinarySensorEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.unique_id}_{self._attr_translation_key}"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
@@ -129,10 +130,12 @@ class SmInternetSensorEntity(SmEntity, BinarySensorEntity):
         self.async_write_ha_state()
 
     @property
+    @override
     def should_poll(self) -> bool:
         """Poll entity for internet connected updates."""
         return True
 
+    @override
     async def async_update(self) -> None:
         """Update the sensor.
 

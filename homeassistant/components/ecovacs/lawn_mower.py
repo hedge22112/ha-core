@@ -1,8 +1,7 @@
 """Ecovacs mower entity."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from deebot_client.capabilities import Capabilities, DeviceType
 from deebot_client.device import Device
@@ -16,7 +15,7 @@ from homeassistant.components.lawn_mower import (
     LawnMowerEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EcovacsConfigEntry
 from .entity import EcovacsEntity
@@ -37,7 +36,7 @@ _STATE_TO_MOWER_STATE = {
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EcovacsConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Ecovacs mowers."""
     controller = config_entry.runtime_data
@@ -68,6 +67,7 @@ class EcovacsMower(
         """Initialize the mower."""
         super().__init__(device, device.capabilities)
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Set up the event listeners now that hass is ready."""
         await super().async_added_to_hass()
@@ -83,14 +83,17 @@ class EcovacsMower(
             self._capability.clean.action.command(action)
         )
 
+    @override
     async def async_start_mowing(self) -> None:
         """Resume schedule."""
         await self._clean_command(CleanAction.START)
 
+    @override
     async def async_pause(self) -> None:
         """Pauses the mower."""
         await self._clean_command(CleanAction.PAUSE)
 
+    @override
     async def async_dock(self) -> None:
         """Parks the mower until next schedule."""
         await self._device.execute_command(self._capability.charge.execute())

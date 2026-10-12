@@ -1,13 +1,15 @@
 {
   "config": {
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]"
     },
     "step": {
+      "discovery_confirm": {
+        "description": "Do you want to set up OWServer from {host}?"
+      },
       "reconfigure": {
         "data": {
           "host": "[%key:common::config_flow::data::host%]",
@@ -34,11 +36,14 @@
   },
   "entity": {
     "binary_sensor": {
-      "sensed_id": {
-        "name": "Sensed {id}"
-      },
       "hub_short_id": {
         "name": "Hub short on branch {id}"
+      },
+      "sensed": {
+        "name": "Sensed"
+      },
+      "sensed_id": {
+        "name": "Sensed {id}"
       }
     },
     "select": {
@@ -71,11 +76,17 @@
       "humidity_raw": {
         "name": "Raw humidity"
       },
+      "latest_voltage_id": {
+        "name": "Latest voltage {id}"
+      },
       "moisture_id": {
         "name": "Moisture {id}"
       },
       "thermocouple_temperature_k": {
         "name": "Thermocouple K temperature"
+      },
+      "voltage_id": {
+        "name": "Voltage {id}"
       },
       "voltage_vad": {
         "name": "VAD voltage"
@@ -117,6 +128,11 @@
       }
     }
   },
+  "exceptions": {
+    "write_failed": {
+      "message": "Error writing to {device_file}"
+    }
+  },
   "options": {
     "abort": {
       "no_configurable_devices": "No configurable devices found"
@@ -125,20 +141,27 @@
       "device_not_selected": "Select devices to configure"
     },
     "step": {
-      "device_selection": {
-        "data": {
-          "clear_device_options": "Clear all device configurations",
-          "device_selection": "[%key:component::onewire::options::error::device_not_selected%]"
-        },
-        "description": "Select what configuration steps to process",
-        "title": "OneWire Device Options"
-      },
       "configure_device": {
         "data": {
-          "precision": "Sensor Precision"
+          "precision": "Sensor precision"
+        },
+        "data_description": {
+          "precision": "The lower the precision, the faster the sensor will respond, but with less accuracy."
         },
         "description": "Select sensor precision for {sensor_id}",
-        "title": "OneWire Sensor Precision"
+        "title": "1-Wire sensor precision"
+      },
+      "device_selection": {
+        "data": {
+          "clear_device_options": "Reset all device customizations",
+          "device_selection": "Customize specific devices"
+        },
+        "data_description": {
+          "clear_device_options": "Use this to reset all device-specific options to default values.",
+          "device_selection": "Customize behavior of individual devices."
+        },
+        "description": "Select what configuration steps to process",
+        "title": "1-Wire device options"
       }
     }
   }

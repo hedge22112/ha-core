@@ -3,8 +3,8 @@
 import logging
 import threading
 
+import probatio
 from pymochad import controller, exceptions
-import voluptuous as vol
 
 from homeassistant.const import (
     CONF_HOST,
@@ -13,7 +13,7 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
 )
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,16 +24,16 @@ DOMAIN = "mochad"
 
 REQ_LOCK = threading.Lock()
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        DOMAIN: vol.Schema(
+        DOMAIN: probatio.Schema(
             {
-                vol.Optional(CONF_HOST, default="localhost"): cv.string,
-                vol.Optional(CONF_PORT, default=1099): cv.port,
+                probatio.Optional(CONF_HOST, default="localhost"): cv.string,
+                probatio.Optional(CONF_PORT, default=1099): probatio.Port(),
             }
         )
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=probatio.ALLOW_EXTRA,
 )
 
 

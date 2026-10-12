@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 import logging
+from typing import override
 
 from homeassistant.components.sensor import (
     HomeAssistant,
@@ -22,12 +23,15 @@ from homeassistant.const import (
     UnitOfVolume,
     UnitOfVolumeFlowRate,
 )
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from . import WatergateConfigEntry
-from .coordinator import WatergateAgregatedRequests, WatergateDataCoordinator
+from .coordinator import (
+    WatergateAgregatedRequests,
+    WatergateConfigEntry,
+    WatergateDataCoordinator,
+)
 from .entity import WatergateEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -179,7 +183,7 @@ DESCRIPTIONS: list[WatergateSensorEntityDescription] = [
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: WatergateConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up all entries for Watergate Platform."""
 
@@ -205,6 +209,7 @@ class SonicSensor(WatergateEntity, SensorEntity):
         self.entity_description = entity_description
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return (
@@ -213,6 +218,7 @@ class SonicSensor(WatergateEntity, SensorEntity):
         )
 
     @property
+    @override
     def native_value(self) -> str | int | float | datetime | PowerSupplyMode | None:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)

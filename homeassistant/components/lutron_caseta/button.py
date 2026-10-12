@@ -1,13 +1,11 @@
 """Support for pico and keypad buttons."""
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .device_trigger import LEAP_TO_DEVICE_TYPE_SUBTYPE_MAP
 from .entity import LutronCasetaEntity
@@ -17,7 +15,7 @@ from .models import LutronCasetaConfigEntry, LutronCasetaData
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: LutronCasetaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Lutron pico and keypad buttons."""
     data = config_entry.runtime_data
@@ -58,7 +56,7 @@ async def async_setup_entry(
         # The entities will be nested inside the keypad device
         entities.append(
             LutronCasetaButton(
-                device, data, full_name, enabled_default, parent_device_info
+                hass, device, data, full_name, enabled_default, parent_device_info
             ),
         )
 
@@ -70,6 +68,7 @@ class LutronCasetaButton(LutronCasetaEntity, ButtonEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         device: dict[str, Any],
         data: LutronCasetaData,
         full_name: str,
@@ -77,16 +76,18 @@ class LutronCasetaButton(LutronCasetaEntity, ButtonEntity):
         device_info: DeviceInfo,
     ) -> None:
         """Init a button entity."""
-        super().__init__(device, data)
+        super().__init__(hass, device, data)
         self._attr_entity_registry_enabled_default = enabled_default
         self._attr_name = full_name
         self._attr_device_info = device_info
 
+    @override
     async def async_press(self) -> None:
         """Send a button press event."""
         await self._smartbridge.tap_button(self.device_id)
 
     @property
+    @override
     def serial(self):
         """Buttons shouldn't have serial numbers, Return None."""
         return None

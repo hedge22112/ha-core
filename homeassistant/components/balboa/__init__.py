@@ -1,7 +1,5 @@
 """The Balboa Spa Client integration."""
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta
 import logging
 
@@ -12,7 +10,7 @@ from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.event import async_track_time_interval
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_SYNC_TIME, DEFAULT_SYNC_TIME
 
@@ -21,11 +19,13 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
+    Platform.EVENT,
     Platform.FAN,
     Platform.LIGHT,
     Platform.SELECT,
+    Platform.SWITCH,
+    Platform.TIME,
 ]
-
 
 KEEP_ALIVE_INTERVAL = timedelta(minutes=1)
 SYNC_TIME_INTERVAL = timedelta(hours=1)
@@ -40,11 +40,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: BalboaConfigEntry) -> bo
     _LOGGER.debug("Attempting to connect to %s", host)
     spa = SpaClient(host)
     if not await spa.connect():
-        _LOGGER.error("Failed to connect to spa at %s", host)
-        raise ConfigEntryNotReady("Unable to connect")
+        raise ConfigEntryNotReady(f"Failed to connect to spa at {host}")
     if not await spa.async_configuration_loaded():
-        _LOGGER.error("Failed to get spa info at %s", host)
-        raise ConfigEntryNotReady("Unable to configure")
+        raise ConfigEntryNotReady(f"Failed to get spa info at {host}")
 
     entry.runtime_data = spa
 

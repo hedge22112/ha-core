@@ -1,9 +1,7 @@
 """Google Tasks todo platform."""
 
-from __future__ import annotations
-
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any, cast, override
 
 from homeassistant.components.todo import (
     TodoItem,
@@ -12,12 +10,11 @@ from homeassistant.components.todo import (
     TodoListEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .coordinator import TaskUpdateCoordinator
-from .types import GoogleTasksConfigEntry
+from .coordinator import GoogleTasksConfigEntry, TaskUpdateCoordinator
 
 PARALLEL_UPDATES = 0
 
@@ -54,6 +51,9 @@ def _convert_api_item(item: dict[str, str]) -> TodoItem:
         # Due dates are returned always in UTC so we only need to
         # parse the date portion which will be interpreted as a a local date.
         due = datetime.fromisoformat(due_str).date()
+    completed: datetime | None = None
+    if (completed_str := item.get("completed")) is not None:
+        completed = datetime.fromisoformat(completed_str)
     return TodoItem(
         summary=item["title"],
         uid=item["id"],
@@ -62,6 +62,7 @@ def _convert_api_item(item: dict[str, str]) -> TodoItem:
             TodoItemStatus.NEEDS_ACTION,
         ),
         due=due,
+        completed=completed,
         description=item.get("notes"),
     )
 
@@ -69,7 +70,7 @@ def _convert_api_item(item: dict[str, str]) -> TodoItem:
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: GoogleTasksConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Google Tasks todo platform."""
     async_add_entities(
@@ -114,10 +115,12 @@ class GoogleTaskTodoListEntity(
         self._task_list_id = task_list_id
 
     @property
+    @override
     def todo_items(self) -> list[TodoItem] | None:
         """Get the current set of To-do items."""
         return [_convert_api_item(item) for item in _order_tasks(self.coordinator.data)]
 
+    @override
     async def async_create_todo_item(self, item: TodoItem) -> None:
         """Add an item to the To-do list."""
         await self.coordinator.api.insert(
@@ -126,6 +129,7 @@ class GoogleTaskTodoListEntity(
         )
         await self.coordinator.async_refresh()
 
+    @override
     async def async_update_todo_item(self, item: TodoItem) -> None:
         """Update a To-do item."""
         uid: str = cast(str, item.uid)
@@ -136,11 +140,13 @@ class GoogleTaskTodoListEntity(
         )
         await self.coordinator.async_refresh()
 
+    @override
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         """Delete To-do items."""
         await self.coordinator.api.delete(self._task_list_id, uids)
         await self.coordinator.async_refresh()
 
+    @override
     async def async_move_todo_item(
         self, uid: str, previous_uid: str | None = None
     ) -> None:

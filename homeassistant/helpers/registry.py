@@ -1,11 +1,10 @@
 """Provide a base implementation for registries."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections import UserDict, defaultdict
 from collections.abc import Mapping, Sequence, ValuesView
-from typing import TYPE_CHECKING, Any, Literal
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, override
 
 from homeassistant.core import CoreState, HomeAssistant, callback
 
@@ -15,6 +14,15 @@ if TYPE_CHECKING:
 SAVE_DELAY = 10
 SAVE_DELAY_LONG = 180
 
+
+class NextNamePart(StrEnum):
+    """Next name part of a registry entry."""
+
+    AREA = "area"
+    DEVICE = "device"
+    PARENT_DEVICE = "parent_device"
+
+
 type RegistryIndexType = defaultdict[str, dict[str, Literal[True]]]
 
 
@@ -23,6 +31,7 @@ class BaseRegistryItems[_DataT](UserDict[str, _DataT], ABC):
 
     data: dict[str, _DataT]
 
+    @override
     def values(self) -> ValuesView[_DataT]:
         """Return the underlying values to avoid __iter__ overhead."""
         return self.data.values()
@@ -35,6 +44,7 @@ class BaseRegistryItems[_DataT](UserDict[str, _DataT], ABC):
     def _unindex_entry(self, key: str, replacement_entry: _DataT | None = None) -> None:
         """Unindex an entry."""
 
+    @override
     def __setitem__(self, key: str, entry: _DataT) -> None:
         """Add an item."""
         data = self.data
@@ -57,6 +67,7 @@ class BaseRegistryItems[_DataT](UserDict[str, _DataT], ABC):
         if not entries:
             del index[value]
 
+    @override
     def __delitem__(self, key: str) -> None:
         """Remove an item."""
         self._unindex_entry(key)
@@ -77,7 +88,19 @@ class BaseRegistry[_StoreDataT: Mapping[str, Any] | Sequence[Any]](ABC):
         delay = SAVE_DELAY if self.hass.state is CoreState.running else SAVE_DELAY_LONG
         self._store.async_delay_save(self._data_to_save, delay)
 
-    @callback
+    async def async_load(self, *, load_empty: bool = False) -> None:
+        """Load the registry.
+
+        Optionally set the store to load empty and become read-only.
+        """
+        if load_empty:
+            self._store.set_load_empty()
+        await self._async_load()
+
+    @abstractmethod
+    async def _async_load(self) -> None:
+        """Load the registry."""
+
     @abstractmethod
     def _data_to_save(self) -> _StoreDataT:
         """Return data of registry to store in a file."""

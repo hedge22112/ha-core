@@ -1,11 +1,13 @@
 # serializer version: 1
 # name: test_button_setup[button.sabnzbd_pause-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -19,6 +21,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Pause',
     'options': dict({
     }),
     'original_device_class': None,
@@ -26,6 +29,7 @@
     'original_name': 'Pause',
     'platform': 'sabnzbd',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'pause',
     'unique_id': '01JD2YVVPBC62D620DGYNG2R8H_pause',
@@ -35,7 +39,7 @@
 # name: test_button_setup[button.sabnzbd_pause-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Sabnzbd Pause',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Sabnzbd Pause',
     }),
     'context': <ANY>,
     'entity_id': 'button.sabnzbd_pause',
@@ -47,11 +51,13 @@
 # ---
 # name: test_button_setup[button.sabnzbd_resume-entry]
   EntityRegistryEntrySnapshot({
-    'aliases': set({
-    }),
+    'aliases': list([
+      None,
+    ]),
     'area_id': None,
     'capabilities': None,
     'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
     'device_class': None,
     'device_id': <ANY>,
     'disabled_by': None,
@@ -65,6 +71,7 @@
     'labels': set({
     }),
     'name': None,
+    'object_id_base': 'Resume',
     'options': dict({
     }),
     'original_device_class': None,
@@ -72,6 +79,7 @@
     'original_name': 'Resume',
     'platform': 'sabnzbd',
     'previous_unique_id': None,
+    'suggested_object_id': None,
     'supported_features': 0,
     'translation_key': 'resume',
     'unique_id': '01JD2YVVPBC62D620DGYNG2R8H_resume',
@@ -81,7 +89,7 @@
 # name: test_button_setup[button.sabnzbd_resume-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
-      'friendly_name': 'Sabnzbd Resume',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Sabnzbd Resume',
     }),
     'context': <ANY>,
     'entity_id': 'button.sabnzbd_resume',

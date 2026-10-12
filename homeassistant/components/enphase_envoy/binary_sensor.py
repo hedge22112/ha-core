@@ -1,12 +1,12 @@
 """Support for Enphase Envoy solar energy monitor."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from operator import attrgetter
+from typing import override
 
-from pyenphase import EnvoyEncharge, EnvoyEnpower
+from pyenphase import EnvoyC6CC, EnvoyCollar, EnvoyEncharge, EnvoyEnpower
+from pyenphase.models.acb import EnvoyACB
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -15,12 +15,13 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import EnphaseConfigEntry, EnphaseUpdateCoordinator
-from .entity import EnvoyBaseEntity
+from .entity import EnvoyACBBatteryEntity, EnvoyBaseEntity
 
 PARALLEL_UPDATES = 0
 
@@ -67,8 +68,72 @@ ENPOWER_SENSORS = (
     EnvoyEnpowerBinarySensorEntityDescription(
         key="mains_oper_state",
         translation_key="grid_status",
-        icon="mdi:transmission-tower",
         value_fn=lambda enpower: enpower.mains_oper_state == "closed",
+    ),
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EnvoyCollarBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Describes an Envoy IQ Meter Collar binary sensor entity."""
+
+    value_fn: Callable[[EnvoyCollar], bool]
+
+
+COLLAR_SENSORS = (
+    EnvoyCollarBinarySensorEntityDescription(
+        key="communicating",
+        translation_key="communicating",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=attrgetter("communicating"),
+    ),
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EnvoyC6CCBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Describes an C6 Combiner controller binary sensor entity."""
+
+    value_fn: Callable[[EnvoyC6CC], bool]
+
+
+C6CC_SENSORS = (
+    EnvoyC6CCBinarySensorEntityDescription(
+        key="communicating",
+        translation_key="communicating",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=attrgetter("communicating"),
+    ),
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class EnvoyACBBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Describes an Envoy per-device ACB Battery binary sensor entity."""
+
+    value_fn: Callable[[EnvoyACB], bool]
+
+
+ACB_INVENTORY_SENSORS = (
+    EnvoyACBBinarySensorEntityDescription(
+        key="communicating",
+        translation_key="communicating",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=attrgetter("communicating"),
+    ),
+    EnvoyACBBinarySensorEntityDescription(
+        key="operating",
+        translation_key="operating",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=attrgetter("operating"),
+    ),
+    EnvoyACBBinarySensorEntityDescription(
+        key="producing",
+        translation_key="producing",
+        value_fn=attrgetter("producing"),
     ),
 )
 
@@ -76,7 +141,7 @@ ENPOWER_SENSORS = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EnphaseConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up envoy binary sensor platform."""
     coordinator = config_entry.runtime_data
@@ -94,6 +159,25 @@ async def async_setup_entry(
         entities.extend(
             EnvoyEnpowerBinarySensorEntity(coordinator, description)
             for description in ENPOWER_SENSORS
+        )
+
+    if envoy_data.collar:
+        entities.extend(
+            EnvoyCollarBinarySensorEntity(coordinator, description)
+            for description in COLLAR_SENSORS
+        )
+
+    if envoy_data.c6cc:
+        entities.extend(
+            EnvoyC6CCBinarySensorEntity(coordinator, description)
+            for description in C6CC_SENSORS
+        )
+
+    if envoy_data.acb_inventory:
+        entities.extend(
+            EnvoyACBBinarySensorEntity(coordinator, description, serial_number)
+            for description in ACB_INVENTORY_SENSORS
+            for serial_number in envoy_data.acb_inventory
         )
 
     async_add_entities(entities)
@@ -126,10 +210,16 @@ class EnvoyEnchargeBinarySensorEntity(EnvoyBaseBinarySensorEntity):
             model="Encharge",
             name=f"Encharge {serial_number}",
             sw_version=str(encharge_inventory[self._serial_number].firmware_version),
-            via_device=(DOMAIN, self.envoy_serial_num),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                coordinator.hass,
+                (DOMAIN, self.envoy_serial_num),
+                config_entry_id=coordinator.config_entry.entry_id,
+            ),
+            serial_number=serial_number,
         )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state of the Encharge binary_sensor."""
         encharge_inventory = self.data.encharge_inventory
@@ -158,12 +248,109 @@ class EnvoyEnpowerBinarySensorEntity(EnvoyBaseBinarySensorEntity):
             model="Enpower",
             name=f"Enpower {enpower.serial_number}",
             sw_version=str(enpower.firmware_version),
-            via_device=(DOMAIN, self.envoy_serial_num),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                coordinator.hass,
+                (DOMAIN, self.envoy_serial_num),
+                config_entry_id=coordinator.config_entry.entry_id,
+            ),
+            serial_number=enpower.serial_number,
         )
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the state of the Enpower binary_sensor."""
         enpower = self.data.enpower
         assert enpower is not None
         return self.entity_description.value_fn(enpower)
+
+
+class EnvoyCollarBinarySensorEntity(EnvoyBaseBinarySensorEntity):
+    """Defines an IQ Meter Collar binary_sensor entity."""
+
+    entity_description: EnvoyCollarBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EnphaseUpdateCoordinator,
+        description: EnvoyCollarBinarySensorEntityDescription,
+    ) -> None:
+        """Init the Collar base entity."""
+        super().__init__(coordinator, description)
+        collar_data = self.data.collar
+        assert collar_data is not None
+        self._attr_unique_id = f"{collar_data.serial_number}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, collar_data.serial_number)},
+            manufacturer="Enphase",
+            model="IQ Meter Collar",
+            name=f"Collar {collar_data.serial_number}",
+            sw_version=str(collar_data.firmware_version),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                coordinator.hass,
+                (DOMAIN, self.envoy_serial_num),
+                config_entry_id=coordinator.config_entry.entry_id,
+            ),
+            serial_number=collar_data.serial_number,
+        )
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return the state of the Collar binary_sensor."""
+        collar_data = self.data.collar
+        assert collar_data is not None
+        return self.entity_description.value_fn(collar_data)
+
+
+class EnvoyC6CCBinarySensorEntity(EnvoyBaseBinarySensorEntity):
+    """Defines an C6 Combiner binary_sensor entity."""
+
+    entity_description: EnvoyC6CCBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EnphaseUpdateCoordinator,
+        description: EnvoyC6CCBinarySensorEntityDescription,
+    ) -> None:
+        """Init the C6 Combiner base entity."""
+        super().__init__(coordinator, description)
+        c6cc_data = self.data.c6cc
+        assert c6cc_data is not None
+        self._attr_unique_id = f"{c6cc_data.serial_number}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, c6cc_data.serial_number)},
+            manufacturer="Enphase",
+            model="C6 COMBINER CONTROLLER",
+            name=f"C6 Combiner {c6cc_data.serial_number}",
+            sw_version=str(c6cc_data.firmware_version),
+            via_device_id=dr.async_get_device_id_by_identifier(
+                coordinator.hass,
+                (DOMAIN, self.envoy_serial_num),
+                config_entry_id=coordinator.config_entry.entry_id,
+            ),
+            serial_number=c6cc_data.serial_number,
+        )
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return the state of the C6 Combiner binary_sensor."""
+        c6cc_data = self.data.c6cc
+        assert c6cc_data is not None
+        return self.entity_description.value_fn(c6cc_data)
+
+
+class EnvoyACBBinarySensorEntity(EnvoyACBBatteryEntity, BinarySensorEntity):
+    """Defines a per-device ACB Battery binary_sensor entity."""
+
+    entity_description: EnvoyACBBinarySensorEntityDescription
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the state of the ACB battery binary_sensor."""
+        acb_inventory = self.data.acb_inventory
+        if not acb_inventory or self._serial_number not in acb_inventory:
+            return None
+        return self.entity_description.value_fn(acb_inventory[self._serial_number])

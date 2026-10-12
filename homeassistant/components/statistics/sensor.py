@@ -1,18 +1,17 @@
 """Support for statistics for sensor values."""
 
-from __future__ import annotations
-
 from collections import deque
 from collections.abc import Callable, Mapping
 import contextlib
 from datetime import datetime, timedelta
+from itertools import pairwise
 import logging
 import math
 import statistics
 import time
-from typing import Any, cast
+from typing import Any, cast, override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.components.recorder import get_instance, history
@@ -26,14 +25,13 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    ATTR_DEVICE_CLASS,
-    ATTR_UNIT_OF_MEASUREMENT,
     CONF_ENTITY_ID,
     CONF_NAME,
     CONF_UNIQUE_ID,
     PERCENTAGE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    EntityStateAttribute,
 )
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -46,8 +44,12 @@ from homeassistant.core import (
     split_entity_id,
 )
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.device import async_device_info_to_link_from_entity
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device import async_entity_id_to_device
+from homeassistant.helpers.device_registry import AnyDeviceEntry
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
     async_track_state_change_event,
@@ -119,8 +121,10 @@ def _stat_average_linear(
         return states[0]
     if len(states) >= 2:
         area: float = 0
-        for i in range(1, len(states)):
-            area += 0.5 * (states[i] + states[i - 1]) * (ages[i] - ages[i - 1])
+        for (previous_state, previous_age), (state, age) in pairwise(
+            zip(states, ages, strict=True)
+        ):
+            area += 0.5 * (state + previous_state) * (age - previous_age)
         age_range_seconds = ages[-1] - ages[0]
         return area / age_range_seconds
     return None
@@ -133,8 +137,10 @@ def _stat_average_step(
         return states[0]
     if len(states) >= 2:
         area: float = 0
-        for i in range(1, len(states)):
-            area += states[i - 1] * (ages[i] - ages[i - 1])
+        for (previous_state, previous_age), (_, age) in pairwise(
+            zip(states, ages, strict=True)
+        ):
+            area += previous_state * (age - previous_age)
         age_range_seconds = ages[-1] - ages[0]
         return area / age_range_seconds
     return None
@@ -372,9 +378,11 @@ def _stat_binary_average_step(
         return 100.0 * int(states[0] is True)
     if len(states) >= 2:
         on_seconds: float = 0
-        for i in range(1, len(states)):
-            if states[i - 1] is True:
-                on_seconds += ages[i] - ages[i - 1]
+        for (previous_state, previous_age), (_, age) in pairwise(
+            zip(states, ages, strict=True)
+        ):
+            if previous_state is True:
+                on_seconds += age - previous_age
         age_range_seconds = ages[-1] - ages[0]
         return 100 / age_range_seconds * on_seconds
     return None
@@ -524,13 +532,13 @@ ICON = "mdi:calculator"
 
 
 def valid_state_characteristic_configuration(config: dict[str, Any]) -> dict[str, Any]:
-    """Validate that the characteristic selected is valid for the source sensor type, throw if it isn't."""
+    """Validate characteristic is valid for source sensor type."""
     is_binary = split_entity_id(config[CONF_ENTITY_ID])[0] == BINARY_SENSOR_DOMAIN
     characteristic = cast(str, config[CONF_STATE_CHARACTERISTIC])
     if (is_binary and characteristic not in STATS_BINARY_SUPPORT) or (
         not is_binary and characteristic not in STATS_NUMERIC_SUPPORT
     ):
-        raise vol.ValueInvalid(
+        raise probatio.ValueInvalid(
             f"The configured characteristic '{characteristic}' is not supported "
             "for the configured source sensor"
         )
@@ -544,7 +552,7 @@ def valid_boundary_configuration(config: dict[str, Any]) -> dict[str, Any]:
         config.get(CONF_SAMPLES_MAX_BUFFER_SIZE) is None
         and config.get(CONF_MAX_AGE) is None
     ):
-        raise vol.RequiredFieldInvalid(
+        raise probatio.RequiredFieldInvalid(
             "The sensor configuration must provide 'max_age' and/or 'sampling_size'"
         )
     return config
@@ -554,30 +562,33 @@ def valid_keep_last_sample(config: dict[str, Any]) -> dict[str, Any]:
     """Validate that if keep_last_sample is set, max_age must also be set."""
 
     if config.get(CONF_KEEP_LAST_SAMPLE) is True and config.get(CONF_MAX_AGE) is None:
-        raise vol.RequiredFieldInvalid(
-            "The sensor configuration must provide 'max_age' if 'keep_last_sample' is True"
+        raise probatio.RequiredFieldInvalid(
+            "The sensor configuration must provide 'max_age'"
+            " if 'keep_last_sample' is True"
         )
     return config
 
 
 _PLATFORM_SCHEMA_BASE = SENSOR_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_ENTITY_ID): cv.entity_id,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-        vol.Required(CONF_STATE_CHARACTERISTIC): cv.string,
-        vol.Optional(CONF_SAMPLES_MAX_BUFFER_SIZE): vol.All(
-            vol.Coerce(int), vol.Range(min=1)
+        probatio.Required(CONF_ENTITY_ID): cv.entity_id,
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        probatio.Optional(CONF_UNIQUE_ID): cv.string,
+        probatio.Required(CONF_STATE_CHARACTERISTIC): cv.string,
+        probatio.Optional(CONF_SAMPLES_MAX_BUFFER_SIZE): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=1)
         ),
-        vol.Optional(CONF_MAX_AGE): cv.time_period,
-        vol.Optional(CONF_KEEP_LAST_SAMPLE, default=False): cv.boolean,
-        vol.Optional(CONF_PRECISION, default=DEFAULT_PRECISION): vol.Coerce(int),
-        vol.Optional(CONF_PERCENTILE, default=50): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=99)
+        probatio.Optional(CONF_MAX_AGE): cv.time_period,
+        probatio.Optional(CONF_KEEP_LAST_SAMPLE, default=False): cv.boolean,
+        probatio.Optional(CONF_PRECISION, default=DEFAULT_PRECISION): probatio.Coerce(
+            int
+        ),
+        probatio.Optional(CONF_PERCENTILE, default=50): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=1, max=99)
         ),
     }
 )
-PLATFORM_SCHEMA = vol.All(
+PLATFORM_SCHEMA = probatio.All(
     _PLATFORM_SCHEMA_BASE,
     valid_state_characteristic_configuration,
     valid_boundary_configuration,
@@ -598,7 +609,6 @@ async def async_setup_platform(
     async_add_entities(
         new_entities=[
             StatisticsSensor(
-                hass=hass,
                 source_entity_id=config[CONF_ENTITY_ID],
                 name=config[CONF_NAME],
                 unique_id=config.get(CONF_UNIQUE_ID),
@@ -617,11 +627,11 @@ async def async_setup_platform(
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Statistics sensor entry."""
     sampling_size = entry.options.get(CONF_SAMPLES_MAX_BUFFER_SIZE)
-    if sampling_size:
+    if sampling_size is not None:
         sampling_size = int(sampling_size)
 
     max_age = None
@@ -631,7 +641,6 @@ async def async_setup_entry(
     async_add_entities(
         [
             StatisticsSensor(
-                hass=hass,
                 source_entity_id=entry.options[CONF_ENTITY_ID],
                 name=entry.options[CONF_NAME],
                 unique_id=entry.entry_id,
@@ -641,6 +650,7 @@ async def async_setup_entry(
                 samples_keep_last=entry.options[CONF_KEEP_LAST_SAMPLE],
                 precision=int(entry.options[CONF_PRECISION]),
                 percentile=int(entry.options[CONF_PERCENTILE]),
+                device=async_entity_id_to_device(hass, entry.options[CONF_ENTITY_ID]),
             )
         ],
         True,
@@ -655,7 +665,7 @@ class StatisticsSensor(SensorEntity):
 
     def __init__(
         self,
-        hass: HomeAssistant,
+        *,
         source_entity_id: str,
         name: str,
         unique_id: str | None,
@@ -665,15 +675,13 @@ class StatisticsSensor(SensorEntity):
         samples_keep_last: bool,
         precision: int,
         percentile: int,
+        device: AnyDeviceEntry | None = None,
     ) -> None:
         """Initialize the Statistics sensor."""
         self._attr_name: str = name
         self._attr_unique_id: str | None = unique_id
         self._source_entity_id: str = source_entity_id
-        self._attr_device_info = async_device_info_to_link_from_entity(
-            hass,
-            source_entity_id,
-        )
+        self.device_entry = device
         self.is_binary: bool = (
             split_entity_id(self._source_entity_id)[0] == BINARY_SENSOR_DOMAIN
         )
@@ -722,12 +730,11 @@ class StatisticsSensor(SensorEntity):
 
     def _async_handle_new_state(
         self,
-        reported_state: State | None,
+        reported_state: State,
+        timestamp: float,
     ) -> None:
         """Handle the sensor state changes."""
-        if (new_state := reported_state) is None:
-            return
-        self._add_state_to_queue(new_state)
+        self._add_state_to_queue(reported_state, timestamp)
         self._async_purge_update_and_schedule()
 
         if self._preview_callback:
@@ -742,14 +749,18 @@ class StatisticsSensor(SensorEntity):
         self,
         event: Event[EventStateChangedData],
     ) -> None:
-        self._async_handle_new_state(event.data["new_state"])
+        if (new_state := event.data["new_state"]) is None:
+            return
+        self._async_handle_new_state(new_state, new_state.last_updated_timestamp)
 
     @callback
     def _async_stats_sensor_state_report_listener(
         self,
         event: Event[EventStateReportedData],
     ) -> None:
-        self._async_handle_new_state(event.data["new_state"])
+        self._async_handle_new_state(
+            event.data["new_state"], event.data["last_reported"].timestamp()
+        )
 
     async def _async_stats_sensor_startup(self) -> None:
         """Add listener and get recorded state.
@@ -761,6 +772,7 @@ class StatisticsSensor(SensorEntity):
         _LOGGER.debug("Startup for %s", self.entity_id)
         if "recorder" in self.hass.config.components:
             await self._initialize_from_database()
+        self.async_on_remove(self._async_cancel_update_listener)
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
@@ -776,11 +788,14 @@ class StatisticsSensor(SensorEntity):
             )
         )
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         await self._async_stats_sensor_startup()
 
-    def _add_state_to_queue(self, new_state: State) -> None:
+    def _add_state_to_queue(
+        self, new_state: State, last_reported_timestamp: float
+    ) -> None:
         """Add the state to the queue."""
 
         # Attention: it is not safe to store the new_state object,
@@ -800,7 +815,7 @@ class StatisticsSensor(SensorEntity):
                 self.states.append(new_state.state == "on")
             else:
                 self.states.append(float(new_state.state))
-            self.ages.append(new_state.last_reported_timestamp)
+            self.ages.append(last_reported_timestamp)
             self._attr_extra_state_attributes[STAT_SOURCE_VALUE_VALID] = True
         except ValueError:
             self._attr_extra_state_attributes[STAT_SOURCE_VALUE_VALID] = False
@@ -831,7 +846,9 @@ class StatisticsSensor(SensorEntity):
         state characteristics.
         """
 
-        base_unit: str | None = new_state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        base_unit: str | None = new_state.attributes.get(
+            EntityStateAttribute.UNIT_OF_MEASUREMENT
+        )
         unit: str | None = None
         stat_type = self._state_characteristic
         if self.is_binary and stat_type in STATS_BINARY_PERCENTAGE:
@@ -870,7 +887,7 @@ class StatisticsSensor(SensorEntity):
         if stat_type in STATS_DATETIME:
             return SensorDeviceClass.TIMESTAMP
         if stat_type in STATS_NUMERIC_RETAIN_UNIT:
-            device_class = new_state.attributes.get(ATTR_DEVICE_CLASS)
+            device_class = new_state.attributes.get(EntityStateAttribute.DEVICE_CLASS)
             if device_class is None:
                 return None
             if (
@@ -924,7 +941,8 @@ class StatisticsSensor(SensorEntity):
 
         while self.ages and (now_timestamp - self.ages[0]) > max_age:
             if self.samples_keep_last and len(self.ages) == 1:
-                # Under normal circumstance this will not be executed, as a purge will not
+                # Under normal circumstance this will not be
+                # executed, as a purge will not
                 # be scheduled for the last value if samples_keep_last is enabled.
                 # If this happens to be called outside normal scheduling logic or a
                 # source sensor update, this ensures the last value is preserved.
@@ -1057,7 +1075,7 @@ class StatisticsSensor(SensorEntity):
             self._fetch_states_from_database
         ):
             for state in reversed(states):
-                self._add_state_to_queue(state)
+                self._add_state_to_queue(state, state.last_reported_timestamp)
                 self._calculate_state_attributes(state)
         self._async_purge_update_and_schedule()
 
@@ -1088,7 +1106,8 @@ class StatisticsSensor(SensorEntity):
     def _update_value(self) -> None:
         """Front to call the right statistical characteristics functions.
 
-        One of the _stat_*() functions is represented by self._state_characteristic_fn().
+        One of the _stat_*() functions is represented by
+        self._state_characteristic_fn().
         """
 
         value = self._state_characteristic_fn(self.states, self.ages, self._percentile)

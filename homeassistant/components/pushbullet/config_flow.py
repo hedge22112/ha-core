@@ -1,11 +1,10 @@
 """Config flow for pushbullet integration."""
 
-from __future__ import annotations
+from collections.abc import Mapping
+from typing import Any, override
 
-from typing import Any
-
+import probatio
 from pushbullet import InvalidKeyError, PushBullet, PushbulletError
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_API_KEY, CONF_NAME
@@ -13,10 +12,17 @@ from homeassistant.helpers import selector
 
 from .const import DEFAULT_NAME, DOMAIN
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
-        vol.Required(CONF_API_KEY): selector.TextSelector(),
+        # Name field is no longer allowed in config flow schemas
+        # pylint: disable-next=home-assistant-config-flow-name-field
+        probatio.Optional(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
+        probatio.Required(probatio.Secret(CONF_API_KEY)): selector.TextSelector(),
+    }
+)
+REAUTH_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(probatio.Secret(CONF_API_KEY)): selector.TextSelector(),
     }
 )
 
@@ -24,6 +30,7 @@ CONFIG_SCHEMA = vol.Schema(
 class PushBulletConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for pushbullet integration."""
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -53,5 +60,39 @@ class PushBulletConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=CONFIG_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle reauthentication."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm reauthentication with a new API key."""
+        errors = {}
+
+        if user_input is not None:
+            try:
+                pushbullet = await self.hass.async_add_executor_job(
+                    PushBullet, user_input[CONF_API_KEY]
+                )
+            except InvalidKeyError:
+                errors[CONF_API_KEY] = "invalid_api_key"
+            except PushbulletError:
+                errors["base"] = "cannot_connect"
+            else:
+                await self.async_set_unique_id(pushbullet.user_info["iden"])
+                self._abort_if_unique_id_mismatch(reason="wrong_account")
+                return self.async_update_reload_and_abort(
+                    self._get_reauth_entry(), data_updates=user_input
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=REAUTH_SCHEMA,
             errors=errors,
         )

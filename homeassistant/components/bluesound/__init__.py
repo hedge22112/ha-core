@@ -1,8 +1,6 @@
 """The bluesound component."""
 
-from dataclasses import dataclass
-
-from pyblu import Player, SyncStatus
+from pyblu import Player
 from pyblu.errors import PlayerUnreachableError
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,33 +9,20 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
-from .coordinator import BluesoundCoordinator
+from .coordinator import (
+    BluesoundConfigEntry,
+    BluesoundCoordinator,
+    BluesoundRuntimeData,
+)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [
+    Platform.BUTTON,
     Platform.MEDIA_PLAYER,
 ]
-
-
-@dataclass
-class BluesoundRuntimeData:
-    """Bluesound data class."""
-
-    player: Player
-    sync_status: SyncStatus
-    coordinator: BluesoundCoordinator
-
-
-type BluesoundConfigEntry = ConfigEntry[BluesoundRuntimeData]
-
-
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Bluesound."""
-    return True
 
 
 async def async_setup_entry(
@@ -53,7 +38,7 @@ async def async_setup_entry(
     except PlayerUnreachableError as ex:
         raise ConfigEntryNotReady(f"Error connecting to {host}:{port}") from ex
 
-    coordinator = BluesoundCoordinator(hass, player, sync_status)
+    coordinator = BluesoundCoordinator(hass, config_entry, player, sync_status)
     await coordinator.async_config_entry_first_refresh()
 
     config_entry.runtime_data = BluesoundRuntimeData(player, sync_status, coordinator)

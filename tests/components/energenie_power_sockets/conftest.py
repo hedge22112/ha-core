@@ -32,6 +32,7 @@ def valid_config_entry() -> MockConfigEntry:
     """Return a valid egps config entry."""
     return MockConfigEntry(
         domain=DOMAIN,
+        version=2,
         data=DEMO_CONFIG_DATA,
         unique_id=DEMO_CONFIG_DATA[CONF_DEVICE_API_ID],
     )
@@ -44,7 +45,7 @@ def get_pyegps_device_mock() -> MagicMock:
     fkObj = FakePowerStrip(
         devId=DEMO_CONFIG_DATA[CONF_DEVICE_API_ID], number_of_sockets=4
     )
-    fkObj.release = lambda: True
+    fkObj.release = lambda: None
     fkObj._status = [0, 1, 0, 1]
 
     usb_device_mock = MagicMock(wraps=fkObj)

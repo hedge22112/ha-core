@@ -1,11 +1,9 @@
 """Support for AVM FRITZ!SmartHome temperature sensor only devices."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Final, override
 
 from pyfritzhome.fritzhomedevice import FritzhomeDevice
 
@@ -26,7 +24,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
 
@@ -34,21 +32,18 @@ from .coordinator import FritzboxConfigEntry
 from .entity import FritzBoxDeviceEntity
 from .model import FritzEntityDescriptionMixinBase
 
-
-@dataclass(frozen=True)
-class FritzEntityDescriptionMixinSensor(FritzEntityDescriptionMixinBase):
-    """Sensor description mixin for Fritz!Smarthome entities."""
-
-    native_value: Callable[[FritzhomeDevice], StateType | datetime]
+# Coordinator handles data updates, so we can allow unlimited parallel updates
+PARALLEL_UPDATES = 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class FritzSensorEntityDescription(
-    SensorEntityDescription, FritzEntityDescriptionMixinSensor
+    SensorEntityDescription, FritzEntityDescriptionMixinBase
 ):
     """Description for Fritz!Smarthome sensor entities."""
 
     entity_category_fn: Callable[[FritzhomeDevice], EntityCategory | None] | None = None
+    native_value: Callable[[FritzhomeDevice], StateType | datetime]
 
 
 def suitable_eco_temperature(device: FritzhomeDevice) -> bool:
@@ -73,7 +68,7 @@ def suitable_nextchange_time(device: FritzhomeDevice) -> bool:
 
 def suitable_temperature(device: FritzhomeDevice) -> bool:
     """Check suitablity for temperature sensor."""
-    return device.has_temperature_sensor and not device.has_thermostat
+    return bool(device.has_temperature_sensor)
 
 
 def entity_category_temperature(device: FritzhomeDevice) -> EntityCategory | None:
@@ -115,6 +110,34 @@ def value_nextchange_time(device: FritzhomeDevice) -> datetime | None:
     return None
 
 
+def value_power(device: FritzhomeDevice) -> float | None:
+    """Return native value for power consumption sensor."""
+    if not isinstance(device.power, int | float):
+        return None
+    return round(device.power / 1000, 3)
+
+
+def value_voltage(device: FritzhomeDevice) -> float | None:
+    """Return native value for voltage sensor."""
+    if not isinstance(device.voltage, int | float):
+        return None
+    return round(device.voltage / 1000, 2)
+
+
+def value_current(device: FritzhomeDevice) -> float | None:
+    """Return native value for electric current sensor."""
+    if not isinstance(device.current, int | float):
+        return None
+    return round(device.current / 1000, 3)
+
+
+def value_total_energy(device: FritzhomeDevice) -> float | None:
+    """Return native value for total energy sensor."""
+    if not isinstance(device.energy, int | float):
+        return None
+    return device.energy / 1000
+
+
 SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
     FritzSensorEntityDescription(
         key="temperature",
@@ -137,6 +160,7 @@ SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
         key="battery",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         suitable=lambda device: device.battery_level is not None,
         native_value=lambda device: device.battery_level,
@@ -147,7 +171,7 @@ SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         suitable=lambda device: device.has_powermeter,
-        native_value=lambda device: round((device.power or 0.0) / 1000, 3),
+        native_value=value_power,
     ),
     FritzSensorEntityDescription(
         key="voltage",
@@ -155,7 +179,7 @@ SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
         device_class=SensorDeviceClass.VOLTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         suitable=lambda device: device.has_powermeter,
-        native_value=lambda device: round((device.voltage or 0.0) / 1000, 2),
+        native_value=value_voltage,
     ),
     FritzSensorEntityDescription(
         key="electric_current",
@@ -163,7 +187,7 @@ SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
         device_class=SensorDeviceClass.CURRENT,
         state_class=SensorStateClass.MEASUREMENT,
         suitable=lambda device: device.has_powermeter,
-        native_value=lambda device: round((device.current or 0.0) / 1000, 3),
+        native_value=value_current,
     ),
     FritzSensorEntityDescription(
         key="total_energy",
@@ -171,7 +195,7 @@ SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         suitable=lambda device: device.has_powermeter,
-        native_value=lambda device: (device.energy or 0.0) / 1000,
+        native_value=value_total_energy,
     ),
     # Thermostat Sensors
     FritzSensorEntityDescription(
@@ -229,7 +253,7 @@ SENSOR_TYPES: Final[tuple[FritzSensorEntityDescription, ...]] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: FritzboxConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the FRITZ!SmartHome sensor from ConfigEntry."""
     coordinator = entry.runtime_data
@@ -259,11 +283,13 @@ class FritzBoxSensor(FritzBoxDeviceEntity, SensorEntity):
     entity_description: FritzSensorEntityDescription
 
     @property
+    @override
     def native_value(self) -> StateType | datetime:
         """Return the state of the sensor."""
         return self.entity_description.native_value(self.data)
 
     @property
+    @override
     def entity_category(self) -> EntityCategory | None:
         """Return the category of the entity, if any."""
         if self.entity_description.entity_category_fn is not None:

@@ -1,7 +1,5 @@
 """Test the Webmin config flow."""
 
-from __future__ import annotations
-
 from http import HTTPStatus
 from unittest.mock import AsyncMock, patch
 from xmlrpc.client import Fault
@@ -17,7 +15,7 @@ from homeassistant.data_entry_flow import FlowResultType
 
 from .conftest import TEST_USER_INPUT
 
-from tests.common import load_json_object_fixture
+from tests.common import async_load_json_object_fixture
 
 pytestmark = pytest.mark.usefixtures("mock_setup_entry")
 
@@ -34,15 +32,23 @@ async def user_flow(hass: HomeAssistant) -> str:
 
 
 @pytest.mark.parametrize(
-    "fixture", ["webmin_update_without_mac.json", "webmin_update.json"]
+    ("fixture", "expected_unique_id"),
+    [
+        ("webmin_update_without_mac.json", None),
+        ("webmin_update.json", "12:34:56:78:9a:bc"),
+    ],
 )
 async def test_form_user(
-    hass: HomeAssistant, user_flow: str, mock_setup_entry: AsyncMock, fixture: str
+    hass: HomeAssistant,
+    user_flow: str,
+    mock_setup_entry: AsyncMock,
+    fixture: str,
+    expected_unique_id: str | None,
 ) -> None:
     """Test a successful user initiated flow."""
     with patch(
         "homeassistant.components.webmin.helpers.WebminInstance.update",
-        return_value=load_json_object_fixture(fixture, DOMAIN),
+        return_value=await async_load_json_object_fixture(hass, fixture, DOMAIN),
     ):
         result = await hass.config_entries.flow.async_configure(
             user_flow, TEST_USER_INPUT
@@ -51,6 +57,7 @@ async def test_form_user(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_USER_INPUT[CONF_HOST]
     assert result["options"] == TEST_USER_INPUT
+    assert result["result"].unique_id == expected_unique_id
 
     assert len(mock_setup_entry.mock_calls) == 1
 
@@ -96,7 +103,9 @@ async def test_form_user_errors(
 
     with patch(
         "homeassistant.components.webmin.helpers.WebminInstance.update",
-        return_value=load_json_object_fixture("webmin_update.json", DOMAIN),
+        return_value=await async_load_json_object_fixture(
+            hass, "webmin_update.json", DOMAIN
+        ),
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], TEST_USER_INPUT
@@ -107,15 +116,13 @@ async def test_form_user_errors(
     assert result["options"] == TEST_USER_INPUT
 
 
-async def test_duplicate_entry(
-    hass: HomeAssistant,
-    user_flow: str,
-    mock_setup_entry: AsyncMock,
-) -> None:
+async def test_duplicate_entry(hass: HomeAssistant, user_flow: str) -> None:
     """Test a successful user initiated flow."""
     with patch(
         "homeassistant.components.webmin.helpers.WebminInstance.update",
-        return_value=load_json_object_fixture("webmin_update.json", DOMAIN),
+        return_value=await async_load_json_object_fixture(
+            hass, "webmin_update.json", DOMAIN
+        ),
     ):
         result = await hass.config_entries.flow.async_configure(
             user_flow, TEST_USER_INPUT
@@ -125,10 +132,13 @@ async def test_duplicate_entry(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == TEST_USER_INPUT[CONF_HOST]
     assert result["options"] == TEST_USER_INPUT
+    assert result["result"].unique_id == "12:34:56:78:9a:bc"
 
     with patch(
         "homeassistant.components.webmin.helpers.WebminInstance.update",
-        return_value=load_json_object_fixture("webmin_update.json", DOMAIN),
+        return_value=await async_load_json_object_fixture(
+            hass, "webmin_update.json", DOMAIN
+        ),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}

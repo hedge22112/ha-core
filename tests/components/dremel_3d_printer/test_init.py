@@ -12,7 +12,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
-import homeassistant.util.dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from tests.common import MockConfigEntry, async_fire_time_changed
 
@@ -83,8 +83,8 @@ async def test_device_info(
     """Test device info."""
     await hass.config_entries.async_setup(config_entry.entry_id)
     assert await async_setup_component(hass, DOMAIN, {})
-    device = device_registry.async_get_device(
-        identifiers={(DOMAIN, config_entry.unique_id)}
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, config_entry.unique_id), config_entry.entry_id
     )
 
     assert device.manufacturer == "Dremel"

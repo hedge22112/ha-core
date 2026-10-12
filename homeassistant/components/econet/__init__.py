@@ -2,11 +2,10 @@
 
 import asyncio
 from datetime import timedelta
-import logging
 
 from aiohttp.client_exceptions import ClientError
 from pyeconet import EcoNetApiInterface
-from pyeconet.equipment import EquipmentType
+from pyeconet.equipment import Equipment, EquipmentType
 from pyeconet.errors import (
     GenericHTTPError,
     InvalidCredentialsError,
@@ -17,17 +16,16 @@ from pyeconet.errors import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import API_CLIENT, DOMAIN, EQUIPMENT, PUSH_UPDATE
-
-_LOGGER = logging.getLogger(__name__)
+from .const import DOMAIN, PUSH_UPDATE
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.CLIMATE,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
     Platform.WATER_HEATER,
@@ -36,7 +34,12 @@ PLATFORMS = [
 INTERVAL = timedelta(minutes=60)
 
 
-async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+type EconetConfigEntry = ConfigEntry[dict[EquipmentType, list[Equipment]]]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, config_entry: EconetConfigEntry
+) -> bool:
     """Set up EcoNet as config entry."""
 
     email = config_entry.data[CONF_EMAIL]
@@ -44,11 +47,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     try:
         api = await EcoNetApiInterface.login(email, password=password)
-    except InvalidCredentialsError:
-        _LOGGER.error("Invalid credentials provided")
-        return False
-    except PyeconetError as err:
-        _LOGGER.error("Config entry failed: %s", err)
+    except InvalidCredentialsError as err:
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_credentials",
+        ) from err
+    except (ClientError, PyeconetError) as err:
         raise ConfigEntryNotReady from err
 
     try:
@@ -57,9 +61,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         )
     except (ClientError, GenericHTTPError, InvalidResponseFormat) as err:
         raise ConfigEntryNotReady from err
-    hass.data.setdefault(DOMAIN, {API_CLIENT: {}, EQUIPMENT: {}})
-    hass.data[DOMAIN][API_CLIENT][config_entry.entry_id] = api
-    hass.data[DOMAIN][EQUIPMENT][config_entry.entry_id] = equipment
+
+    config_entry.runtime_data = equipment
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
@@ -89,10 +92,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: EconetConfigEntry) -> bool:
     """Unload a EcoNet config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN][API_CLIENT].pop(entry.entry_id)
-        hass.data[DOMAIN][EQUIPMENT].pop(entry.entry_id)
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

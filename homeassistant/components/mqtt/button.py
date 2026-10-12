@@ -1,20 +1,26 @@
 """Support for MQTT buttons."""
 
-from __future__ import annotations
+from typing import override
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components import button
 from homeassistant.components.button import DEVICE_CLASSES_SCHEMA, ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_DEVICE_CLASS, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import ConfigType
 
 from .config import DEFAULT_RETAIN, MQTT_BASE_SCHEMA
-from .const import CONF_COMMAND_TEMPLATE, CONF_COMMAND_TOPIC, CONF_RETAIN
+from .const import (
+    CONF_COMMAND_TEMPLATE,
+    CONF_COMMAND_TOPIC,
+    CONF_PAYLOAD_PRESS,
+    CONF_RETAIN,
+    DEFAULT_PAYLOAD_PRESS,
+)
 from .entity import MqttEntity, async_setup_entity_entry_helper
 from .models import MqttCommandTemplate
 from .schemas import MQTT_ENTITY_COMMON_SCHEMA
@@ -22,28 +28,26 @@ from .util import valid_publish_topic
 
 PARALLEL_UPDATES = 0
 
-CONF_PAYLOAD_PRESS = "payload_press"
 DEFAULT_NAME = "MQTT Button"
-DEFAULT_PAYLOAD_PRESS = "PRESS"
 
 PLATFORM_SCHEMA_MODERN = MQTT_BASE_SCHEMA.extend(
     {
-        vol.Optional(CONF_COMMAND_TEMPLATE): cv.template,
-        vol.Required(CONF_COMMAND_TOPIC): valid_publish_topic,
-        vol.Optional(CONF_DEVICE_CLASS): vol.Any(DEVICE_CLASSES_SCHEMA, None),
-        vol.Optional(CONF_NAME): vol.Any(cv.string, None),
-        vol.Optional(CONF_PAYLOAD_PRESS, default=DEFAULT_PAYLOAD_PRESS): cv.string,
-        vol.Optional(CONF_RETAIN, default=DEFAULT_RETAIN): cv.boolean,
+        probatio.Optional(CONF_COMMAND_TEMPLATE): cv.template,
+        probatio.Required(CONF_COMMAND_TOPIC): valid_publish_topic,
+        probatio.Optional(CONF_DEVICE_CLASS): probatio.Any(DEVICE_CLASSES_SCHEMA, None),
+        probatio.Optional(CONF_NAME): probatio.Any(cv.string, None),
+        probatio.Optional(CONF_PAYLOAD_PRESS, default=DEFAULT_PAYLOAD_PRESS): cv.string,
+        probatio.Optional(CONF_RETAIN, default=DEFAULT_RETAIN): cv.boolean,
     }
 ).extend(MQTT_ENTITY_COMMON_SCHEMA.schema)
 
-DISCOVERY_SCHEMA = PLATFORM_SCHEMA_MODERN.extend({}, extra=vol.REMOVE_EXTRA)
+DISCOVERY_SCHEMA = PLATFORM_SCHEMA_MODERN.extend({}, extra=probatio.REMOVE_EXTRA)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up MQTT button through YAML and through MQTT discovery."""
     async_setup_entity_entry_helper(
@@ -64,10 +68,12 @@ class MqttButton(MqttEntity, ButtonEntity):
     _entity_id_format = button.ENTITY_ID_FORMAT
 
     @staticmethod
-    def config_schema() -> vol.Schema:
+    @override
+    def config_schema() -> probatio.Schema:
         """Return the config schema."""
         return DISCOVERY_SCHEMA
 
+    @override
     def _setup_from_config(self, config: ConfigType) -> None:
         """(Re)Setup the entity."""
         self._command_template = MqttCommandTemplate(
@@ -76,12 +82,15 @@ class MqttButton(MqttEntity, ButtonEntity):
         self._attr_device_class = self._config.get(CONF_DEVICE_CLASS)
 
     @callback
+    @override
     def _prepare_subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
 
+    @override
     async def _subscribe_topics(self) -> None:
         """(Re)Subscribe to topics."""
 
+    @override
     async def async_press(self) -> None:
         """Turn the device on.
 

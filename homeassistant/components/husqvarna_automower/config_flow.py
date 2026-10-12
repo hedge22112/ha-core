@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 
 from aioautomower.session import AutomowerSession
 from aioautomower.utils import structure_token
@@ -30,6 +30,7 @@ class HusqvarnaConfigFlowHandler(
     VERSION = 1
     DOMAIN = DOMAIN
 
+    @override
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:
         """Create an entry for the flow."""
         token = data[CONF_TOKEN]
@@ -54,7 +55,8 @@ class HusqvarnaConfigFlowHandler(
         automower_api = AutomowerSession(AsyncConfigFlowAuth(websession, token), tz)
         try:
             status_data = await automower_api.get_status()
-        except Exception:  # noqa: BLE001
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
             return self.async_abort(reason="unknown")
         if status_data == {}:
             return self.async_abort(reason="no_mower_connected")
@@ -69,6 +71,7 @@ class HusqvarnaConfigFlowHandler(
         )
 
     @property
+    @override
     def logger(self) -> logging.Logger:
         """Return logger."""
         return logging.getLogger(__name__)
@@ -103,7 +106,9 @@ class HusqvarnaConfigFlowHandler(
             return self.async_show_form(
                 step_id="missing_scope",
                 description_placeholders={
-                    "application_url": f"{HUSQVARNA_DEV_PORTAL_URL}/{token_structured.client_id}"
+                    "application_url": (
+                        f"{HUSQVARNA_DEV_PORTAL_URL}/{token_structured.client_id}"
+                    )
                 },
             )
         return await self.async_step_user()

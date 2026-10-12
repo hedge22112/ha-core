@@ -1,14 +1,17 @@
 """Config flow for Smarty integration."""
 
-from typing import Any
+import logging
+from typing import Any, override
 
+import probatio
 from pysmarty2 import Smarty
-import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.const import CONF_HOST
 
 from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SmartyConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -20,11 +23,13 @@ class SmartyConfigFlow(ConfigFlow, domain=DOMAIN):
         try:
             if smarty.update():
                 return None
-        except Exception:  # noqa: BLE001
+        except Exception:
+            _LOGGER.exception("Unexpected exception")
             return "unknown"
         else:
             return "cannot_connect"
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -43,20 +48,6 @@ class SmartyConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = error
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_HOST): str}),
+            data_schema=probatio.Schema({probatio.Required(CONF_HOST): str}),
             errors=errors,
         )
-
-    async def async_step_import(
-        self, import_config: dict[str, Any]
-    ) -> ConfigFlowResult:
-        """Handle a flow initialized by import."""
-        error = await self.hass.async_add_executor_job(
-            self._test_connection, import_config[CONF_HOST]
-        )
-        if not error:
-            return self.async_create_entry(
-                title=import_config[CONF_NAME],
-                data={CONF_HOST: import_config[CONF_HOST]},
-            )
-        return self.async_abort(reason=error)

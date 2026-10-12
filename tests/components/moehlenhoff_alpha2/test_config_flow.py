@@ -1,5 +1,6 @@
 """Test the moehlenhoff_alpha2 config flow."""
 
+from functools import partialmethod
 from unittest.mock import patch
 
 from homeassistant import config_entries
@@ -10,6 +11,27 @@ from homeassistant.data_entry_flow import FlowResultType
 from . import MOCK_BASE_HOST, mock_update_data
 
 from tests.common import MockConfigEntry
+
+
+async def _assert_recovers(hass: HomeAssistant, flow_id: str) -> None:
+    """Assert the flow creates an entry once the device answers."""
+    with (
+        patch(
+            "homeassistant.components.moehlenhoff_alpha2.config_flow.Alpha2Base.update_data",
+            partialmethod(mock_update_data, hass),
+        ),
+        patch(
+            "homeassistant.components.moehlenhoff_alpha2.async_setup_entry",
+            return_value=True,
+        ),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            flow_id=flow_id,
+            user_input={"host": MOCK_BASE_HOST},
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_form(hass: HomeAssistant) -> None:
@@ -24,7 +46,7 @@ async def test_form(hass: HomeAssistant) -> None:
     with (
         patch(
             "homeassistant.components.moehlenhoff_alpha2.config_flow.Alpha2Base.update_data",
-            mock_update_data,
+            partialmethod(mock_update_data, hass),
         ),
         patch(
             "homeassistant.components.moehlenhoff_alpha2.async_setup_entry",
@@ -54,11 +76,20 @@ async def test_form_duplicate_error(hass: HomeAssistant) -> None:
 
     assert config_entry.data["host"] == MOCK_BASE_HOST
 
-    with patch("moehlenhoff_alpha2.Alpha2Base.update_data", mock_update_data):
+    with patch(
+        "moehlenhoff_alpha2.Alpha2Base.update_data",
+        partialmethod(mock_update_data, hass),
+    ):
         result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            data={"host": MOCK_BASE_HOST},
-            context={"source": config_entries.SOURCE_USER},
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "user"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": MOCK_BASE_HOST},
         )
         assert result["type"] is FlowResultType.ABORT
         assert result["reason"] == "already_configured"
@@ -78,6 +109,8 @@ async def test_form_cannot_connect_error(hass: HomeAssistant) -> None:
         assert result2["type"] is FlowResultType.FORM
         assert result2["errors"] == {"base": "cannot_connect"}
 
+    await _assert_recovers(hass, result["flow_id"])
+
 
 async def test_form_unexpected_error(hass: HomeAssistant) -> None:
     """Test unexpected error."""
@@ -92,3 +125,5 @@ async def test_form_unexpected_error(hass: HomeAssistant) -> None:
 
         assert result2["type"] is FlowResultType.FORM
         assert result2["errors"] == {"base": "unknown"}
+
+    await _assert_recovers(hass, result["flow_id"])

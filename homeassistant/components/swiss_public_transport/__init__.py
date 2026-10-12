@@ -35,7 +35,7 @@ from .coordinator import (
     SwissPublicTransportDataUpdateCoordinator,
 )
 from .helper import offset_opendata, unique_id_from_config
-from .services import setup_services
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Swiss public transport component."""
-    setup_services(hass)
+    async_setup_services(hass)
     return True
 
 
@@ -90,13 +90,15 @@ async def async_setup_entry(
             translation_domain=DOMAIN,
             translation_key="invalid_data",
             translation_placeholders={
-                **PLACEHOLDERS,
+                "stationboard_url": PLACEHOLDERS["stationboard_url"],
                 "config_title": entry.title,
                 "error": str(e),
             },
         ) from e
 
-    coordinator = SwissPublicTransportDataUpdateCoordinator(hass, opendata, time_offset)
+    coordinator = SwissPublicTransportDataUpdateCoordinator(
+        hass, entry, opendata, time_offset
+    )
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
@@ -117,10 +119,6 @@ async def async_migrate_entry(
     """Migrate config entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
-    if config_entry.version > 3:
-        # This means the user has downgraded from a future version
-        return False
-
     if config_entry.version == 1 and config_entry.minor_version == 1:
         # Remove wrongly registered devices and entries
         new_unique_id = unique_id_from_config(config_entry.data)
@@ -130,9 +128,7 @@ async def async_migrate_entry(
             device_registry, config_entry_id=config_entry.entry_id
         )
         for dev in device_entries:
-            device_registry.async_update_device(
-                dev.id, remove_config_entry_id=config_entry.entry_id
-            )
+            device_registry.async_remove_device(dev.id)
 
         entity_id = entity_registry.async_get_entity_id(
             Platform.SENSOR, DOMAIN, "None_departure"
@@ -143,7 +139,8 @@ async def async_migrate_entry(
                 new_unique_id=f"{new_unique_id}_departure",
             )
             _LOGGER.debug(
-                "Faulty entity with unique_id 'None_departure' migrated to new unique_id '%s'",
+                "Faulty entity with unique_id 'None_departure'"
+                " migrated to new unique_id '%s'",
                 f"{new_unique_id}_departure",
             )
 
@@ -153,7 +150,9 @@ async def async_migrate_entry(
         )
 
     if config_entry.version < 3:
-        # Via stations and time/offset settings now available, which are not backwards compatible if used, changes unique id
+        # Via stations and time/offset settings now available,
+        # which are not backwards compatible if used,
+        # changes unique id
         hass.config_entries.async_update_entry(config_entry, version=3, minor_version=1)
 
     _LOGGER.debug(
