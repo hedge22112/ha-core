@@ -8,9 +8,10 @@ from homeassistant.components.automation.config import async_validate_config_ite
 from homeassistant.config import AUTOMATION_CONFIG_PATH
 from homeassistant.const import CONF_ID, SERVICE_RELOAD
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import config_validation as cv, entity_registry as er, llm
 
-from .const import ACTION_DELETE
+from .const import ACTION_DELETE, DATA_AUTOMATION_CONFIG_VIEW
+from .llm import AutomationEditingAPI
 from .view import EditIdBasedConfigView
 
 
@@ -37,16 +38,17 @@ def async_setup(hass: HomeAssistant) -> bool:
 
         ent_reg.async_remove(entity_id)
 
-    hass.http.register_view(
-        EditAutomationConfigView(
-            AUTOMATION_DOMAIN,
-            "config",
-            AUTOMATION_CONFIG_PATH,
-            cv.string,
-            post_write_hook=hook,
-            data_validator=async_validate_config_item,
-        )
+    view = EditAutomationConfigView(
+        AUTOMATION_DOMAIN,
+        "config",
+        AUTOMATION_CONFIG_PATH,
+        cv.string,
+        post_write_hook=hook,
+        data_validator=async_validate_config_item,
     )
+    hass.http.register_view(view)
+    hass.data[DATA_AUTOMATION_CONFIG_VIEW] = view
+    llm.async_register_api(hass, AutomationEditingAPI(hass))
     return True
 
 

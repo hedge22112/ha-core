@@ -17,16 +17,19 @@ from syrupy.assertion import SnapshotAssertion
 
 from homeassistant import config_entries
 from homeassistant.components import config as config_component
+from homeassistant.components.config.const import LLM_API_AUTOMATION_EDITING
 from homeassistant.components.config.llm import (
+    GetAutomationConfigTool,
     GetConfigEntriesTool,
     ReloadConfigEntryTool,
+    SaveAutomationConfigTool,
     SearchIntegrationsTool,
     async_get_tools,
 )
 from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.core import Context, HomeAssistant
-from homeassistant.exceptions import ConfigEntryError
-from homeassistant.helpers import llm
+from homeassistant.exceptions import ConfigEntryError, Unauthorized
+from homeassistant.helpers import entity_registry as er, llm
 from homeassistant.setup import async_setup_component
 
 TEST_DOMAIN = "test_llm_config"
@@ -66,6 +69,8 @@ def test_parameters_openapi(snapshot: SnapshotAssertion) -> None:
         GetConfigEntriesTool(),
         ReloadConfigEntryTool(),
         SearchIntegrationsTool(),
+        GetAutomationConfigTool(),
+        SaveAutomationConfigTool(),
     ]
     assert {
         tool.name: probatio.to_openapi(tool.parameters) for tool in tools
@@ -732,5 +737,290 @@ async def test_search_integrations_invalid_args(
 ) -> None:
     """Test invalid arguments are rejected by SearchIntegrationsTool."""
     tool = SearchIntegrationsTool()
+    with pytest.raises(probatio.Invalid):
+        await tool.async_call(hass, llm.ToolInput(tool.name, invalid_args), llm_context)
+
+
+YAML_ONLY_AUTOMATION = {
+    "id": "yaml_only",
+    "alias": "YAML only",
+    "triggers": [{"trigger": "event", "event_type": "yaml_event"}],
+    "actions": [],
+}
+STORED_AUTOMATION = {
+    "id": "wake_up",
+    "alias": "Wake up",
+    "triggers": [{"trigger": "event", "event_type": "wake_event"}],
+    "actions": [],
+}
+NEW_AUTOMATION = {
+    "alias": "Sunset lights",
+    "triggers": [{"trigger": "event", "event_type": "sunset_event"}],
+    "actions": [],
+}
+
+
+@pytest.fixture
+async def setup_automations(
+    hass: HomeAssistant, hass_config_store: dict[str, Any]
+) -> None:
+    """Set up a YAML-only automation and an automation from automations.yaml."""
+    assert await async_setup_component(
+        hass, "automation", {"automation": YAML_ONLY_AUTOMATION}
+    )
+    assert await async_setup_component(hass, config_component.DOMAIN, {})
+    hass_config_store["automations.yaml"] = [
+        STORED_AUTOMATION,
+        {"id": "other", "alias": "Other", "triggers": [], "actions": []},
+    ]
+    await hass.services.async_call("automation", "reload", blocking=True)
+    # Reloading replaces the YAML-only automation, so add it again.
+    hass_config_store["automations.yaml"].append(YAML_ONLY_AUTOMATION)
+    await hass.services.async_call("automation", "reload", blocking=True)
+    hass_config_store["automations.yaml"].pop()
+
+
+@pytest.mark.usefixtures("setup_automations")
+async def test_automation_editing_api(
+    hass: HomeAssistant, hass_admin_user: MockUser, llm_context: llm.LLMContext
+) -> None:
+    """Test the automation tools are only offered by their own API."""
+    assert await async_setup_component(hass, "llm", {})
+    llm_context.context = Context(user_id=hass_admin_user.id)
+
+    api = next(
+        api for api in llm.async_get_apis(hass) if api.id == LLM_API_AUTOMATION_EDITING
+    )
+    assert api.name == "Automation editing"
+    assert api.requires_admin is True
+
+    ha_api = await llm.async_get_api(hass, llm.LLM_API_HOME_ASSISTANT, llm_context)
+    assert not {tool.name for tool in ha_api.tools} & {
+        "config__get_automation_config",
+        "config__save_automation_config",
+    }
+
+    api_instance = await llm.async_get_api(
+        hass, LLM_API_AUTOMATION_EDITING, llm_context
+    )
+    assert api_instance.api_prompt
+    tools = {tool.name: tool for tool in api_instance.tools}
+    assert list(tools) == [
+        "config__get_automation_config",
+        "config__save_automation_config",
+    ]
+    assert tools["config__get_automation_config"].annotations == llm.ToolAnnotations(
+        read_only=True, destructive=False, idempotent=True, open_world=False
+    )
+    assert tools["config__save_automation_config"].annotations == llm.ToolAnnotations(
+        read_only=False, destructive=True, idempotent=False, open_world=False
+    )
+
+    result = await api_instance.async_call_tool(
+        llm.ToolInput(
+            "config__get_automation_config", {"entity_id": "automation.wake_up"}
+        )
+    )
+    assert result == llm.ToolResult(
+        data={
+            "result": {"entity_id": "automation.wake_up", "config": STORED_AUTOMATION}
+        }
+    )
+
+
+@pytest.mark.usefixtures("setup_automations")
+async def test_automation_editing_api_requires_admin(
+    hass: HomeAssistant, hass_read_only_user: MockUser, llm_context: llm.LLMContext
+) -> None:
+    """Test the automation editing API cannot be used by non-admin users."""
+    llm_context.context = Context(user_id=hass_read_only_user.id)
+    with pytest.raises(Unauthorized):
+        await llm.async_get_api(hass, LLM_API_AUTOMATION_EDITING, llm_context)
+
+
+@pytest.mark.usefixtures("setup_automations")
+async def test_get_automation_config(
+    hass: HomeAssistant, llm_context: llm.LLMContext
+) -> None:
+    """Test getting the config of an automation stored in automations.yaml."""
+    tool = GetAutomationConfigTool()
+    result = await tool.async_call(
+        hass,
+        llm.ToolInput(tool.name, {"entity_id": "automation.wake_up"}),
+        llm_context,
+    )
+    assert result == llm.ToolResult(
+        data={
+            "result": {"entity_id": "automation.wake_up", "config": STORED_AUTOMATION}
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "error"),
+    [
+        pytest.param(
+            "automation.unknown",
+            "Automation 'automation.unknown' not found or has no ID, so it cannot "
+            "be edited.",
+            id="unknown_entity",
+        ),
+        pytest.param(
+            "automation.yaml_only",
+            "Automation 'automation.yaml_only' is not stored in automations.yaml, "
+            "so it cannot be edited.",
+            id="yaml_only",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("setup_automations")
+async def test_get_automation_config_not_editable(
+    hass: HomeAssistant, llm_context: llm.LLMContext, entity_id: str, error: str
+) -> None:
+    """Test getting the config of an automation that cannot be edited."""
+    tool = GetAutomationConfigTool()
+    result = await tool.async_call(
+        hass, llm.ToolInput(tool.name, {"entity_id": entity_id}), llm_context
+    )
+    assert result == llm.ToolResult(data={"error": error}, error=True)
+
+
+async def test_get_automation_config_non_automation_entity(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry, llm_context: llm.LLMContext
+) -> None:
+    """Test an entity with an automation entity ID from another platform."""
+    entity_registry.async_get_or_create(
+        "automation", "other_platform", "abc", suggested_object_id="foreign"
+    )
+    tool = GetAutomationConfigTool()
+    result = await tool.async_call(
+        hass,
+        llm.ToolInput(tool.name, {"entity_id": "automation.foreign"}),
+        llm_context,
+    )
+    assert result.error is True
+
+
+@pytest.mark.usefixtures("setup_automations")
+async def test_save_automation_config_create(
+    hass: HomeAssistant,
+    hass_config_store: dict[str, Any],
+    llm_context: llm.LLMContext,
+) -> None:
+    """Test creating a new automation."""
+    tool = SaveAutomationConfigTool()
+    with patch(
+        "homeassistant.components.config.llm.uuid.uuid4",
+        return_value=type("FakeUUID", (), {"hex": "new_id"})(),
+    ):
+        result = await tool.async_call(
+            hass,
+            llm.ToolInput(tool.name, {"config": {**NEW_AUTOMATION, "id": "ignored"}}),
+            llm_context,
+        )
+
+    assert result == llm.ToolResult(
+        data={"result": {"entity_id": "automation.sunset_lights"}}
+    )
+    assert hass_config_store["automations.yaml"][-1] == {
+        "id": "new_id",
+        **NEW_AUTOMATION,
+    }
+    assert hass.states.get("automation.sunset_lights") is not None
+
+
+@pytest.mark.usefixtures("setup_automations")
+async def test_save_automation_config_update(
+    hass: HomeAssistant,
+    hass_config_store: dict[str, Any],
+    llm_context: llm.LLMContext,
+) -> None:
+    """Test replacing the config of an existing automation."""
+    tool = SaveAutomationConfigTool()
+    result = await tool.async_call(
+        hass,
+        llm.ToolInput(
+            tool.name,
+            {"entity_id": "automation.wake_up", "config": NEW_AUTOMATION},
+        ),
+        llm_context,
+    )
+
+    assert result == llm.ToolResult(
+        data={"result": {"entity_id": "automation.wake_up"}}
+    )
+    stored = hass_config_store["automations.yaml"]
+    assert len(stored) == 2
+    assert stored[0] == {"id": "wake_up", **NEW_AUTOMATION}
+    await hass.async_block_till_done()
+    state = hass.states.get("automation.wake_up")
+    assert state is not None
+    assert state.attributes["friendly_name"] == "Sunset lights"
+
+
+@pytest.mark.parametrize(
+    ("tool_args", "error"),
+    [
+        pytest.param(
+            {"config": {"alias": "Broken", "actions": []}},
+            "Invalid automation config: required key not provided at 'triggers'",
+            id="invalid_config",
+        ),
+        pytest.param(
+            {"entity_id": "automation.unknown", "config": NEW_AUTOMATION},
+            "Automation 'automation.unknown' not found or has no ID, so it cannot "
+            "be edited.",
+            id="unknown_entity",
+        ),
+        pytest.param(
+            {"entity_id": "automation.yaml_only", "config": NEW_AUTOMATION},
+            "Automation 'automation.yaml_only' is not stored in automations.yaml, "
+            "so it cannot be edited.",
+            id="yaml_only",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("setup_automations")
+async def test_save_automation_config_errors(
+    hass: HomeAssistant,
+    hass_config_store: dict[str, Any],
+    llm_context: llm.LLMContext,
+    tool_args: dict[str, Any],
+    error: str,
+) -> None:
+    """Test saving an automation fails without changing automations.yaml."""
+    stored = hass_config_store["automations.yaml"]
+    tool = SaveAutomationConfigTool()
+    result = await tool.async_call(
+        hass, llm.ToolInput(tool.name, tool_args), llm_context
+    )
+    assert result == llm.ToolResult(data={"error": error}, error=True)
+    assert hass_config_store["automations.yaml"] == stored
+
+
+@pytest.mark.parametrize(
+    ("tool", "invalid_args"),
+    [
+        pytest.param(GetAutomationConfigTool(), {}, id="get_missing_entity_id"),
+        pytest.param(
+            GetAutomationConfigTool(),
+            {"entity_id": "light.kitchen"},
+            id="get_wrong_domain",
+        ),
+        pytest.param(SaveAutomationConfigTool(), {}, id="save_missing_config"),
+        pytest.param(
+            SaveAutomationConfigTool(),
+            {"config": NEW_AUTOMATION, "entity_id": "script.wake_up"},
+            id="save_wrong_domain",
+        ),
+    ],
+)
+async def test_automation_tools_invalid_args(
+    hass: HomeAssistant,
+    llm_context: llm.LLMContext,
+    tool: llm.Tool,
+    invalid_args: dict[str, Any],
+) -> None:
+    """Test invalid arguments are rejected by the automation tools."""
     with pytest.raises(probatio.Invalid):
         await tool.async_call(hass, llm.ToolInput(tool.name, invalid_args), llm_context)

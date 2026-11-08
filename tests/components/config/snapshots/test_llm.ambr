@@ -1,6 +1,19 @@
 # serializer version: 1
 # name: test_parameters_openapi
   dict({
+    'config__get_automation_config': dict({
+      'additionalProperties': False,
+      'properties': dict({
+        'entity_id': dict({
+          'description': "The automation entity ID, e.g. 'automation.wake_up'.",
+          'type': 'string',
+        }),
+      }),
+      'required': list([
+        'entity_id',
+      ]),
+      'type': 'object',
+    }),
     'config__get_config_entries': dict({
       'additionalProperties': False,
       'properties': dict({
@@ -45,6 +58,24 @@
       }),
       'required': list([
         'entry_id',
+      ]),
+      'type': 'object',
+    }),
+    'config__save_automation_config': dict({
+      'additionalProperties': False,
+      'properties': dict({
+        'config': dict({
+          'additionalProperties': True,
+          'description': 'The full automation configuration.',
+          'type': 'object',
+        }),
+        'entity_id': dict({
+          'description': 'The entity ID of an existing automation to replace. Omit to create a new automation.',
+          'type': 'string',
+        }),
+      }),
+      'required': list([
+        'config',
       ]),
       'type': 'object',
     }),

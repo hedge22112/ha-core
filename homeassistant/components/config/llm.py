@@ -4,17 +4,26 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator
 import heapq
 from typing import Any, override
+import uuid
 
 import probatio
 
 from homeassistant import config_entries
+from homeassistant.components.automation import DOMAIN as AUTOMATION_DOMAIN
 from homeassistant.components.llm import LLMTools
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import CONF_ID
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import translation
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_registry as er,
+    translation,
+)
 from homeassistant.helpers.llm import (
+    API,
     LLM_API_HOME_ASSISTANT,
+    APIInstance,
     LLMContext,
     Tool,
     ToolAnnotations,
@@ -24,7 +33,12 @@ from homeassistant.helpers.llm import (
 from homeassistant.loader import async_get_integration_descriptions
 from homeassistant.util.json import JsonObjectType, JsonValueType
 
-from .const import DOMAIN
+from .const import (
+    ACTION_CREATE_UPDATE,
+    DATA_AUTOMATION_CONFIG_VIEW,
+    DOMAIN,
+    LLM_API_AUTOMATION_EDITING,
+)
 
 _SEARCH_LIMIT = 15
 _INTEGRATION_FILTER_TYPES = ["integration", "helper"]
@@ -45,6 +59,11 @@ _STATUS_STATES: dict[str, set[ConfigEntryState]] = {
 }
 _NON_EMPTY_STRING = probatio.All(str, probatio.Strip, probatio.NonEmpty())
 _MIN_SHORT_ID_LEN = 4
+_AUTOMATION_EDITING_PROMPT = (
+    "When asked to change an existing automation, get its config with "
+    "config__get_automation_config first and save the full updated config. "
+    "Describe the change and ask the user to confirm before saving."
+)
 
 
 def _resolve_language(hass: HomeAssistant, language: str | None) -> str:
@@ -109,6 +128,16 @@ def _resolve_entry_reason(entry: ConfigEntry) -> str | None:
 def _error_result(error: str) -> ToolResult:
     """Return an error ToolResult."""
     return ToolResult(data={"error": error}, error=True)
+
+
+def _resolve_automation_id(hass: HomeAssistant, entity_id: str) -> str:
+    """Return the automation ID of an automation entity."""
+    entry = er.async_get(hass).async_get(entity_id)
+    if entry is None or entry.platform != AUTOMATION_DOMAIN or entry.unique_id is None:
+        raise HomeAssistantError(
+            f"Automation '{entity_id}' not found or has no ID, so it cannot be edited."
+        )
+    return entry.unique_id
 
 
 def _format_config_entry(entry: ConfigEntry, short_id: str) -> JsonObjectType:
@@ -388,6 +417,127 @@ class SearchIntegrationsTool(Tool):
         )
 
 
+class GetAutomationConfigTool(Tool):
+    """LLM Tool to get the stored configuration of an automation."""
+
+    name = "config__get_automation_config"
+    title = "Get automation config"
+    description = (
+        "Get the stored configuration of an automation that is editable in the "
+        "automation editor. Use this before config__save_automation_config to "
+        "edit an existing automation."
+    )
+    annotations = ToolAnnotations(
+        read_only=True, destructive=False, idempotent=True, open_world=False
+    )
+    integration = DOMAIN
+    parameters = probatio.Schema(
+        {
+            probatio.Required(
+                "entity_id",
+                description="The automation entity ID, e.g. 'automation.wake_up'.",
+            ): cv.entity_domain(AUTOMATION_DOMAIN),
+        }
+    )
+
+    @override
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: ToolInput, llm_context: LLMContext
+    ) -> ToolResult:
+        """Return the automation config."""
+        args = self.parameters(tool_input.tool_args)
+        entity_id: str = args["entity_id"]
+
+        try:
+            automation_id = _resolve_automation_id(hass, entity_id)
+        except HomeAssistantError as err:
+            return _error_result(str(err))
+
+        view = hass.data[DATA_AUTOMATION_CONFIG_VIEW]
+        if (config := await view.async_get_value(hass, automation_id)) is None:
+            return _error_result(
+                f"Automation '{entity_id}' is not stored in automations.yaml, so "
+                "it cannot be edited."
+            )
+
+        return ToolResult(data={"result": {"entity_id": entity_id, "config": config}})
+
+
+class SaveAutomationConfigTool(Tool):
+    """LLM Tool to create or update an automation."""
+
+    name = "config__save_automation_config"
+    title = "Save automation config"
+    description = (
+        "Create a new automation, or replace the configuration of an existing one "
+        "when entity_id is given. The config uses the same format as the YAML "
+        "mode of the automation editor, with 'alias', 'description', 'triggers', "
+        "'conditions', 'actions' and 'mode'. The config is validated before it is "
+        "saved and the automation is reloaded after saving."
+    )
+    annotations = ToolAnnotations(
+        read_only=False, destructive=True, idempotent=False, open_world=False
+    )
+    integration = DOMAIN
+    parameters = probatio.Schema(
+        {
+            probatio.Required(
+                "config", description="The full automation configuration."
+            ): dict,
+            probatio.Optional(
+                "entity_id",
+                description=(
+                    "The entity ID of an existing automation to replace. Omit to "
+                    "create a new automation."
+                ),
+            ): cv.entity_domain(AUTOMATION_DOMAIN),
+        }
+    )
+
+    @override
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: ToolInput, llm_context: LLMContext
+    ) -> ToolResult:
+        """Validate and save the automation config."""
+        args = self.parameters(tool_input.tool_args)
+        config: dict[str, Any] = {
+            key: value for key, value in args["config"].items() if key != CONF_ID
+        }
+        view = hass.data[DATA_AUTOMATION_CONFIG_VIEW]
+
+        if (entity_id := args.get("entity_id")) is None:
+            automation_id = uuid.uuid4().hex
+        else:
+            try:
+                automation_id = _resolve_automation_id(hass, entity_id)
+            except HomeAssistantError as err:
+                return _error_result(str(err))
+            if await view.async_get_value(hass, automation_id) is None:
+                return _error_result(
+                    f"Automation '{entity_id}' is not stored in automations.yaml, "
+                    "so it cannot be edited."
+                )
+
+        try:
+            await view.async_validate_value(hass, automation_id, config)
+        except (probatio.Invalid, HomeAssistantError) as err:
+            return _error_result(f"Invalid automation config: {err}")
+
+        await view.async_write_value(hass, automation_id, config)
+        if view.post_write_hook is not None:
+            await view.post_write_hook(ACTION_CREATE_UPDATE, automation_id)
+
+        return ToolResult(
+            data={
+                "result": {
+                    "entity_id": er.async_get(hass).async_get_entity_id(
+                        AUTOMATION_DOMAIN, AUTOMATION_DOMAIN, automation_id
+                    ),
+                }
+            }
+        )
+
+
 @callback
 def async_get_tools(
     hass: HomeAssistant, llm_context: LLMContext, api_id: str
@@ -403,3 +553,29 @@ def async_get_tools(
             SearchIntegrationsTool(),
         ]
     )
+
+
+class AutomationEditingAPI(API):
+    """LLM API that lets an assistant create and edit automations.
+
+    This is a separate API so users enable it explicitly for each assistant.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Init the class."""
+        super().__init__(
+            hass=hass,
+            id=LLM_API_AUTOMATION_EDITING,
+            name="Automation editing",
+            requires_admin=True,
+        )
+
+    @override
+    async def async_get_api_instance(self, llm_context: LLMContext) -> APIInstance:
+        """Return the instance of the API."""
+        return APIInstance(
+            api=self,
+            api_prompt=_AUTOMATION_EDITING_PROMPT,
+            llm_context=llm_context,
+            tools=[GetAutomationConfigTool(), SaveAutomationConfigTool()],
+        )
